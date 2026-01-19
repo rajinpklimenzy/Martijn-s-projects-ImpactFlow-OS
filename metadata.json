@@ -1,0 +1,8 @@
+{
+  "name": "ImpactFlow OS",
+  "description": "A comprehensive logistics-focused digital transformation CRM, project management, and invoicing platform for Impact 24x7.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
