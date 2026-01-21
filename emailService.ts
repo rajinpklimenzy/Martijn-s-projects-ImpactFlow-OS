@@ -5,8 +5,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendWelcomeEmail = async (to: string, name: string) => {
   try {
+    const fromEmail = process.env.EMAIL_FROM || 'Impact 24x7 <onboarding@resend.dev>';
     const { data, error } = await resend.emails.send({
-      from: 'Impact 24x7 <reply@impact24x7.com>',
+      from: fromEmail,
       to: [to],
       subject: 'Welcome to ImpactFlow OS',
       html: `
@@ -36,8 +37,9 @@ export const sendWelcomeEmail = async (to: string, name: string) => {
 
 export const sendVerificationCodeEmail = async (to: string, code: string) => {
   try {
+    const fromEmail = process.env.EMAIL_FROM || 'Impact 24x7 <onboarding@resend.dev>';
     const { data, error } = await resend.emails.send({
-      from: 'Impact 24x7 <reply@impact24x7.com>',
+      from: fromEmail,
       to: [to],
       subject: 'Your ImpactFlow Verification Code',
       html: `

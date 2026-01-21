@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Mail, ShieldCheck, ArrowRight, Loader2, Building2, User as UserIcon, Key, AlertCircle } from 'lucide-react';
 import { apiRequestCode, apiVerify } from '../utils/api.ts';
 
@@ -10,9 +10,10 @@ interface AuthProps {
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [step, setStep] = useState<'initial' | 'verify'>('initial');
   const [email, setEmail] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
+  const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleSendCode = async () => {
     setLoading(true);
@@ -28,6 +29,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   };
 
   const handleVerifyCode = async () => {
+    const verificationCode = codeDigits.join('');
+    // Only proceed if all 6 digits are entered
+    if (verificationCode.length !== 6) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -35,10 +42,106 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       onLogin(data);
     } catch (err: any) {
       setError(err.message || "Invalid or expired code.");
+      // Clear the code on error
+      setCodeDigits(['', '', '', '', '', '']);
+      inputRefs.current[0]?.focus();
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCodeChange = (index: number, value: string) => {
+    // Only allow digits
+    if (value && !/^\d$/.test(value)) return;
+
+    const newDigits = [...codeDigits];
+    newDigits[index] = value;
+    setCodeDigits(newDigits);
+    
+    // Clear any error messages while typing
+    if (error) {
+      setError(null);
+    }
+
+    // Move to next input if digit entered
+    if (value && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+
+    // Auto-submit when all 6 digits are entered (only if complete)
+    if (value && index === 5 && newDigits.every(d => d !== '')) {
+      setTimeout(() => handleVerifyCode(), 100);
+    }
+  };
+
+  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      const newDigits = [...codeDigits];
+      
+      if (codeDigits[index]) {
+        // Clear current field
+        newDigits[index] = '';
+      } else if (index > 0) {
+        // Move to previous field and clear it
+        newDigits[index - 1] = '';
+        inputRefs.current[index - 1]?.focus();
+      }
+      
+      setCodeDigits(newDigits);
+      
+      // Clear error when deleting
+      if (error) {
+        setError(null);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      handleVerifyCode();
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      e.preventDefault();
+      inputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      e.preventDefault();
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleCodePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    const newDigits = [...codeDigits];
+    
+    for (let i = 0; i < 6; i++) {
+      newDigits[i] = pastedData[i] || '';
+    }
+    
+    setCodeDigits(newDigits);
+    
+    // Clear error when pasting
+    if (error) {
+      setError(null);
+    }
+    
+    // Focus the next empty field or the last field
+    const nextEmptyIndex = newDigits.findIndex(d => d === '');
+    const focusIndex = nextEmptyIndex === -1 ? 5 : nextEmptyIndex;
+    inputRefs.current[focusIndex]?.focus();
+    
+    // Auto-submit if all 6 digits are pasted
+    if (pastedData.length === 6) {
+      setTimeout(() => handleVerifyCode(), 100);
+    }
+  };
+
+  useEffect(() => {
+    if (step === 'verify') {
+      // Focus first input when verification step is shown
+      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    } else {
+      // Reset code when going back to initial step
+      setCodeDigits(['', '', '', '', '', '']);
+    }
+  }, [step]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,24 +193,33 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             )}
 
             {step === 'verify' && (
-              <div className="space-y-2 text-center">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-4">Enter Verification Code</label>
-                <div className="relative">
-                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                  <input 
-                    type="text" 
-                    required 
-                    maxLength={6}
-                    placeholder="••••••"
-                    value={verificationCode}
-                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                    className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white text-center text-xl tracking-[0.5em] font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-                  />
+              <div className="space-y-4 text-center">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-6">Enter Verification Code</label>
+                <div className="flex items-center justify-center gap-2 md:gap-3">
+                  {codeDigits.map((digit, index) => (
+                    <input
+                      key={index}
+                      ref={(el) => (inputRefs.current[index] = el)}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleCodeChange(index, e.target.value)}
+                      onKeyDown={(e) => handleCodeKeyDown(index, e)}
+                      onPaste={index === 0 ? handleCodePaste : undefined}
+                      className="w-12 h-14 md:w-14 md:h-16 bg-white/5 border-2 border-white/10 rounded-xl text-white text-center text-2xl md:text-3xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all text-center"
+                      autoComplete="off"
+                      disabled={loading}
+                    />
+                  ))}
                 </div>
                 <button 
                   type="button"
-                  onClick={() => setStep('initial')}
-                  className="mt-4 text-xs font-bold text-slate-500 hover:text-indigo-400"
+                  onClick={() => {
+                    setStep('initial');
+                    setCodeDigits(['', '', '', '', '', '']);
+                  }}
+                  className="mt-6 text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors"
                 >
                   Request code for a different email
                 </button>
@@ -115,8 +227,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             )}
 
             <button 
-              disabled={loading}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20 active:scale-[0.98]"
+              disabled={loading || (step === 'verify' && codeDigits.some(d => d === ''))}
+              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20 active:scale-[0.98]"
             >
               {loading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />

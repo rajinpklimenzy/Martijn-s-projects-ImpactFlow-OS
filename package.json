@@ -5,23 +5,26 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
+    "lucide-react": "0.460.0",
+    "path": "^0.12.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "0.460.0",
     "recharts": "2.13.0",
-    "cors": "^2.8.5",
-    "firebase-admin": "^13.6.0",
-    "express": "^5.2.1",
-    "resend": "^6.7.0",
-    "path": "^0.12.7"
+    "resend": "^6.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

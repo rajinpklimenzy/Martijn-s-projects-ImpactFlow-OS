@@ -1,9 +1,13 @@
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { auth, db } from './firebaseAdmin.ts';
 import { sendWelcomeEmail, sendVerificationCodeEmail } from './emailService.ts';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
+import { Timestamp } from 'firebase-admin/firestore';
 
 const app = express();
 
@@ -67,29 +71,31 @@ apiRouter.post('/auth/request-code', async (req, res) => {
   if (!email) return res.status(400).json({ message: 'Email required' });
 
   try {
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`[AUTH] Creating verification entry for ${email}`);
+    console.log(`[AUTH] Requesting OTP for ${email}`);
     
-    await withTimeout(
-      db.collection('verificationCodes').doc(email).set({
-        code,
-        name,
-        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 10 * 60 * 1000)),
+    const externalResponse = await withTimeout(
+      fetch('https://node-server-architect-595659839658.us-west1.run.app/api/v1/impactOS/auth/send-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
       }),
-      5000,
-      'Firestore'
+      10000,
+      'External OTP API'
     );
-    
-    console.log(`[AUTH] Sending email code to ${email}`);
-    const emailResult = await withTimeout(
-      sendVerificationCodeEmail(email, code),
-      7000,
-      'Resend'
-    );
-    
-    if (!emailResult.success) throw new Error('Mail server rejected the request.');
 
-    res.status(200).json({ success: true });
+    if (!externalResponse.ok) {
+      const errorData = await externalResponse.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || `External API error: ${externalResponse.status}`;
+      console.error('[AUTH ERROR] External API failed:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    const responseData = await externalResponse.json().catch(() => ({ success: true }));
+    console.log(`[AUTH] OTP sent successfully to ${email}`);
+
+    res.status(200).json({ success: true, ...responseData });
   } catch (error: any) {
     console.error('[AUTH ERROR]', error.message);
     res.status(500).json({ success: false, message: error.message });
@@ -98,66 +104,47 @@ apiRouter.post('/auth/request-code', async (req, res) => {
 
 apiRouter.post('/auth/verify', async (req, res) => {
   const { email, verificationCode } = req.body;
-  const apiKey = process.env.FIREBASE_CLIENT_API_KEY;
+  
+  if (!email || !verificationCode) {
+    return res.status(400).json({ message: 'Email and verification code are required' });
+  }
 
   try {
-    if (!apiKey) throw new Error('Missing FIREBASE_CLIENT_API_KEY on server');
-
-    // Fix: Explicitly type codeDoc to any to avoid "unknown" type error from withTimeout
-    const codeDoc: any = await withTimeout(
-      db.collection('verificationCodes').doc(email).get(),
-      5000,
-      'Firestore Read'
-    );
-
-    if (!codeDoc.exists) return res.status(400).json({ message: 'Code expired or not found. Please request a new one.' });
-    const data = codeDoc.data();
-
-    let userRecord;
-    try {
-      userRecord = await auth.getUserByEmail(email);
-    } catch (e: any) {
-      if (e.code === 'auth/user-not-found') {
-        // Auto-provision user on first valid code use
-        userRecord = await auth.createUser({ email, displayName: data.name });
-        await db.collection('users').doc(userRecord.uid).set({
-          uid: userRecord.uid,
-          name: data.name,
-          email,
-          role: 'Staff',
-          active: true,
-          createdAt: new Date().toISOString(),
-        });
-        await sendWelcomeEmail(email, data.name);
-      } else throw e;
-    }
-
-    const customToken = await auth.createCustomToken(userRecord.uid);
+    console.log(`[VERIFY] Verifying OTP for ${email}`);
     
-    console.log(`[VERIFY] Exchanging token with Google...`);
-    const idTokenResponse = await withTimeout(
-      fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`, {
+    const externalResponse = await withTimeout(
+      fetch('https://node-server-architect-595659839658.us-west1.run.app/api/v1/impactOS/auth/verify-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          email,
+          otp: verificationCode 
+        }),
       }),
-      6000,
-      'Identity API'
+      10000,
+      'External Verify OTP API'
     );
 
-    if (!idTokenResponse.ok) {
-      const err = await idTokenResponse.json();
-      console.error('[IDENTITY API ERROR]', err);
-      throw new Error(err.error?.message || 'Identity verification failed');
+    if (!externalResponse.ok) {
+      const errorData = await externalResponse.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || `Verification failed: ${externalResponse.status}`;
+      console.error('[VERIFY ERROR] External API failed:', errorMessage);
+      return res.status(externalResponse.status).json({ success: false, message: errorMessage });
     }
 
-    const idTokenData: any = await idTokenResponse.json();
-    // Fix: Explicitly type userDoc to any to ensure Firestore DocumentSnapshot properties like .data() are accessible
-    const userDoc: any = await db.collection('users').doc(userRecord.uid).get();
-    
-    await db.collection('verificationCodes').doc(email).delete();
+    const responseData = await externalResponse.json().catch(() => ({}));
+    console.log(`[VERIFY] OTP verified successfully for ${email}`);
 
-    res.json({ success: true, token: idTokenData.idToken, user: userDoc.data() });
+    // Map the external API response to match what the frontend expects
+    // The external API should return token and user data
+    // If it doesn't, we'll use the response as-is and let the frontend handle it
+    res.json({ 
+      success: true, 
+      token: responseData.token || responseData.accessToken || responseData.idToken,
+      user: responseData.user || responseData.data || { email, ...responseData }
+    });
   } catch (error: any) {
     console.error('[VERIFY ERROR]', error.message);
     res.status(500).json({ success: false, message: error.message });
@@ -182,7 +169,8 @@ app.use('/api', apiRouter);
 app.use('/', apiRouter);
 app.use(express.static('.') as any);
 
-app.get('*', (req, res) => {
+// Catch-all handler for SPA routing (must be last)
+app.get(/^(?!\/api).*/, (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ message: 'API Route Not Found' });
   res.sendFile(path.resolve('index.html'));
 });

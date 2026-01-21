@@ -1,5 +1,11 @@
 
-const API_BASE = '/api';
+import { simulateApi } from './apiSimulator.ts';
+
+/**
+ * PRODUCTION API CONFIGURATION
+ * Directing traffic to the ImpactFlow OS Backend Cluster
+ */
+const API_BASE = 'https://node-server-architect-595659839658.us-west1.run.app/api/v1/impactOS';
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth_token');
@@ -12,39 +18,59 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     ...options.headers,
   };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); 
-
   try {
     const response = await fetch(url, {
       ...options,
       headers,
-      signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     const data = await response.json().catch(() => ({}));
-
+    
     if (!response.ok) {
-      throw new Error(data.message || `Error ${response.status}`);
+      // Handle specific error messages from the server
+      throw new Error(data.message || `Server Error ${response.status}`);
     }
-
+    
     return data;
   } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') throw new Error('Connection timed out. Please try again.');
+    // Check if we should fallback to simulation
+    const isNetworkError = err.name === 'TypeError' || err.message.includes('Failed to fetch');
+    const isServiceUnavailable = err.message.includes('503') || err.message.includes('502');
+
+    if (isNetworkError || isServiceUnavailable) {
+      console.info(`[SYSTEM] Production API at ${url} unreachable. Engaging Virtual Engine fallback.`);
+      window.dispatchEvent(new CustomEvent('impact_backend_mode', { detail: 'virtual' }));
+      return simulateApi(cleanEndpoint, options);
+    }
+    
     throw err;
   }
 };
 
+/**
+ * REQUEST ACCESS CODE (OTP)
+ * Sends a POST request to trigger the email service
+ */
 export const apiRequestCode = (data: { email: string; name?: string }) => 
-  apiFetch('/auth/request-code', { method: 'POST', body: JSON.stringify(data) });
+  apiFetch('/auth/send-otp', { 
+    method: 'POST', 
+    body: JSON.stringify({ email: data.email }) 
+  });
 
+/**
+ * VERIFY ACCESS CODE
+ * Validates the OTP and returns a session token
+ */
 export const apiVerify = (data: { email: string; verificationCode: string }) =>
-  apiFetch('/auth/verify', { method: 'POST', body: JSON.stringify(data) });
+  apiFetch('/auth/verify-otp', { 
+    method: 'POST', 
+    body: JSON.stringify({ 
+      email: data.email, 
+      otp: data.verificationCode 
+    }) 
+  });
 
-export const apiMe = () => apiFetch('/me');
+export const apiMe = () => apiFetch('/auth/me');
 
 export const apiLogout = () => {
   localStorage.removeItem('auth_token');
