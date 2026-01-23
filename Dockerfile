@@ -17,7 +17,7 @@ COPY . .
 # Build the Vite app
 RUN npm run build
 
-# Stage 2: Production server
+# Stage 2: Production server (minimal static file server)
 FROM node:22
 
 WORKDIR /app
@@ -25,16 +25,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (needed for tsx and TypeScript compilation)
+# Install dependencies (including tsx for running TypeScript)
 RUN npm ci
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy server files
+# Copy minimal server file
 COPY server.ts ./
-COPY firebaseAdmin.ts ./
-COPY emailService.ts ./
 COPY tsconfig.json ./
 
 # Cloud Run will set PORT env variable
