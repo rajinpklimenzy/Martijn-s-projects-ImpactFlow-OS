@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
+// Load .env.local if it exists (for local development), otherwise use default .env
 dotenv.config({ path: '.env.local' });
+dotenv.config(); // This will load .env if .env.local doesn't exist
 
 import express from 'express';
 import cors from 'cors';
@@ -166,14 +168,22 @@ apiRouter.get('/me', async (req, res) => {
 });
 
 app.use('/api', apiRouter);
-app.use('/', apiRouter);
-app.use(express.static('.') as any);
+
+// Serve static files from dist directory (Vite build output)
+const distPath = path.resolve(process.cwd(), 'dist');
+console.log(`[SERVER] Static files path: ${distPath}`);
+app.use(express.static(distPath) as any);
 
 // Catch-all handler for SPA routing (must be last)
 app.get(/^(?!\/api).*/, (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ message: 'API Route Not Found' });
-  res.sendFile(path.resolve('index.html'));
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`ImpactFlow running on port ${PORT}`));
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.listen(parseInt(PORT as string), HOST, () => {
+  console.log(`ImpactFlow running on ${HOST}:${PORT}`);
+  console.log(`Serving static files from: ${distPath}`);
+});
