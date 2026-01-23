@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, Clock, MoreVertical, Plus, Filter, Search, Calend
 import { Task, Project, User as UserType } from '../types';
 import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { ImageWithFallback } from './common';
 
 interface TasksProps {
   onCreateTask: () => void;
@@ -19,6 +20,15 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [taskForm, setTaskForm] = useState<{
+    description: string;
+    priority: 'Low' | 'Medium' | 'High';
+    dueDate: string;
+    assigneeId: string;
+  } | null>(null);
+  const [isSavingTask, setIsSavingTask] = useState(false);
+  const [isTaskDeleteConfirmOpen, setIsTaskDeleteConfirmOpen] = useState(false);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
 
   // Check for selected project ID from sessionStorage
   useEffect(() => {
@@ -89,6 +99,21 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     window.addEventListener('refresh-tasks', handleRefresh);
     return () => window.removeEventListener('refresh-tasks', handleRefresh);
   }, [currentUser]);
+
+  // Initialize task form when a task is selected
+  useEffect(() => {
+    if (selectedTask) {
+      setTaskForm({
+        description: selectedTask.description || '',
+        priority: selectedTask.priority || 'Medium',
+        dueDate: selectedTask.dueDate || '',
+        assigneeId: selectedTask.assigneeId || ''
+      });
+    } else {
+      setTaskForm(null);
+      setIsTaskDeleteConfirmOpen(false);
+    }
+  }, [selectedTask]);
 
   const getPriorityColor = (p: string) => {
     switch(p) {
@@ -262,10 +287,12 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   {task.dueDate}
                 </div>
                 <div className="col-span-1 flex justify-end gap-3 items-center">
-                  <img 
-                    src={assignee?.avatar || `https://picsum.photos/seed/${assignee?.id || 'default'}/40/40`} 
-                    alt={assignee?.name || 'Unknown'} 
-                    className="w-6 h-6 rounded-full border border-slate-200" 
+                  <ImageWithFallback
+                    src={assignee?.avatar}
+                    alt={assignee?.name || 'Unknown'}
+                    fallbackText={assignee?.name || assignee?.email || 'U'}
+                    className="w-6 h-6 border border-slate-200"
+                    isAvatar={true}
                   />
                   <ChevronRight className={`w-4 h-4 transition-all ${selectedTask?.id === task.id ? 'text-indigo-600 translate-x-1' : 'text-slate-200 group-hover:text-indigo-400 group-hover:translate-x-1'}`} />
                 </div>
@@ -308,10 +335,12 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                     <Calendar className="w-3 h-3" />
                     {task.dueDate}
                   </div>
-                  <img 
-                    src={assignee?.avatar || `https://picsum.photos/seed/${assignee?.id || 'default'}/40/40`} 
+                  <ImageWithFallback
+                    src={assignee?.avatar}
                     alt={assignee?.name || 'Unknown'}
-                    className="w-5 h-5 rounded-full border border-slate-200 shadow-sm" 
+                    fallbackText={assignee?.name || assignee?.email || 'U'}
+                    className="w-5 h-5 border border-slate-200 shadow-sm"
+                    isAvatar={true} 
                   />
                 </div>
               </div>
@@ -323,7 +352,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       )}
 
       {/* Task Detail Drawer */}
-      {selectedTask && (
+      {selectedTask && taskForm && (
         <div className="fixed inset-0 z-[70] overflow-hidden pointer-events-none">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setSelectedTask(null)} />
           <div className="absolute right-0 inset-y-0 w-full max-w-xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
@@ -349,7 +378,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               <div className="space-y-4">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Description</h3>
                 <textarea 
-                  defaultValue={selectedTask.description}
+                  value={taskForm.description}
+                  onChange={(e) => setTaskForm(prev => prev ? { ...prev, description: e.target.value } : prev)}
                   className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm min-h-[120px] focus:ring-2 focus:ring-indigo-100 outline-none resize-none transition-all"
                   placeholder="Task description..."
                 />
@@ -365,10 +395,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 </div>
                 <div className="space-y-4">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Tag className="w-3.5 h-3.5" /> Priority</h3>
-                  <select defaultValue={selectedTask.priority} className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold border outline-none focus:ring-2 focus:ring-indigo-100 transition-all ${getPriorityColor(selectedTask.priority)} border-transparent`}>
-                    <option>High</option>
-                    <option>Medium</option>
-                    <option>Low</option>
+                  <select
+                    value={taskForm.priority}
+                    onChange={(e) =>
+                      setTaskForm(prev => prev ? { ...prev, priority: e.target.value as 'Low' | 'Medium' | 'High' } : prev)
+                    }
+                    className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold border outline-none focus:ring-2 focus:ring-indigo-100 transition-all ${getPriorityColor(taskForm.priority)} border-transparent`}
+                  >
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
                   </select>
                 </div>
               </div>
@@ -376,12 +412,23 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> Due Date</h3>
-                  <input type="date" defaultValue={selectedTask.dueDate} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
+                  <input
+                    type="date"
+                    value={taskForm.dueDate}
+                    onChange={(e) => setTaskForm(prev => prev ? { ...prev, dueDate: e.target.value } : prev)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
+                  />
                 </div>
                 <div className="space-y-4">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><User className="w-3.5 h-3.5" /> Assignee</h3>
-                  <select defaultValue={selectedTask.assigneeId} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  <select
+                    value={taskForm.assigneeId}
+                    onChange={(e) =>
+                      setTaskForm(prev => prev ? { ...prev, assigneeId: e.target.value } : prev)
+                    }
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
+                  >
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                   </select>
                 </div>
               </div>
@@ -394,10 +441,142 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
-              <button className="flex-1 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">Save Task</button>
-              <button className="px-5 py-3 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-xl transition-all">
+              <button
+                onClick={async () => {
+                  if (!selectedTask || !taskForm || isSavingTask) return;
+                  setIsSavingTask(true);
+                  try {
+                    await apiUpdateTask(selectedTask.id, {
+                      description: taskForm.description,
+                      priority: taskForm.priority,
+                      dueDate: taskForm.dueDate,
+                      assigneeId: taskForm.assigneeId
+                    });
+
+                    // Update local state
+                    setTasks(prev =>
+                      prev.map(t =>
+                        t.id === selectedTask.id ? { ...t, ...taskForm } : t
+                      )
+                    );
+                    setSelectedTask(prev => (prev ? { ...prev, ...taskForm } : prev));
+                    showSuccess('Task updated successfully!');
+                    window.dispatchEvent(new Event('refresh-tasks'));
+                  } catch (err: any) {
+                    console.error('Failed to update task:', err);
+                    showError(err.message || 'Failed to update task');
+                  } finally {
+                    setIsSavingTask(false);
+                  }
+                }}
+                disabled={isSavingTask}
+                className="flex-1 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isSavingTask ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Task'
+                )}
+              </button>
+              <button
+                onClick={() => setIsTaskDeleteConfirmOpen(true)}
+                className="px-5 py-3 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              >
                 <Trash2 className="w-5 h-5" />
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Task Confirmation Modal */}
+      {isTaskDeleteConfirmOpen && selectedTask && (
+        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300"
+            onClick={() => setIsTaskDeleteConfirmOpen(false)}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Delete Task</h3>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">
+                      This action cannot be undone
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsTaskDeleteConfirmOpen(false)}
+                  className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">
+                  Are you sure you want to delete{' '}
+                  <span className="font-bold text-slate-900">{selectedTask.title}</span>?
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <p className="text-xs text-red-700 font-semibold mb-1">⚠️ Warning:</p>
+                  <p className="text-xs text-red-600">
+                    This will permanently delete the task from the project. This action cannot be undone.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTaskDeleteConfirmOpen(false)}
+                    disabled={isDeletingTask}
+                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!selectedTask || isDeletingTask) return;
+                      setIsDeletingTask(true);
+                      try {
+                        await apiDeleteTask(selectedTask.id);
+                        setTasks(prev => prev.filter(t => t.id !== selectedTask.id));
+                        setSelectedTask(null);
+                        setIsTaskDeleteConfirmOpen(false);
+                        showSuccess('Task deleted successfully!');
+                        window.dispatchEvent(new Event('refresh-tasks'));
+                      } catch (err: any) {
+                        console.error('Failed to delete task:', err);
+                        showError(err.message || 'Failed to delete task');
+                      } finally {
+                        setIsDeletingTask(false);
+                      }
+                    }}
+                    disabled={isDeletingTask}
+                    className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isDeletingTask ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Task
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { MoreHorizontal, Plus, Calendar, DollarSign, ArrowRight, Settings2, X, C
 import { Deal, Company, User as UserType } from '../types';
 import { apiGetDeals, apiUpdateDeal, apiDeleteDeal, apiGetCompanies, apiGetUsers } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { ImageWithFallback } from './common';
 
 interface PipelineProps {
   onNavigate: (tab: string) => void;
@@ -224,10 +225,12 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal, currentUser 
                         className={`bg-white p-4 rounded-xl border transition-all cursor-pointer group select-none active:scale-[0.98] ${selectedDeal?.id === deal.id ? 'border-indigo-600 ring-2 ring-indigo-50 shadow-md' : 'border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200'}`}
                       >
                         <div className="flex justify-between items-start mb-2">
-                          <img 
-                            src={company?.logo || `https://picsum.photos/seed/${company?.id || 'default'}/100/100`} 
-                            alt="" 
-                            className="w-5 h-5 rounded border border-slate-100" 
+                          <ImageWithFallback
+                            src={company?.logo}
+                            alt={company?.name || ''}
+                            fallbackText={company?.name || 'C'}
+                            className="w-5 h-5 border border-slate-100"
+                            isAvatar={false}
                           />
                           <button 
                             onClick={(e) => {
@@ -254,10 +257,12 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal, currentUser 
                         </div>
 
                         <div className="flex items-center justify-between pt-3 border-t border-slate-50">
-                          <img 
-                            src={owner?.avatar || `https://picsum.photos/seed/${owner?.id || 'default'}/100/100`} 
-                            className="w-5 h-5 rounded-full border border-white ring-1 ring-slate-100" 
-                            alt=""
+                          <ImageWithFallback
+                            src={owner?.avatar}
+                            alt={owner?.name || ''}
+                            fallbackText={owner?.name || owner?.email || 'U'}
+                            className="w-5 h-5 border border-white ring-1 ring-slate-100"
+                            isAvatar={true}
                           />
                           {deal.stage === 'Won' ? (
                             <button 
@@ -373,10 +378,12 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal, currentUser 
                     className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors cursor-pointer group"
                   >
                     <div className="flex items-center gap-3">
-                      <img 
-                        src={companies.find(c => c.id === selectedDeal.companyId)?.logo || `https://picsum.photos/seed/${selectedDeal.companyId}/100/100`} 
-                        className="w-10 h-10 rounded border border-slate-100" 
-                        alt=""
+                      <ImageWithFallback
+                        src={companies.find(c => c.id === selectedDeal.companyId)?.logo}
+                        alt={companies.find(c => c.id === selectedDeal.companyId)?.name || ''}
+                        fallbackText={companies.find(c => c.id === selectedDeal.companyId)?.name || 'C'}
+                        className="w-10 h-10 border border-slate-100"
+                        isAvatar={false}
                       />
                       <div>
                         <p className="text-sm font-bold text-slate-900">{companies.find(c => c.id === selectedDeal.companyId)?.name || 'Unknown Company'}</p>

@@ -12,7 +12,7 @@ export const NAV_ITEMS = [
   // Use 'invoices' id so sidebar maps correctly to the Invoicing tab in App.tsx
   { id: 'invoices', label: 'Billing & Invoicing', icon: <DollarSign className="w-5 h-5" /> },
   { id: 'automation', label: 'Automations', icon: <Zap className="w-5 h-5" /> },
-  { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
+  // Note: Settings is rendered separately at the bottom of the sidebar
 ];
 
 export const MOCK_USERS: User[] = [

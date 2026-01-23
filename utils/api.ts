@@ -517,6 +517,14 @@ export const apiGetInvoices = (userId?: string, companyId?: string, status?: str
 export const apiGetInvoice = (invoiceId: string) =>
   apiFetch(`/invoices/${invoiceId}`);
 
+// Get revenue velocity data for dashboard
+export const apiGetRevenueVelocity = (userId?: string, timeframe: '7D' | '1M' | '1Y' = '1M') => {
+  const params = new URLSearchParams();
+  if (userId) params.append('userId', userId);
+  params.append('timeframe', timeframe);
+  return apiFetch(`/invoices/revenue-velocity?${params.toString()}`);
+};
+
 // Create invoice
 export const apiCreateInvoice = (invoiceData: any) =>
   apiFetch('/invoices', {

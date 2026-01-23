@@ -2,6 +2,7 @@
 import React from 'react';
 import { MOCK_USERS } from '../constants.tsx';
 import { UserPlus, Mail, ShieldCheck, MoreVertical, Search, ChevronRight } from 'lucide-react';
+import { ImageWithFallback } from './common';
 
 const UserManagement: React.FC = () => {
   return (
@@ -33,7 +34,13 @@ const UserManagement: React.FC = () => {
             <div key={user.id} className="p-6 flex items-center justify-between group hover:bg-slate-50 transition-colors">
               <div className="flex items-center gap-5">
                 <div className="relative">
-                  <img src={user.avatar} className="w-12 h-12 rounded-2xl border-2 border-white shadow-sm object-cover" />
+                  <ImageWithFallback
+                    src={user.avatar}
+                    alt={user.name || ''}
+                    fallbackText={user.name || user.email || 'U'}
+                    className="w-12 h-12 border-2 border-white shadow-sm object-cover"
+                    isAvatar={true}
+                  />
                   {user.active && <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />}
                 </div>
                 <div>

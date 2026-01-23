@@ -20,6 +20,7 @@ import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, LayoutGr
 import { Notification, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead, apiCreateNotification } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
+import { QueryProvider } from './contexts/QueryProvider.tsx';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   
   // Create Modal States
   const [createModalConfig, setCreateModalConfig] = useState<{ 
@@ -187,8 +189,9 @@ const App: React.FC = () => {
   };
 
   return (
-    <ToastProvider>
-      <AuthGate onUserLoaded={setCurrentUser}>
+    <QueryProvider>
+      <ToastProvider>
+        <AuthGate onUserLoaded={setCurrentUser}>
       <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
         {isMobile && isSidebarOpen && (
           <div 
@@ -246,7 +249,7 @@ const App: React.FC = () => {
             </button>
             
             <button 
-              onClick={handleLogout}
+              onClick={() => setIsLogoutConfirmOpen(true)}
               className="mt-4 w-full flex items-center gap-3 px-3 py-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-xl transition-all group text-left"
             >
               <LogOut className="w-5 h-5 shrink-0" />
@@ -350,9 +353,61 @@ const App: React.FC = () => {
             onSuccess={handleEventSuccess}
           />
         )}
+
+        {/* Logout Confirmation Modal */}
+        {isLogoutConfirmOpen && (
+          <div className="fixed inset-0 z-[90] overflow-hidden pointer-events-none">
+            <div
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300"
+              onClick={() => setIsLogoutConfirmOpen(false)}
+            />
+            <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+              <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Confirm Logout</h3>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">
+                      You will need to log in again to access ImpactFlow
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsLogoutConfirmOpen(false)}
+                    className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Are you sure you want to logout from your ImpactFlow workspace?
+                  </p>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsLogoutConfirmOpen(false)}
+                      className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      </AuthGate>
-    </ToastProvider>
+        </AuthGate>
+      </ToastProvider>
+    </QueryProvider>
   );
 };
 

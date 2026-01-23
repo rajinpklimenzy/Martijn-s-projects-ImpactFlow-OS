@@ -4,6 +4,7 @@ import { Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, Extern
 import { Company, Contact, Deal } from '../types';
 import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiDeleteCompany, apiDeleteContact, apiGetDeals } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { ImageWithFallback } from './common';
 
 interface CRMProps {
   onNavigate: (tab: string) => void;
@@ -377,7 +378,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 className="bg-white p-6 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm flex flex-col h-full active:scale-[0.98]"
               >
                 <div className="flex items-center gap-4 mb-6">
-                  <img src={company.logo} alt={company.name} className="w-12 h-12 rounded-lg border border-slate-100 shadow-sm" />
+                  <ImageWithFallback
+                    src={company.logo}
+                    alt={company.name}
+                    fallbackText={company.name}
+                    className="w-12 h-12 border border-slate-100 shadow-sm object-cover"
+                    isAvatar={false}
+                  />
                   <div className="flex-1 overflow-hidden">
                     <h3 className="font-bold text-lg text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{company.name}</h3>
                     <p className="text-slate-500 text-sm">{company.industry}</p>
@@ -499,7 +506,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           <div className="absolute right-0 inset-y-0 w-full max-w-2xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
-                <img src={selectedCompany.logo} className="w-12 h-12 rounded-xl border border-slate-200 shadow-sm" />
+                <img
+                  src={selectedCompany.logo}
+                  alt={selectedCompany.name}
+                  fallbackText={selectedCompany.name}
+                  className="w-12 h-12 border border-slate-200 shadow-sm object-cover"
+                  isAvatar={false}
+                />
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">{selectedCompany.name}</h2>
                   <div className="flex items-center gap-2 mt-0.5">

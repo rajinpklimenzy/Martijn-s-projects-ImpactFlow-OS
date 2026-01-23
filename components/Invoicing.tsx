@@ -8,6 +8,7 @@ import {
 import { Invoice, Company, InvoiceItem } from '../types.ts';
 import { apiGetInvoices, apiGetCompanies, apiUpdateInvoice, apiDeleteInvoice, apiSendInvoiceEmail } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { ImageWithFallback } from './common';
 import jsPDF from 'jspdf';
 
 interface InvoicingProps {
@@ -597,48 +598,54 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
                 {invoices.map(invoice => (
-                  <tr 
-                    key={invoice.id} 
-                    onClick={() => setSelectedInvoice(invoice)}
-                    className="group hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{invoice.number}</p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">REF: {invoice.id.substring(0, 8)}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <img src={getCompany(invoice.companyId)?.logo || `https://picsum.photos/seed/${invoice.companyId}/40/40`} className="w-6 h-6 rounded border border-slate-200" alt="" />
+                <tr 
+                  key={invoice.id} 
+                  onClick={() => setSelectedInvoice(invoice)}
+                  className="group hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{invoice.number}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">REF: {invoice.id.substring(0, 8)}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                        <ImageWithFallback
+                          src={getCompany(invoice.companyId)?.logo}
+                          alt={getCompany(invoice.companyId)?.name || ''}
+                          fallbackText={getCompany(invoice.companyId)?.name || 'C'}
+                          className="w-6 h-6 border border-slate-200"
+                          isAvatar={false}
+                        />
                         <span className="text-sm font-semibold text-slate-700">{getCompany(invoice.companyId)?.name || 'Unknown Company'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-bold text-slate-900">${invoice.amount.toLocaleString()}</span>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-semibold text-slate-500">{invoice.dueDate}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(invoice.status)}`}>
-                        {invoice.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-slate-900">${invoice.amount.toLocaleString()}</span>
+                  </td>
+                  <td className="px-6 py-4 text-xs font-semibold text-slate-500">{invoice.dueDate}</td>
+                  <td className="px-6 py-4">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(invoice.status)}`}>
+                      {invoice.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
                           onClick={(e) => { 
                             e.stopPropagation(); 
                             handleSendInvoiceEmail(invoice);
@@ -650,28 +657,28 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                           {isSendingEmail ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <Send className="w-4 h-4" />
+                        <Send className="w-4 h-4" />
                           )}
-                        </button>
-                        <button 
+                      </button>
+                      <button 
                           onClick={(e) => { 
                             e.stopPropagation(); 
                             handleDownloadPDFForInvoice(invoice);
                           }}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-100"
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-100"
                           title="Download Invoice PDF"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
-                        <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-600 transition-all translate-x-0 group-hover:translate-x-1" />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-600 transition-all translate-x-0 group-hover:translate-x-1" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      </div>
       )}
 
       {/* Invoice Detail Drawer */}
@@ -706,7 +713,13 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                 <div className="space-y-1">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</p>
                   <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <img src={getCompany(selectedInvoice.companyId)?.logo || `https://picsum.photos/seed/${selectedInvoice.companyId}/40/40`} className="w-10 h-10 rounded border border-slate-200" alt="" />
+                    <ImageWithFallback
+                      src={getCompany(selectedInvoice.companyId)?.logo}
+                      alt={getCompany(selectedInvoice.companyId)?.name || ''}
+                      fallbackText={getCompany(selectedInvoice.companyId)?.name || 'C'}
+                      className="w-10 h-10 border border-slate-200"
+                      isAvatar={false}
+                    />
                     <div>
                       <p className="text-sm font-bold text-slate-900">{getCompany(selectedInvoice.companyId)?.name || 'Unknown Company'}</p>
                       <p className="text-xs text-slate-500">{getCompany(selectedInvoice.companyId)?.website || ''}</p>
@@ -744,7 +757,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
               {/* Service Breakdown */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Service Breakdown</h3>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Service Breakdown</h3>
                   {!isEditingBreakdown ? (
                     <button
                       onClick={() => setIsEditingBreakdown(true)}
@@ -840,8 +853,8 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                               </div>
                             </>
                           )}
-                        </div>
-                      ))}
+                    </div>
+                  ))}
 
                       {/* Add new item form */}
                       {isEditingBreakdown && (
@@ -888,8 +901,8 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                       )}
 
                       {/* Total */}
-                      <div className="p-4 flex justify-between items-center bg-slate-50">
-                        <p className="text-sm font-black text-slate-900 uppercase">Total</p>
+                  <div className="p-4 flex justify-between items-center bg-slate-50">
+                    <p className="text-sm font-black text-slate-900 uppercase">Total</p>
                         <div className="flex items-center gap-2">
                           <p className="text-lg font-black text-indigo-600">
                             ${breakdownItems.length > 0 
@@ -903,7 +916,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                             </span>
                           )}
                         </div>
-                      </div>
+                  </div>
                     </>
                   )}
                 </div>
@@ -925,7 +938,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                       </>
                     ) : (
                       <>
-                        <Mail className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                    <Mail className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
                         <span className="text-xs font-bold text-slate-600 group-hover:text-indigo-700">Email Invoice</span>
                       </>
                     )}

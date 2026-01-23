@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Mail, Sparkles, Send, MessageSquare, ArrowRight, Zap, CheckCircle2 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext.tsx';
+import { ImageWithFallback } from './common';
 
 const Inbox: React.FC = () => {
   const { showSuccess } = useToast();
@@ -75,11 +76,13 @@ const Inbox: React.FC = () => {
       <div className="flex items-center gap-6 pt-10">
         <div className="flex -space-x-3">
           {[1,2,3,4].map(i => (
-            <img 
-              key={i} 
-              src={`https://picsum.photos/seed/u${i}/100/100`} 
-              className="w-10 h-10 rounded-full border-4 border-slate-50 object-cover" 
-              alt="teammate"
+            <ImageWithFallback
+              key={i}
+              src={undefined}
+              alt={`Teammate ${i}`}
+              fallbackText={`User ${i}`}
+              className="w-10 h-10 border-4 border-slate-50 object-cover"
+              isAvatar={true}
             />
           ))}
           <div className="w-10 h-10 rounded-full bg-indigo-600 border-4 border-slate-50 flex items-center justify-center text-white text-[10px] font-black">

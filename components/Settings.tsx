@@ -9,6 +9,7 @@ import {
 import { DEFAULT_NOTIFICATION_PREFERENCES, TIMEZONES, LANGUAGES } from '../constants';
 import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { ImageWithFallback } from './common';
 
 interface SettingsProps {
   currentUser: any;
@@ -230,7 +231,13 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
               
               <div className="flex items-center gap-6 pb-8 border-b border-slate-100">
                 <div className="relative group">
-                  <img src={avatarPreview || 'https://picsum.photos/seed/user/100/100'} className="w-24 h-24 rounded-3xl shadow-lg border-2 border-white object-cover" />
+                  <ImageWithFallback
+                    src={avatarPreview}
+                    alt={profileData.name || 'User'}
+                    fallbackText={profileData.name || profileData.email || 'U'}
+                    className="w-24 h-24 shadow-lg border-2 border-white object-cover"
+                    isAvatar={true}
+                  />
                   <button 
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute inset-0 bg-black/40 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
@@ -322,7 +329,13 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
                 {isLoadingUsers ? <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></div> : users.map(user => (
                   <div key={user.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <img src={user.avatar || `https://picsum.photos/seed/${user.email}/100/100`} className="w-10 h-10 rounded-full border" />
+                      <ImageWithFallback
+                        src={user.avatar}
+                        alt={user.name || ''}
+                        fallbackText={user.name || user.email || 'U'}
+                        className="w-10 h-10 border"
+                        isAvatar={true}
+                      />
                       <div>
                         <p className="font-bold text-slate-900 text-sm">{user.name}</p>
                         <p className="text-xs text-slate-500">{user.email} • <span className="font-bold text-indigo-600">{user.role}</span></p>
