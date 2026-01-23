@@ -1,120 +1,64 @@
 
-import React, { useState } from 'react';
-import { MOCK_USERS } from '../constants';
-import { UserPlus, Mail, Shield, ShieldAlert, ShieldCheck, MoreVertical, Search, CheckCircle2, ChevronRight } from 'lucide-react';
+import React from 'react';
+import { MOCK_USERS } from '../constants.tsx';
+import { UserPlus, Mail, ShieldCheck, MoreVertical, Search, ChevronRight } from 'lucide-react';
 
 const UserManagement: React.FC = () => {
-  const [users] = useState(MOCK_USERS);
-
-  const getRoleIcon = (role: string) => {
-    switch(role) {
-      case 'Admin': return <ShieldAlert className="w-4 h-4 text-red-500" />;
-      case 'Manager': return <ShieldCheck className="w-4 h-4 text-indigo-500" />;
-      default: return <Shield className="w-4 h-4 text-slate-400" />;
-    }
-  };
-
-  const handleUserClick = (id: string) => {
-    console.log(`Managing user: ${id}`);
-  };
-
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
-          <p className="text-slate-500 text-sm">Manage team access and permissions at Impact 24x7</p>
+          <h1 className="text-2xl font-bold">Team Management</h1>
+          <p className="text-slate-500 text-sm font-medium">Control workspace access and staff roles</p>
         </div>
-        <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-md">
-          <UserPlus className="w-4 h-4" />
-          Invite Team Member
+        <button className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
+          <UserPlus className="w-4 h-4" /> Invite Member
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <div className="relative">
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+          <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Filter by name or email..." 
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm w-80 outline-none focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm"
-            />
+            <input type="text" placeholder="Find teammate..." className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/20" />
           </div>
-          <div className="flex items-center gap-4 text-sm text-slate-500">
-            <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> {users.length} Active Users</span>
+          <div className="flex gap-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Seats: </span>
+            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">12 / 20</span>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <th className="px-6 py-4">Member</th>
-                <th className="px-6 py-4">Role</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Last Activity</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {users.map(user => (
-                <tr 
-                  key={user.id} 
-                  onClick={() => handleUserClick(user.id)}
-                  className="hover:bg-slate-50 transition-colors group cursor-pointer active:bg-indigo-50/30"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <img src={user.avatar} className="w-10 h-10 rounded-full border border-slate-200 shadow-sm group-hover:border-indigo-200 transition-colors" />
-                      <div>
-                        <p className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{user.name}</p>
-                        <p className="text-xs text-slate-500">{user.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      {getRoleIcon(user.role)}
-                      <span className="text-xs font-semibold text-slate-700">{user.role}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    {user.active ? (
-                      <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold text-slate-400">Inactive</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-xs text-slate-500 font-medium">Today, 10:24 AM</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end items-center gap-2">
-                      <button onClick={(e) => e.stopPropagation()} className="p-2 hover:bg-white rounded-lg text-slate-400 transition-colors shadow-sm lg:opacity-0 group-hover:opacity-100">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                      <ChevronRight className="w-4 h-4 text-slate-200 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <div className="divide-y divide-slate-100">
+          {MOCK_USERS.map(user => (
+            <div key={user.id} className="p-6 flex items-center justify-between group hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-5">
+                <div className="relative">
+                  <img src={user.avatar} className="w-12 h-12 rounded-2xl border-2 border-white shadow-sm object-cover" />
+                  {user.active && <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                    {user.name}
+                    {user.role === 'Admin' && <ShieldCheck className="w-4 h-4 text-indigo-600" />}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
+                    <Mail className="w-3 h-3 text-slate-400" /> {user.email}
+                  </p>
+                </div>
+              </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        <div className="bg-slate-900 rounded-xl p-8 text-white relative overflow-hidden group cursor-pointer active:scale-[0.99] transition-all">
-          <div className="relative z-10">
-            <h3 className="text-xl font-bold mb-2">Security & Access Audit</h3>
-            <p className="text-slate-400 text-sm mb-6 max-w-sm">Review your team's login history, IP access logs, and permission changes to maintain high security standards.</p>
-            <button className="px-6 py-2.5 bg-white text-slate-900 font-bold rounded-lg hover:bg-slate-50 transition-all shadow-lg group-hover:scale-105 transform">
-              Run Audit Log
-            </button>
-          </div>
-          <ShieldAlert className="absolute -right-12 -bottom-12 w-48 h-48 text-slate-800 opacity-20 group-hover:scale-110 transition-transform duration-500" />
+              <div className="flex items-center gap-12">
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Permission Tier</p>
+                  <p className={`text-xs font-bold mt-0.5 ${user.role === 'Admin' ? 'text-indigo-600' : 'text-slate-700'}`}>{user.role}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all shadow-sm">Manage</button>
+                  <button className="p-2 text-slate-300 hover:text-slate-600 transition-colors"><MoreVertical className="w-5 h-5" /></button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

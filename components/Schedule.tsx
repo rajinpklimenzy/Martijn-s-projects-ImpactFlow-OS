@@ -1,9 +1,19 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_TASKS } from '../constants';
-import { Clock, MapPin, Users, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, ExternalLink, Sparkles, Loader2, X } from 'lucide-react';
-import { CalendarEvent } from '../types';
-import { apiGetGoogleCalendarAuthUrl, apiGetGoogleCalendarStatus, apiGetGoogleCalendarEvents, apiDisconnectGoogleCalendar } from '../utils/api';
+import { 
+  Clock, MapPin, Users, Calendar as CalendarIcon, ChevronLeft, 
+  ChevronRight, Plus, ExternalLink, Sparkles, Loader2, X, 
+  CheckCircle2, Circle, Layout, Tag
+} from 'lucide-react';
+import { CalendarEvent, Task } from '../types';
+import { 
+  apiGetGoogleCalendarAuthUrl, 
+  apiGetGoogleCalendarStatus, 
+  apiGetGoogleCalendarEvents, 
+  apiDisconnectGoogleCalendar,
+  apiGetTasks
+} from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
 interface ScheduleProps {
@@ -14,6 +24,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   const { showSuccess, showError } = useToast();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [dailyTasks, setDailyTasks] = useState<Task[]>([]);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
@@ -21,11 +32,17 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   // Hours for the agenda
   const hours = Array.from({ length: 14 }, (_, i) => i + 8); // 8 AM to 9 PM
 
+  const dateKey = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedDate]);
+
   // Check Google Calendar connection status
   useEffect(() => {
     const checkConnectionStatus = async () => {
       if (!currentUser?.id) return;
-
       try {
         const response = await apiGetGoogleCalendarStatus(currentUser.id);
         setIsGoogleConnected(response.connected || false);
@@ -33,164 +50,78 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
         setIsGoogleConnected(false);
       }
     };
-
     checkConnectionStatus();
-
-    // Listen for disconnection events from Settings page
-    const handleDisconnection = () => {
-      setIsGoogleConnected(false);
-      setEvents([]); // Clear events when disconnected
-    };
-
-    // Listen for sync events from Settings page
-    const handleSync = () => {
-      // Trigger event refetch by updating selectedDate slightly
-      const newDate = new Date(selectedDate);
-      newDate.setMilliseconds(newDate.getMilliseconds() + 1);
-      setSelectedDate(newDate);
-    };
-
-    window.addEventListener('google-calendar-disconnected', handleDisconnection);
-    window.addEventListener('google-calendar-sync', handleSync);
-    return () => {
-      window.removeEventListener('google-calendar-disconnected', handleDisconnection);
-      window.removeEventListener('google-calendar-sync', handleSync);
-    };
-  }, [currentUser, selectedDate]);
-
-  // Fetch Google Calendar events
-  useEffect(() => {
-    const fetchEvents = async () => {
-      if (!isGoogleConnected || !currentUser?.id) {
-        // Show empty if not connected
-        setEvents([]);
-        setIsLoadingEvents(false);
-        return;
-      }
-
-      setIsLoadingEvents(true);
-      try {
-        const year = selectedDate.getFullYear();
-        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-        const day = String(selectedDate.getDate()).padStart(2, '0');
-        const dateStr = `${year}-${month}-${day}`;
-
-        const response = await apiGetGoogleCalendarEvents(dateStr, dateStr, currentUser.id);
-        const googleEvents = response.data || [];
-        
-        // Filter out all-day events and events without proper time information
-        const filteredEvents = googleEvents.filter((event: CalendarEvent) => {
-          // Skip all-day events
-          if (event.isAllDay === true) {
-            return false;
-          }
-          
-          // Skip events without start/end times
-          if (!event.start || !event.end) {
-            return false;
-          }
-          
-          // Check if start/end are date-only strings (YYYY-MM-DD format) - these are all-day events
-          const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
-          if (dateOnlyPattern.test(event.start) || dateOnlyPattern.test(event.end)) {
-            return false;
-          }
-          
-          // Parse start and end times
-          const startDate = new Date(event.start);
-          const endDate = new Date(event.end);
-          
-          // Skip if dates are invalid
-          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-            return false;
-          }
-          
-          // Skip if start and end times are the same (no duration, like "5:30 AM - 5:30 AM")
-          if (startDate.getTime() === endDate.getTime()) {
-            return false;
-          }
-          
-          // Only include events that have actual time duration (at least 1 minute)
-          const duration = endDate.getTime() - startDate.getTime();
-          if (duration < 60000) { // Less than 1 minute
-            return false;
-          }
-          
-          return true;
-        });
-        
-        // Deduplicate events by title and exact start/end time
-        // This handles cases where the same event might appear multiple times with different IDs
-        const seenEvents = new Map<string, boolean>();
-        const uniqueEvents: CalendarEvent[] = [];
-        
-        filteredEvents.forEach((event: CalendarEvent) => {
-          // Normalize the event data for comparison
-          const normalizedTitle = (event.title || '').trim().toLowerCase();
-          const startTime = new Date(event.start).getTime();
-          const endTime = new Date(event.end).getTime();
-          
-          // Create a unique key from normalized title and exact start/end times
-          // This catches duplicates even if IDs or other fields differ
-          const eventKey = `${normalizedTitle}_${startTime}_${endTime}`;
-          
-          if (seenEvents.has(eventKey)) {
-            console.log('[DUPLICATE] Skipping duplicate event:', event.title, event.start, '-', event.end);
-            return; // Duplicate found, skip it
-          }
-          
-          seenEvents.set(eventKey, true);
-          uniqueEvents.push(event);
-        });
-        
-        console.log(`[CALENDAR] Filtered ${googleEvents.length} events to ${filteredEvents.length} valid events, ${uniqueEvents.length} unique events`);
-        
-        // Only show filtered and deduplicated Google Calendar events with valid times
-        setEvents(uniqueEvents);
-      } catch (err: any) {
-        console.error('Failed to fetch Google Calendar events:', err);
-        // Show empty on error instead of mock data
-        setEvents([]);
-        // If error is "not connected", update status
-        if (err.message?.includes('not connected') || err.code === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
-          setIsGoogleConnected(false);
-        }
-      } finally {
-        setIsLoadingEvents(false);
-      }
-    };
-
-    fetchEvents();
-  }, [selectedDate, isGoogleConnected, currentUser]);
-
-  // Handle OAuth callback
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const connected = urlParams.get('connected');
-    const error = urlParams.get('error');
-
-    if (connected === 'true') {
-      setIsGoogleConnected(true);
-      // Refresh connection status to get latest data
-      if (currentUser?.id) {
-        apiGetGoogleCalendarStatus(currentUser.id).then(response => {
-          setIsGoogleConnected(response.connected || true);
-        }).catch(() => {
-          setIsGoogleConnected(true); // Assume connected if status check fails
-        });
-      }
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname);
-      showSuccess('Google Calendar connected successfully!');
-    } else if (error) {
-      const decodedError = decodeURIComponent(error);
-      console.error('Google Calendar connection error:', decodedError);
-      showError(`Failed to connect Google Calendar: ${decodedError}`);
-      setIsGoogleConnected(false);
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname);
-    }
   }, [currentUser]);
+
+  // Fetch Google Calendar events and Tasks
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingEvents(true);
+      
+      // 1. Fetch Calendar Events
+      if (isGoogleConnected && currentUser?.id) {
+        try {
+          const response = await apiGetGoogleCalendarEvents(dateKey, dateKey, currentUser.id);
+          const googleEvents = response.data || [];
+          
+          const filteredEvents = googleEvents.filter((event: CalendarEvent) => {
+            if (event.isAllDay === true) return false;
+            if (!event.start || !event.end) return false;
+            const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+            if (dateOnlyPattern.test(event.start) || dateOnlyPattern.test(event.end)) return false;
+            
+            const startDate = new Date(event.start);
+            const endDate = new Date(event.end);
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return false;
+            if (startDate.getTime() === endDate.getTime()) return false;
+            if (endDate.getTime() - startDate.getTime() < 60000) return false;
+            
+            return true;
+          });
+          
+          const seenEvents = new Map<string, boolean>();
+          const uniqueEvents: CalendarEvent[] = [];
+          filteredEvents.forEach((event: CalendarEvent) => {
+            const startTime = new Date(event.start).getTime();
+            const endTime = new Date(event.end).getTime();
+            const eventKey = `${(event.title || '').trim().toLowerCase()}_${startTime}_${endTime}`;
+            if (!seenEvents.has(eventKey)) {
+              seenEvents.set(eventKey, true);
+              uniqueEvents.push(event);
+            }
+          });
+          setEvents(uniqueEvents);
+        } catch (err: any) {
+          console.error('Failed to fetch Google Calendar events:', err);
+          setEvents([]);
+        }
+      } else {
+        setEvents([]);
+      }
+
+      // 2. Fetch Tasks for the day
+      try {
+        const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+        const tasksResponse = await apiGetTasks(userId);
+        const allTasks = Array.isArray(tasksResponse?.data || tasksResponse) 
+          ? (tasksResponse?.data || tasksResponse) 
+          : [];
+        
+        // Filter tasks by date format YYYY-MM-DD
+        const filteredTasks = allTasks.filter((t: Task) => t.dueDate === dateKey);
+        setDailyTasks(filteredTasks);
+      } catch (err) {
+        console.error('Failed to fetch tasks for schedule:', err);
+        // Fallback to mock for UI demonstration if API fails but we have mock data
+        const mockFiltered = MOCK_TASKS.filter(t => t.dueDate === dateKey);
+        setDailyTasks(mockFiltered);
+      }
+
+      setIsLoadingEvents(false);
+    };
+
+    fetchData();
+  }, [dateKey, isGoogleConnected, currentUser]);
 
   // Date navigation
   const goToPreviousDay = () => {
@@ -220,400 +151,255 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
       e.preventDefault();
       e.stopPropagation();
     }
-
     if (!currentUser?.id) {
       showError('Please log in to connect Google Calendar');
       return;
     }
-
     setIsConnecting(true);
     try {
       const response = await apiGetGoogleCalendarAuthUrl(currentUser.id);
-      console.log('[GOOGLE CALENDAR] OAuth response:', response);
-      
-      // Handle response structure (could be response.data or response.authUrl)
       const authUrl = response.data?.authUrl || response.authUrl;
-      
-      if (!authUrl) {
-        console.error('[GOOGLE CALENDAR] Invalid response structure:', response);
-        throw new Error('No authorization URL received from server. Please check server configuration.');
-      }
-
-      console.log('[GOOGLE CALENDAR] Redirecting to:', authUrl);
-      // Redirect to Google OAuth - use window.location.replace to avoid back button issues
+      if (!authUrl) throw new Error('No authorization URL received');
       window.location.replace(authUrl);
     } catch (err: any) {
       console.error('[GOOGLE CALENDAR] Failed to get auth URL:', err);
       setIsConnecting(false);
-      
-      let errorMessage = err.message || 'Failed to connect Google Calendar.';
-      
-      // Provide helpful error messages
-      if (err.message?.includes('not configured') || err.code === 'OAUTH_NOT_CONFIGURED') {
-        errorMessage = 'Google Calendar OAuth is not configured on the server. Please contact your administrator.';
-      } else if (err.message?.includes('User ID')) {
-        errorMessage = 'Please log in to connect Google Calendar.';
-      }
-      
-      showError(errorMessage);
+      showError(err.message || 'Failed to connect Google Calendar.');
     }
   };
 
-  // Handle disconnect
   const handleDisconnect = async () => {
     if (!currentUser?.id) return;
-
     if (!confirm('Are you sure you want to disconnect Google Calendar?')) return;
-
     try {
       await apiDisconnectGoogleCalendar(currentUser.id);
       setIsGoogleConnected(false);
-      setEvents([]); // Clear events when disconnected
+      setEvents([]);
       showSuccess('Google Calendar disconnected successfully!');
-    } catch (err: any) {
-      console.error('Failed to disconnect:', err);
+    } catch (err) {
       showError('Failed to disconnect Google Calendar');
     }
   };
 
-  // Calculate event position and height based on actual times
   const getEventPosition = (event: CalendarEvent) => {
-    let eventStart: Date;
-    let eventEnd: Date;
-
-    // Handle time format (HH:MM) - fallback for time-only strings
-    if (/^\d{2}:\d{2}$/.test(event.start)) {
-      const [startHour, startMin] = event.start.split(':').map(Number);
-      const [endHour, endMin] = event.end.split(':').map(Number);
-      eventStart = new Date(selectedDate);
-      eventStart.setHours(startHour, startMin, 0, 0);
-      eventEnd = new Date(selectedDate);
-      eventEnd.setHours(endHour, endMin, 0, 0);
-    } else {
-      // Handle ISO datetime strings
-      eventStart = new Date(event.start);
-      eventEnd = new Date(event.end);
-    }
-
-    // Calculate position from top of timeline (8 AM = 0)
+    let eventStart = new Date(event.start);
+    let eventEnd = new Date(event.end);
     const timelineStart = new Date(selectedDate);
     timelineStart.setHours(8, 0, 0, 0);
-    
-    // Calculate minutes from 8 AM
     const minutesFromStart = (eventStart.getTime() - timelineStart.getTime()) / (1000 * 60);
     const durationMinutes = (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60);
-    
-    // Each hour is 80px, so each minute is 80/60 = 1.333px
     const topPosition = minutesFromStart * (80 / 60);
     const height = durationMinutes * (80 / 60);
-    
-    return {
-      top: topPosition,
-      height: Math.max(height, 40), // Minimum height of 40px
-      eventStart,
-      eventEnd
-    };
+    return { top: topPosition, height: Math.max(height, 50) };
   };
 
-  // Format time from ISO string or time string
   const formatTime = (timeStr: string): string => {
-    // If it's already in HH:MM format, return as is
-    if (/^\d{2}:\d{2}$/.test(timeStr)) {
-      return timeStr;
-    }
-
-    // If it's an ISO string, parse it
     try {
       const date = new Date(timeStr);
-      const hours = date.getHours();
-      const minutes = date.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours % 12 || 12;
-      const displayMinutes = minutes.toString().padStart(2, '0');
-      return `${displayHours}:${displayMinutes} ${ampm}`;
+      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     } catch {
       return timeStr;
     }
   };
 
-  // Check if event is in the past
-  const isEventPast = (event: CalendarEvent): boolean => {
-    try {
-      let eventEnd: Date;
-      
-      if (/^\d{2}:\d{2}$/.test(event.end)) {
-        const [endHour, endMin] = event.end.split(':').map(Number);
-        eventEnd = new Date(selectedDate);
-        eventEnd.setHours(endHour, endMin, 0, 0);
-      } else {
-        eventEnd = new Date(event.end);
-      }
-      
-      const now = new Date();
-      return eventEnd < now;
-    } catch {
-      return false;
-    }
-  };
-
-  // Get event status (accepted, declined, tentative, needsAction)
-  const getEventStatus = (event: CalendarEvent): string | null => {
-    // Check if event has status field (from Google Calendar)
-    if ((event as any).status) {
-      return (event as any).status;
-    }
-    // Check if event has attendees with responseStatus
-    if ((event as any).attendees && Array.isArray((event as any).attendees)) {
-      const currentUserEmail = currentUser?.email?.toLowerCase();
-      const userAttendee = (event as any).attendees.find((a: any) => 
-        a.email?.toLowerCase() === currentUserEmail
-      );
-      if (userAttendee?.responseStatus) {
-        return userAttendee.responseStatus; // 'accepted', 'declined', 'tentative', 'needsAction'
-      }
-    }
-    return null;
-  };
-
-  // Get event color based on status, past time, type or source
   const getEventColor = (event: CalendarEvent) => {
-    const isPast = isEventPast(event);
-    const status = getEventStatus(event);
-    
-    // Past events - muted colors
-    if (isPast) {
-      return { bg: 'bg-slate-100', border: 'border-slate-200', opacity: 'opacity-60' };
+    const isPast = new Date(event.end) < new Date();
+    if (isPast) return { bg: 'bg-slate-50', border: 'border-slate-200', opacity: 'opacity-60', text: 'text-slate-500' };
+    return { bg: 'bg-indigo-50', border: 'border-indigo-100', opacity: '', text: 'text-indigo-900' };
+  };
+
+  const getPriorityColor = (p: string) => {
+    switch(p) {
+      case 'High': return 'text-red-500 bg-red-50 border-red-100';
+      case 'Medium': return 'text-amber-500 bg-amber-50 border-amber-100';
+      default: return 'text-blue-500 bg-blue-50 border-blue-100';
     }
-    
-    // Status-based colors (for accepted/declined events)
-    if (status === 'accepted') {
-      return { bg: 'bg-emerald-50', border: 'border-emerald-200', opacity: '' };
-    }
-    if (status === 'declined') {
-      return { bg: 'bg-red-50', border: 'border-red-200', opacity: '' };
-    }
-    if (status === 'tentative') {
-      return { bg: 'bg-yellow-50', border: 'border-yellow-200', opacity: '' };
-    }
-    
-    // Default colors based on source or type
-    if (event.source === 'google') {
-      return { bg: 'bg-indigo-50', border: 'border-indigo-100', opacity: '' };
-    }
-    
-    const colorMap: Record<string, { bg: string; border: string }> = {
-      'meeting': { bg: 'bg-indigo-50', border: 'border-indigo-100' },
-      'task': { bg: 'bg-emerald-50', border: 'border-emerald-100' },
-      'deadline': { bg: 'bg-red-50', border: 'border-red-100' },
-      'reminder': { bg: 'bg-yellow-50', border: 'border-yellow-100' },
-      'custom': { bg: 'bg-purple-50', border: 'border-purple-100' }
-    };
-    return { ...colorMap[event.type] || colorMap['meeting'], opacity: '' };
   };
 
   return (
-    <div className="h-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="h-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Daily Schedule</h1>
-          <p className="text-slate-500 text-sm">
-            Reviewing agenda for {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          <h1 className="text-2xl font-bold tracking-tight">Daily Schedule</h1>
+          <p className="text-slate-500 text-sm font-medium">
+            Agenda for {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-2 bg-white p-1 rounded-2xl border border-slate-200 shadow-sm">
           <button 
             onClick={goToPreviousDay}
-            className="p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-colors"
-            aria-label="Previous day"
+            className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={goToToday}
-            className={`px-4 py-1 font-bold text-sm rounded-lg transition-colors ${
-              isToday() 
-                ? 'bg-indigo-600 text-white' 
-                : 'text-slate-700 hover:bg-slate-50'
+            className={`px-6 py-1.5 font-bold text-xs uppercase tracking-widest rounded-xl transition-all ${
+              isToday() ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
             {isToday() ? 'Today' : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </button>
           <button 
             onClick={goToNextDay}
-            className="p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-colors"
-            aria-label="Next day"
+            className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Agenda Timeline */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Agenda</h3>
-            <div className="flex items-center gap-2">
-              {isLoadingEvents && (
-                <div className="flex items-center gap-2 text-slate-500 text-xs">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Loading events...</span>
-                </div>
-              )}
-              <div className={`flex items-center gap-2 px-2 py-1 rounded-lg text-[10px] font-bold ${
-                isGoogleConnected 
-                  ? 'bg-emerald-50 text-emerald-600' 
-                  : 'bg-red-50 text-red-600'
-              }`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${
-                  isGoogleConnected 
-                    ? 'bg-emerald-500 animate-pulse' 
-                    : 'bg-red-500'
-                }`} />
-                {isGoogleConnected ? 'Google Calendar Connected' : 'Not Connected'}
+        <div className="lg:col-span-2 bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Daily Timeline</h3>
+            <div className="flex items-center gap-3">
+              {isLoadingEvents && <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />}
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${isGoogleConnected ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-400'}`}>
+                <div className={`w-1 h-1 rounded-full ${isGoogleConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                {isGoogleConnected ? 'Google Calendar Sync' : 'Calendar Off'}
               </div>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-0 relative">
-            {/* Timeline hours */}
-            {hours.map((hour) => {
-              const hourTop = (hour - 8) * 80; // Position from top (8 AM = 0)
-              return (
-                <div key={hour} className="absolute left-0 right-0" style={{ top: `${hourTop}px` }}>
-                  {/* Time label first */}
-                  <span className="absolute left-0 top-0 text-xs font-bold text-slate-500 w-16 text-right pr-3">
-                    {hour === 12 
-                      ? '12 PM' 
-                      : hour > 12 
-                        ? `${hour - 12} PM` 
-                        : `${hour} AM`}
-                  </span>
-                  {/* Dot after time */}
-                  <div className="absolute left-16 top-0 -translate-x-1/2 w-2 h-2 rounded-full bg-slate-200 group-hover:bg-indigo-400 transition-colors" />
-                  {/* Horizontal line */}
-                  <div className="absolute left-16 top-0 right-0 h-px bg-slate-100" />
-                </div>
-              );
-            })}
-            
-            {/* Events positioned by actual time */}
-            {events.map((event) => {
-              const position = getEventPosition(event);
-              const colors = getEventColor(event);
-              return (
-                <div
-                  key={event.id}
-                  className={`absolute left-20 right-4 p-3 rounded-xl border transition-all hover:scale-[1.01] hover:shadow-lg ${colors.bg} ${colors.border} ${colors.opacity || ''}`}
-                  style={{
-                    top: `${position.top}px`,
-                    height: `${position.height}px`,
-                    minHeight: '50px'
-                  }}
-                >
-                  <div className="flex justify-between items-start h-full gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-slate-900 text-sm truncate">{event.title}</h4>
-                      <div className="flex items-center gap-2 mt-1 text-[10px] font-bold text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {formatTime(event.start)} - {formatTime(event.end)}
-                        </span>
+
+          <div className="flex-1 overflow-y-auto relative bg-white">
+            {/* All Day / Tasks Section */}
+            {dailyTasks.length > 0 && (
+              <div className="px-6 py-6 bg-slate-50/50 border-b border-slate-100 space-y-3">
+                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                   <CheckCircle2 className="w-3 h-3" /> Today's Deliverables
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {dailyTasks.map(task => (
+                    <div key={task.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm group hover:border-indigo-200 transition-all flex items-start gap-3">
+                      <div className="mt-1">
+                        {task.status === 'Done' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Circle className="w-4 h-4 text-slate-300 group-hover:text-indigo-400" />}
                       </div>
-                      {event.location && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-500">
-                          <MapPin className="w-3 h-3" /> <span className="truncate">{event.location}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-bold truncate ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                           <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase ${getPriorityColor(task.priority)}`}>{task.priority}</span>
+                           <span className="text-[8px] font-bold text-slate-400 uppercase">Task</span>
                         </div>
-                      )}
+                      </div>
                     </div>
-                    {event.htmlLink && (
-                      <a
-                        href={event.htmlLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 bg-white rounded-lg border border-slate-200 shadow-sm text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
-                        aria-label="Open in Google Calendar"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
+                  ))}
                 </div>
-              );
-            })}
-            
-            {/* Timeline container height - 14 hours * 80px = 1120px */}
-            <div className="relative" style={{ height: '1120px', minHeight: '1120px' }} />
-            
-            {/* Empty state */}
-            {!isLoadingEvents && events.length === 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center py-12">
-                <CalendarIcon className="w-12 h-12 text-slate-300 mb-4" />
-                <p className="text-slate-500 font-medium">No events scheduled for this day</p>
               </div>
             )}
+
+            <div className="p-8 relative min-h-[1120px]">
+              {/* Timeline markers */}
+              {hours.map((hour) => {
+                const hourTop = (hour - 8) * 80;
+                return (
+                  <div key={hour} className="absolute left-0 right-0 group" style={{ top: `${hourTop}px` }}>
+                    <span className="absolute left-4 top-0 -translate-y-1/2 text-[10px] font-black text-slate-300 w-16 text-right pr-6 uppercase tracking-widest">
+                      {hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
+                    </span>
+                    <div className="absolute left-24 top-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-slate-100 group-hover:bg-indigo-200 transition-colors" />
+                    <div className="absolute left-24 top-0 right-8 h-px bg-slate-50" />
+                  </div>
+                );
+              })}
+              
+              {/* Actual Calendar Events */}
+              {events.map((event) => {
+                const position = getEventPosition(event);
+                const colors = getEventColor(event);
+                return (
+                  <div
+                    key={event.id}
+                    className={`absolute left-28 right-8 p-4 rounded-3xl border shadow-sm transition-all hover:scale-[1.01] hover:shadow-xl group overflow-hidden ${colors.bg} ${colors.border} ${colors.opacity || ''}`}
+                    style={{ top: `${position.top}px`, height: `${position.height}px` }}
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500/20 group-hover:w-2 transition-all" />
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1 min-w-0">
+                        <h4 className={`font-black text-sm truncate ${colors.text}`}>{event.title}</h4>
+                        <div className="flex flex-wrap items-center gap-4 mt-2">
+                          <span className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            <Clock className="w-3 h-3 text-indigo-400" /> {formatTime(event.start)} - {formatTime(event.end)}
+                          </span>
+                          {event.location && (
+                            <span className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest truncate max-w-[200px]">
+                              <MapPin className="w-3 h-3 text-red-400" /> {event.location}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {event.htmlLink && (
+                        <a
+                          href={event.htmlLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm text-slate-400 hover:text-indigo-600 transition-all active:scale-95"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!isLoadingEvents && events.length === 0 && dailyTasks.length === 0 && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center opacity-40">
+                  <CalendarIcon className="w-16 h-16 text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-black uppercase text-[10px] tracking-[0.2em]">No Schedule Data Available</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Sidebar Widgets */}
+        {/* Sidebar Controls */}
         <div className="space-y-6">
-          <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden group">
+          <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl relative overflow-hidden group">
             <div className="relative z-10">
-              <Sparkles className="w-6 h-6 text-indigo-400 mb-4" />
-              <h3 className="text-lg font-bold mb-2">Sync Your Schedule</h3>
-              <p className="text-slate-400 text-xs leading-relaxed mb-6">Connect your personal Google Calendar to merge logistical deadlines with your daily routine.</p>
+              <Sparkles className="w-8 h-8 text-indigo-400 mb-6" />
+              <h3 className="text-2xl font-black mb-2 leading-tight">Unified Workflow</h3>
+              <p className="text-slate-400 text-sm leading-relaxed mb-8 opacity-80">Sync your external Google Calendar to bridge the gap between team tasks and personal routine.</p>
               
               {isGoogleConnected ? (
                 <button
                   onClick={handleDisconnect}
-                  className="w-full py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 border border-white/20"
+                  className="w-full py-4 bg-white/10 hover:bg-red-500/10 text-white hover:text-red-400 font-bold rounded-2xl transition-all flex items-center justify-center gap-2 border border-white/10 hover:border-red-500/20"
                 >
-                  <X className="w-4 h-4" />
-                  Disconnect Calendar
+                  <X className="w-4 h-4" /> Disconnect Sync
                 </button>
               ) : (
                 <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleConnectGoogle(e);
-                  }}
+                  onClick={(e) => handleConnectGoogle(e)}
                   disabled={isConnecting}
-                  className="w-full py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-4 bg-indigo-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-900 flex items-center justify-center gap-3 disabled:opacity-50"
                 >
-                  {isConnecting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                <CalendarIcon className="w-4 h-4" />
-                Connect Calendar
-                    </>
-                  )}
-              </button>
+                  {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CalendarIcon className="w-4 h-4" /> Authorize Google</>}
+                </button>
               )}
             </div>
-            <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-all" />
+            <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Pending Tasks</h3>
-            <div className="space-y-4">
-              {MOCK_TASKS.slice(0, 3).map(task => (
-                <div key={task.id} className="group cursor-pointer">
-                  <div className="flex gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{task.title}</p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Due {task.dueDate}</p>
-                    </div>
+          <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm p-8 space-y-6">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Pending Insights</h3>
+            <div className="space-y-6">
+              {[
+                { title: 'API Sync Issues', type: 'System', color: 'text-amber-500' },
+                { title: 'New Deal Proposal', type: 'Workflow', color: 'text-indigo-500' }
+              ].map((item, idx) => (
+                <div key={idx} className="group cursor-pointer flex items-start gap-4">
+                  <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${item.color.replace('text', 'bg')}`} />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{item.title}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mt-1">{item.type} Alert</p>
                   </div>
                 </div>
               ))}
             </div>
-            <button className="w-full mt-6 py-2 text-xs font-bold text-indigo-600 border border-indigo-100 rounded-xl hover:bg-indigo-50 transition-all">
-              View All Tasks
+            <button className="w-full py-3.5 bg-slate-50 text-indigo-600 text-[10px] font-black rounded-2xl hover:bg-indigo-50 transition-all uppercase tracking-widest border border-slate-100">
+              Workspace Overview
             </button>
           </div>
         </div>

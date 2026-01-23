@@ -16,7 +16,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleSendCode = async () => {
-    // Validate email before sending
     if (!email || !email.includes('@')) {
       setError('Please enter a valid email address');
       return;
@@ -25,13 +24,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiRequestCode({ email });
-      // Clear any previous errors and move to verify step
+      await apiRequestCode({ email });
       setError(null);
-      setCodeDigits(['', '', '', '', '', '']); // Reset code inputs
+      setCodeDigits(['', '', '', '', '', '']);
       setStep('verify');
     } catch (err: any) {
-      setError(err.message || "Failed to send code. Please check your internet connection and try again.");
+      setError(err.message || "Failed to send code. Please check your internet connection.");
     } finally {
       setLoading(false);
     }
@@ -39,13 +37,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   const handleVerifyCode = async () => {
     const verificationCode = codeDigits.join('');
-    // Only proceed if all 6 digits are entered
-    if (verificationCode.length !== 6) {
-      // Don't show error, just return silently
-      return;
-    }
+    if (verificationCode.length !== 6) return;
 
-    // Validate that it's all digits
     if (!/^\d{6}$/.test(verificationCode)) {
       setError('OTP must contain only numbers');
       return;
@@ -54,59 +47,34 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setLoading(true);
     setError(null);
     try {
-      console.log('[AUTH] Verifying OTP for:', email);
       const data = await apiVerify({ email, verificationCode });
-      console.log('[AUTH] OTP verification successful:', data);
-      // Clear error on success
-      setError(null);
-      // Ensure we have token and user before calling onLogin
       if (data.token && data.user) {
         onLogin(data);
       } else {
-        throw new Error('Invalid response from server. Missing token or user data.');
+        throw new Error('Invalid response from server.');
       }
     } catch (err: any) {
-      console.error('[AUTH] OTP verification failed:', err);
-      // Check for specific error codes
-      if (err.code === 'USER_NOT_REGISTERED' || err.message?.includes('not registered')) {
-        setError('User not registered. Please contact your administrator to create an account.');
-      } else if (err.code === 'USER_DISABLED' || err.message?.includes('disabled')) {
-        setError('Your account has been disabled. Please contact your administrator.');
-      } else {
-        // Show specific error message from backend
-        const errorMessage = err.message || "Invalid or expired code. Please request a new code.";
-        setError(errorMessage);
-      }
-      // Clear the code on error
+      setError(err.message || "Invalid or expired code.");
       setCodeDigits(['', '', '', '', '', '']);
-      // Focus first input after a short delay
-      setTimeout(() => {
-        inputRefs.current[0]?.focus();
-      }, 100);
+      setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCodeChange = (index: number, value: string) => {
-    // Only allow digits
     if (value && !/^\d$/.test(value)) return;
 
     const newDigits = [...codeDigits];
     newDigits[index] = value;
     setCodeDigits(newDigits);
     
-    // Clear any error messages while typing
-    if (error) {
-      setError(null);
-    }
+    if (error) setError(null);
 
-    // Move to next input if digit entered
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 6 digits are entered (only if complete)
     if (value && index === 5 && newDigits.every(d => d !== '')) {
       setTimeout(() => handleVerifyCode(), 100);
     }
@@ -116,22 +84,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
       const newDigits = [...codeDigits];
-      
       if (codeDigits[index]) {
-        // Clear current field
         newDigits[index] = '';
       } else if (index > 0) {
-        // Move to previous field and clear it
         newDigits[index - 1] = '';
         inputRefs.current[index - 1]?.focus();
       }
-      
       setCodeDigits(newDigits);
-      
-      // Clear error when deleting
-      if (error) {
-        setError(null);
-      }
+      if (error) setError(null);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       handleVerifyCode();
@@ -148,46 +108,28 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     const newDigits = [...codeDigits];
-    
     for (let i = 0; i < 6; i++) {
       newDigits[i] = pastedData[i] || '';
     }
-    
     setCodeDigits(newDigits);
-    
-    // Clear error when pasting
-    if (error) {
-      setError(null);
-    }
-    
-    // Focus the next empty field or the last field
+    if (error) setError(null);
     const nextEmptyIndex = newDigits.findIndex(d => d === '');
-    const focusIndex = nextEmptyIndex === -1 ? 5 : nextEmptyIndex;
-    inputRefs.current[focusIndex]?.focus();
-    
-    // Auto-submit if all 6 digits are pasted
-    if (pastedData.length === 6) {
-      setTimeout(() => handleVerifyCode(), 100);
-    }
+    inputRefs.current[nextEmptyIndex === -1 ? 5 : nextEmptyIndex]?.focus();
+    if (pastedData.length === 6) setTimeout(() => handleVerifyCode(), 100);
   };
 
   useEffect(() => {
     if (step === 'verify') {
-      // Focus first input when verification step is shown
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } else {
-      // Reset code when going back to initial step
       setCodeDigits(['', '', '', '', '', '']);
     }
   }, [step]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (step === 'initial') {
-      handleSendCode();
-    } else {
-      handleVerifyCode();
-    }
+    if (step === 'initial') handleSendCode();
+    else handleVerifyCode();
   };
 
   return (
@@ -241,7 +183,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                   {codeDigits.map((digit, index) => (
                     <input
                       key={index}
-                      ref={(el) => (inputRefs.current[index] = el)}
+                      ref={(el) => { inputRefs.current[index] = el; }}
                       type="text"
                       inputMode="numeric"
                       maxLength={1}
@@ -261,23 +203,19 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     onClick={async () => {
                       setError(null);
                       setCodeDigits(['', '', '', '', '', '']);
-                      // Request new code for same email
                       setLoading(true);
                       try {
                         await apiRequestCode({ email });
                         setError(null);
-                        // Focus first input after code is sent
-                        setTimeout(() => {
-                          inputRefs.current[0]?.focus();
-                        }, 100);
+                        setTimeout(() => inputRefs.current[0]?.focus(), 100);
                       } catch (err: any) {
-                        setError(err.message || "Failed to send new code. Please try again.");
+                        setError(err.message || "Failed to send new code.");
                       } finally {
                         setLoading(false);
                       }
                     }}
                     disabled={loading}
-                    className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors disabled:opacity-50"
                   >
                     {loading ? 'Sending...' : 'Request New Code'}
                   </button>
@@ -286,7 +224,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     onClick={() => {
                       setStep('initial');
                       setCodeDigits(['', '', '', '', '', '']);
-                      setError(null); // Clear error when requesting new code
+                      setError(null);
                     }}
                     className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors"
                   >
@@ -298,7 +236,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
             <button 
               disabled={loading || (step === 'verify' && codeDigits.some(d => d === ''))}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20 active:scale-[0.98]"
+              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98]"
             >
               {loading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
