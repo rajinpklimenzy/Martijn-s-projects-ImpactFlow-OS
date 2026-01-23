@@ -19,11 +19,12 @@ RUN npm run build
 
 # Verify build output
 RUN test -d dist && echo "Build successful" || (echo "Build failed - dist folder not found" && exit 1)
+RUN ls -la dist/ | head -10
 
 # Production stage - using nginx to serve static files
 FROM nginx:alpine
 
-# Install gettext for envsubst (to replace environment variables in nginx config)
+# Install gettext for envsubst
 RUN apk add --no-cache gettext
 
 # Copy built files to nginx html directory
@@ -38,5 +39,14 @@ ENV PORT=8080
 # Expose port
 EXPOSE 8080
 
-# Start nginx with environment variable substitution
-CMD sh -c "envsubst '\$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+# Create startup script that substitutes PORT and starts nginx
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'export PORT=${PORT:-8080}' >> /start.sh && \
+    echo 'envsubst '"'"'${PORT}'"'"' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf' >> /start.sh && \
+    echo 'echo "Starting nginx on port $PORT"' >> /start.sh && \
+    echo 'cat /etc/nginx/conf.d/default.conf' >> /start.sh && \
+    echo 'exec nginx -g "daemon off;"' >> /start.sh && \
+    chmod +x /start.sh
+
+# Start nginx
+CMD ["/start.sh"]
