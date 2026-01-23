@@ -1,12 +1,12 @@
-# Stage 1: Build the frontend
+# Build stage
 FROM node:22 AS builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY tsconfig.json ./
 COPY vite.config.ts ./
+COPY tsconfig.json ./
 
 # Install dependencies
 RUN npm ci
@@ -14,33 +14,23 @@ RUN npm ci
 # Copy source files
 COPY . .
 
-# Build the Vite app
+# Build the React app
 RUN npm run build
 
-# Stage 2: Production server (minimal static file server)
-FROM node:22
+# Verify build output
+RUN test -d dist && echo "Build successful" || (echo "Build failed - dist folder not found" && exit 1)
 
-WORKDIR /app
+# Production stage - using nginx to serve static files
+FROM nginx:alpine
 
-# Copy package files
-COPY package*.json ./
+# Copy built files to nginx html directory
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Install dependencies (including tsx for running TypeScript)
-RUN npm ci
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy built files from builder
-COPY --from=builder /app/dist ./dist
+# Expose port 80 (nginx default)
+EXPOSE 80
 
-# Copy minimal server file
-COPY server.ts ./
-COPY tsconfig.json ./
-
-# Cloud Run will set PORT env variable
-ENV PORT=8080
-ENV NODE_ENV=production
-
-# Expose the port
-EXPOSE 8080
-
-# Start the server
-CMD ["npm", "start"]
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

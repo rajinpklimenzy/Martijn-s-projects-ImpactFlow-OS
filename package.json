@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "start": "tsx server.ts"
+    "preview": "vite preview"
   },
   "dependencies": {
     "cors": "^2.8.5",
