@@ -483,8 +483,148 @@ export const apiSearchTasks = (query: string, userId?: string, projectId?: strin
  */
 
 // Update user profile
-export const apiUpdateUserProfile = (userId: string, userData: { name?: string; email?: string; avatar?: string }) =>
+export const apiUpdateUserProfile = (userId: string, userData: { 
+  name?: string; 
+  email?: string; 
+  avatar?: string;
+  phone?: string;
+  jobTitle?: string;
+  department?: string;
+  bio?: string;
+  timezone?: string;
+  language?: string;
+}) =>
   apiFetch(`/users/${userId}`, {
     method: 'PUT',
     body: JSON.stringify(userData)
+  });
+
+/**
+ * INVOICE API FUNCTIONS
+ */
+
+// Get all invoices
+export const apiGetInvoices = (userId?: string, companyId?: string, status?: string) => {
+  const params = new URLSearchParams();
+  if (userId) params.append('userId', userId);
+  if (companyId) params.append('companyId', companyId);
+  if (status) params.append('status', status);
+  const queryString = params.toString();
+  return apiFetch(`/invoices${queryString ? `?${queryString}` : ''}`);
+};
+
+// Get invoice by ID
+export const apiGetInvoice = (invoiceId: string) =>
+  apiFetch(`/invoices/${invoiceId}`);
+
+// Create invoice
+export const apiCreateInvoice = (invoiceData: any) =>
+  apiFetch('/invoices', {
+    method: 'POST',
+    body: JSON.stringify(invoiceData)
+  });
+
+// Update invoice
+export const apiUpdateInvoice = (invoiceId: string, invoiceData: any) =>
+  apiFetch(`/invoices/${invoiceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(invoiceData)
+  });
+
+// Delete invoice
+export const apiDeleteInvoice = (invoiceId: string) =>
+  apiFetch(`/invoices/${invoiceId}`, {
+    method: 'DELETE'
+  });
+
+// Search invoices
+export const apiSearchInvoices = (query: string) =>
+  apiFetch(`/invoices/search?q=${encodeURIComponent(query)}`);
+
+// Send invoice via email
+export const apiSendInvoiceEmail = (invoiceId: string) =>
+  apiFetch('/invoices/send-email', {
+    method: 'POST',
+    body: JSON.stringify({ invoiceId })
+  });
+
+/**
+ * AUTOMATION API FUNCTIONS
+ */
+
+// Get all automations
+export const apiGetAutomations = (userId?: string) => {
+  const params = new URLSearchParams();
+  if (userId) params.append('userId', userId);
+  const queryString = params.toString();
+  return apiFetch(`/automations${queryString ? `?${queryString}` : ''}`);
+};
+
+// Get automation by ID
+export const apiGetAutomation = (automationId: string) =>
+  apiFetch(`/automations/${automationId}`);
+
+// Create automation
+export const apiCreateAutomation = (automationData: any) =>
+  apiFetch('/automations', {
+    method: 'POST',
+    body: JSON.stringify(automationData)
+  });
+
+// Update automation
+export const apiUpdateAutomation = (automationId: string, automationData: any) =>
+  apiFetch(`/automations/${automationId}`, {
+    method: 'PUT',
+    body: JSON.stringify(automationData)
+  });
+
+// Toggle automation active status
+export const apiToggleAutomation = (automationId: string) =>
+  apiFetch(`/automations/${automationId}/toggle`, {
+    method: 'PATCH'
+  });
+
+// Delete automation
+export const apiDeleteAutomation = (automationId: string) =>
+  apiFetch(`/automations/${automationId}`, {
+    method: 'DELETE'
+  });
+
+// Search automations
+export const apiSearchAutomations = (query: string) =>
+  apiFetch(`/automations/search?q=${encodeURIComponent(query)}`);
+
+/**
+ * NOTIFICATIONS
+ */
+
+// Get notifications for a user
+export const apiGetNotifications = (userId: string, limitNum = 20) =>
+  apiFetch(`/notifications?userId=${encodeURIComponent(userId)}&limitNum=${limitNum}`);
+
+// Create a notification
+export const apiCreateNotification = (payload: {
+  userId: string;
+  type: 'lead' | 'deal' | 'task' | 'payment' | 'system';
+  title: string;
+  message: string;
+  link?: string | null;
+}) =>
+  apiFetch('/notifications', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+// Mark a single notification as read
+export const apiMarkNotificationAsRead = (id: string, userId: string) =>
+  apiFetch(`/notifications/${id}/read`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+
+// Mark all notifications as read for a user
+export const apiMarkAllNotificationsAsRead = (userId: string) =>
+  apiFetch('/notifications/mark-all-read', {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
   });

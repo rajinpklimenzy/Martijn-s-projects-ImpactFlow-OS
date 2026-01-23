@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { NAV_ITEMS, MOCK_USERS, MOCK_NOTIFICATIONS } from './constants.tsx';
+import { NAV_ITEMS, MOCK_USERS } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import Inbox from './components/Inbox.tsx';
 import CRM from './components/CRM.tsx';
@@ -18,7 +18,7 @@ import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
 import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, LayoutGrid, Users, CheckSquare, FolderKanban } from 'lucide-react';
 import { Notification, CalendarEvent } from './types.ts';
-import { apiLogout } from './utils/api.ts';
+import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead, apiCreateNotification } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
 
 const App: React.FC = () => {
@@ -45,11 +45,38 @@ const App: React.FC = () => {
   });
 
   // Notification States
-  const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Load notifications for current user
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
+        if (!storedUser?.id) return;
+        const res = await apiGetNotifications(storedUser.id, 20);
+        const data = res?.data || res || [];
+        const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => ({
+          id: n.id,
+          userId: n.userId,
+          type: n.type || 'system',
+          title: n.title,
+          message: n.message,
+          timestamp: new Date(n.createdAt || Date.now()).toLocaleString(),
+          read: !!n.read,
+          link: n.link || undefined,
+        }));
+        setNotifications(mapped);
+      } catch (err) {
+        console.error('[NOTIFICATIONS] Failed to load notifications', err);
+      }
+    };
+
+    loadNotifications();
+  }, [currentUser]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -93,16 +120,31 @@ const App: React.FC = () => {
     window.location.reload();
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || 'null')?.id;
+    if (!userId) return;
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    try {
+      await apiMarkNotificationAsRead(id, userId);
+    } catch (err) {
+      console.error('[NOTIFICATIONS] Failed to mark as read', err);
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || 'null')?.id;
+    if (!userId) return;
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    try {
+      await apiMarkAllNotificationsAsRead(userId);
+    } catch (err) {
+      console.error('[NOTIFICATIONS] Failed to mark all as read', err);
+    }
   };
 
   const openCreateModal = (type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact', stage?: string) => {
-    setCreateModalConfig({ isOpen: true, type, stage });
+    console.log('[APP] Opening create modal:', type, stage);
+    setCreateModalConfig({ isOpen: true, type, stage: stage || undefined });
   };
 
   const openEventModal = (event?: CalendarEvent | null, selectedDate?: Date) => {
@@ -130,7 +172,7 @@ const App: React.FC = () => {
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
-      case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} />;
+      case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
       case 'automation': return <Automations />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
@@ -276,7 +318,7 @@ const App: React.FC = () => {
           <QuickCreateModal 
             type={createModalConfig.type}
             stage={createModalConfig.stage}
-            onClose={() => setCreateModalConfig({ ...createModalConfig, isOpen: false })} 
+            onClose={() => setCreateModalConfig(prev => ({ ...prev, isOpen: false }))} 
             onSuccess={() => {
               // Refresh CRM data when contact or company is created
               if (createModalConfig.type === 'contact' || createModalConfig.type === 'company') {
@@ -293,6 +335,8 @@ const App: React.FC = () => {
               // Refresh tasks when task is created
               if (createModalConfig.type === 'task') {
                 window.dispatchEvent(new Event('refresh-tasks'));
+              } else if (createModalConfig.type === 'invoice') {
+                window.dispatchEvent(new Event('refresh-invoices'));
               }
             }}
           />

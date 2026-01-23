@@ -1,75 +1,60 @@
-
-import React from 'react';
-import { 
-  Inbox, Users, Building2, LayoutGrid, FolderKanban, 
-  CheckSquare, FileText, Settings, Zap, UserPlus, 
-  Search, Bell, Plus, Filter, MoreVertical, 
-  MessageSquare, Star, Mail, Phone, Calendar,
-  ArrowRight, CheckCircle2, AlertCircle, Clock
-} from 'lucide-react';
 import { User, Contact, Company, Deal, Project, Task, Thread, Invoice, AutomationRule, Notification, NotificationPreference, CalendarEvent } from './types.ts';
+import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles } from 'lucide-react';
 
 export const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutGrid className="w-5 h-5" /> },
+  { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
   { id: 'schedule', label: 'Daily Schedule', icon: <Calendar className="w-5 h-5" /> },
-  { id: 'inbox', label: 'Shared Inbox', icon: <Inbox className="w-5 h-5" /> },
-  { id: 'crm', label: 'Contacts & Companies', icon: <Users className="w-5 h-5" /> },
-  { id: 'pipeline', label: 'Deal Pipeline', icon: <Building2 className="w-5 h-5" /> },
-  { id: 'projects', label: 'Projects', icon: <FolderKanban className="w-5 h-5" /> },
-  { id: 'tasks', label: 'Tasks', icon: <CheckSquare className="w-5 h-5" /> },
-  { id: 'invoices', label: 'Invoicing', icon: <FileText className="w-5 h-5" /> },
+  { id: 'crm', label: 'CRM', icon: <Users className="w-5 h-5" /> },
+  { id: 'pipeline', label: 'Deal Pipeline', icon: <Briefcase className="w-5 h-5" /> },
+  { id: 'projects', label: 'Projects', icon: <FileText className="w-5 h-5" /> },
+  { id: 'tasks', label: 'My Tasks', icon: <CheckSquare className="w-5 h-5" /> },
+  { id: 'inbox', label: 'Shared Inbox', icon: <Mail className="w-5 h-5" /> },
+  // Use 'invoices' id so sidebar maps correctly to the Invoicing tab in App.tsx
+  { id: 'invoices', label: 'Billing & Invoicing', icon: <DollarSign className="w-5 h-5" /> },
   { id: 'automation', label: 'Automations', icon: <Zap className="w-5 h-5" /> },
+  { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
 ];
 
 export const MOCK_USERS: User[] = [
-  { id: 'u1', name: 'Alex Rivera', email: 'alex@impact247.com', role: 'Admin', avatar: 'https://picsum.photos/seed/u1/100/100', active: true },
-  { id: 'u2', name: 'Sarah Chen', email: 'sarah@impact247.com', role: 'Manager', avatar: 'https://picsum.photos/seed/u2/100/100', active: true },
-  { id: 'u3', name: 'Michael Scott', email: 'michael@impact247.com', role: 'Staff', avatar: 'https://picsum.photos/seed/u3/100/100', active: true },
+  { id: 'u1', name: 'John Doe', email: 'john@example.com', role: 'Admin', avatar: 'https://picsum.photos/seed/john/100/100', active: true },
+  { id: 'u2', name: 'Jane Smith', email: 'jane@example.com', role: 'Manager', avatar: 'https://picsum.photos/seed/jane/100/100', active: true },
 ];
 
 export const MOCK_CALENDAR_EVENTS: CalendarEvent[] = [
-  { id: 'e1', title: 'Strategy Meeting: Global Logistics', start: '09:00', end: '10:30', type: 'meeting', location: 'Zoom', participants: ['Alex Rivera', 'John Doe'] },
-  { id: 'e2', title: 'Warehouse Tech Review', start: '13:00', end: '14:00', type: 'meeting', location: 'Office Room A' },
-  { id: 'e3', title: 'TMS Implementation Sync', start: '15:30', end: '16:30', type: 'deadline', location: 'Conference Call' },
+  { id: 'e1', title: 'Team Meeting', start: '2024-05-15T10:00:00', end: '2024-05-15T11:00:00', type: 'meeting' },
+  { id: 'e2', title: 'Project Deadline', start: '2024-05-20T17:00:00', end: '2024-05-20T17:00:00', type: 'deadline' },
 ];
 
 export const MOCK_COMPANIES: Company[] = [
-  { id: 'c1', name: 'Global Logistics Corp', industry: 'Shipping', website: 'globallogistics.com', logo: 'https://picsum.photos/seed/c1/100/100' },
-  { id: 'c2', name: 'SwiftWare Solutions', industry: 'Warehouse Tech', website: 'swiftware.io', logo: 'https://picsum.photos/seed/c2/100/100' },
-  { id: 'c3', name: 'EuroFreight Ltd', industry: 'Haulage', website: 'eurofreight.com', logo: 'https://picsum.photos/seed/c3/100/100' },
+  { id: 'c1', name: 'Acme Corp', industry: 'Technology', website: 'https://acme.com', email: 'contact@acme.com' },
+  { id: 'c2', name: 'Global Logistics', industry: 'Logistics', website: 'https://globallogistics.com', email: 'info@globallogistics.com' },
 ];
 
 export const MOCK_CONTACTS: Contact[] = [
-  { id: 'ct1', name: 'John Doe', email: 'john.doe@globallogistics.com', companyId: 'c1', role: 'COO', phone: '+1 555-0123', lastContacted: '2024-05-15' },
-  { id: 'ct2', name: 'Jane Smith', email: 'jane.smith@swiftware.io', companyId: 'c2', role: 'Operations Manager', phone: '+1 555-0456', lastContacted: '2024-05-18' },
-];
-
-export const MOCK_THREADS: Thread[] = [
-  { id: 't1', subject: 'Inquiry: Warehouse API Integration', sender: 'John Doe', email: 'john.doe@globallogistics.com', lastMessage: 'Following up on our call regarding the API docs...', timestamp: '10:45 AM', status: 'open', isStarred: true },
-  { id: 't2', subject: 'New RFQ - TMS Digitalization', sender: 'Jane Smith', email: 'jane.smith@swiftware.io', lastMessage: 'Please find the attached requirements for the TMS project.', timestamp: 'Yesterday', status: 'assigned', assigneeId: 'u1' },
-  { id: 't3', subject: 'Question regarding Invoice #2024-012', sender: 'Marcus Vane', email: 'marcus.vane@eurofreight.com', lastMessage: 'The tax calculation seems slightly off.', timestamp: '2 days ago', status: 'resolved' },
+  { id: 'ct1', name: 'Alice Johnson', email: 'alice@acme.com', phone: '+1 555-0101', companyId: 'c1', role: 'CEO' },
+  { id: 'ct2', name: 'Bob Williams', email: 'bob@globallogistics.com', phone: '+1 555-0102', companyId: 'c2', role: 'Manager' },
 ];
 
 export const MOCK_DEALS: Deal[] = [
-  { id: 'd1', title: 'TMS Implementation', companyId: 'c1', value: 45000, stage: 'Negotiation', ownerId: 'u1', expectedCloseDate: '2024-06-30' },
+  { id: 'd1', title: 'Enterprise Automation', companyId: 'c1', value: 50000, stage: 'Proposal', ownerId: 'u1', expectedCloseDate: '2024-06-01' },
   { id: 'd2', title: 'Warehouse Automation Audit', companyId: 'c2', value: 12500, stage: 'Won', ownerId: 'u2', expectedCloseDate: '2024-05-20' },
-  { id: 'd3', title: 'Supply Chain Visibility Dashboard', companyId: 'c3', value: 28000, stage: 'Proposal', ownerId: 'u1', expectedCloseDate: '2024-07-15' },
 ];
 
 export const MOCK_PROJECTS: Project[] = [
   { id: 'p1', title: 'SwiftWare Automation Phase 1', companyId: 'c2', status: 'Active', dealId: 'd2', progress: 65 },
-  { id: 'p2', title: 'EuroFreight Cloud Migration', companyId: 'c3', status: 'Planning', progress: 10 },
 ];
 
 export const MOCK_TASKS: Task[] = [
-  { id: 'tk1', projectId: 'p1', title: 'Review API endpoints', description: 'Validate JSON response formats', dueDate: '2024-05-25', priority: 'High', status: 'In Progress', assigneeId: 'u1' },
-  { id: 'tk2', projectId: 'p1', title: 'Hardware Inventory', description: 'Document all existing scanner units', dueDate: '2024-05-28', priority: 'Medium', status: 'Todo', assigneeId: 'u2' },
+  { id: 't1', title: 'Review proposal', priority: 'high', dueDate: '2024-05-18', assigneeId: 'u1', status: 'Todo', projectId: 'p1' },
+  { id: 't2', title: 'Client meeting prep', priority: 'medium', dueDate: '2024-05-16', assigneeId: 'u2', status: 'In Progress', projectId: 'p1' },
+];
+
+export const MOCK_THREADS: Thread[] = [
+  { id: 'th1', subject: 'Project Update', from: 'alice@acme.com', snippet: 'Here is the latest update...', timestamp: '2 hours ago', unread: true },
 ];
 
 export const MOCK_INVOICES: Invoice[] = [
-  { id: 'iv1', number: 'INV-2024-001', companyId: 'c1', amount: 5000, status: 'Paid', dueDate: '2024-05-10' },
-  { id: 'iv2', number: 'INV-2024-002', companyId: 'c2', amount: 12500, status: 'Overdue', dueDate: '2024-05-15' },
-  { id: 'iv3', number: 'INV-2024-003', companyId: 'c3', amount: 8000, status: 'Sent', dueDate: '2024-06-01' },
+  { id: 'inv1', number: 'INV-2024-0001', companyId: 'c1', amount: 5000, status: 'Sent', dueDate: '2024-06-01' },
 ];
 
 export const MOCK_AUTOMATIONS: AutomationRule[] = [
@@ -80,17 +65,89 @@ export const MOCK_AUTOMATIONS: AutomationRule[] = [
 ];
 
 export const MOCK_NOTIFICATIONS: Notification[] = [
-  { id: 'n1', type: 'lead', title: 'New Lead Assigned', message: 'You have been assigned to Freight Forwarders Inc.', timestamp: '2 mins ago', read: false },
-  { id: 'n2', type: 'deal', title: 'New Comment', message: 'Sarah Chen commented on the TMS Implementation deal.', timestamp: '1 hour ago', read: false },
-  { id: 'n3', type: 'task', title: 'Task Completed', message: 'The Hardware Inventory task has been completed by Michael Scott.', timestamp: '3 hours ago', read: true },
-  { id: 'n4', type: 'payment', title: 'Payment Reminder', message: 'Invoice #INV-2024-002 for SwiftWare Solutions is now 3 days overdue.', timestamp: 'Yesterday', read: false },
+  { id: 'n1', type: 'lead', title: 'New Lead', message: 'New lead from Acme Corp', timestamp: '5 minutes ago', read: false },
   { id: 'n5', type: 'system', title: 'Automation Triggered', message: 'Auto-response sent to Global Logistics Corp.', timestamp: '1 day ago', read: true },
 ];
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreference[] = [
-  { id: 'np1', label: 'Lead Assignments', description: 'When a new lead is assigned to you', inApp: true, email: true },
-  { id: 'np2', label: 'Deal Activity', description: 'Comments and status updates on your deals', inApp: true, email: false },
-  { id: 'np3', label: 'Task Updates', description: 'Completions and reminders for your tasks', inApp: true, email: true },
-  { id: 'np4', label: 'Invoicing & Payments', description: 'Payment reminders and overdue alerts', inApp: true, email: true },
-  { id: 'np5', label: 'Internal Mentions', description: 'When someone @mentions you in notes', inApp: true, email: true },
+  { id: 'new-lead', label: 'New Lead', inApp: true, email: true },
+  { id: 'deal-update', label: 'Deal Update', inApp: true, email: false },
+  { id: 'task-assigned', label: 'Task Assigned', inApp: true, email: true },
+  { id: 'project-update', label: 'Project Update', inApp: false, email: true },
+];
+
+// Comprehensive timezone list
+export const TIMEZONES = [
+  { value: 'UTC-12', label: 'UTC-12 (Baker Island Time)' },
+  { value: 'UTC-11', label: 'UTC-11 (Hawaii-Aleutian Standard Time)' },
+  { value: 'UTC-10', label: 'UTC-10 (Hawaii Standard Time)' },
+  { value: 'UTC-9:30', label: 'UTC-9:30 (Marquesas Time)' },
+  { value: 'UTC-9', label: 'UTC-9 (Alaska Standard Time)' },
+  { value: 'UTC-8', label: 'UTC-8 (Pacific Standard Time - PST)' },
+  { value: 'UTC-7', label: 'UTC-7 (Mountain Standard Time - MST)' },
+  { value: 'UTC-6', label: 'UTC-6 (Central Standard Time - CST)' },
+  { value: 'UTC-5', label: 'UTC-5 (Eastern Standard Time - EST)' },
+  { value: 'UTC-4', label: 'UTC-4 (Atlantic Standard Time - AST)' },
+  { value: 'UTC-3:30', label: 'UTC-3:30 (Newfoundland Standard Time)' },
+  { value: 'UTC-3', label: 'UTC-3 (Argentina Time)' },
+  { value: 'UTC-2', label: 'UTC-2 (South Georgia Time)' },
+  { value: 'UTC-1', label: 'UTC-1 (Cape Verde Time)' },
+  { value: 'UTC+0', label: 'UTC+0 (Greenwich Mean Time - GMT)' },
+  { value: 'UTC+1', label: 'UTC+1 (Central European Time - CET)' },
+  { value: 'UTC+2', label: 'UTC+2 (Eastern European Time - EET)' },
+  { value: 'UTC+3', label: 'UTC+3 (Moscow Time - MSK)' },
+  { value: 'UTC+3:30', label: 'UTC+3:30 (Iran Standard Time)' },
+  { value: 'UTC+4', label: 'UTC+4 (Gulf Standard Time)' },
+  { value: 'UTC+4:30', label: 'UTC+4:30 (Afghanistan Time)' },
+  { value: 'UTC+5', label: 'UTC+5 (Pakistan Standard Time)' },
+  { value: 'UTC+5:30', label: 'UTC+5:30 (India Standard Time - IST)' },
+  { value: 'UTC+5:45', label: 'UTC+5:45 (Nepal Time)' },
+  { value: 'UTC+6', label: 'UTC+6 (Bangladesh Standard Time)' },
+  { value: 'UTC+6:30', label: 'UTC+6:30 (Myanmar Time)' },
+  { value: 'UTC+7', label: 'UTC+7 (Indochina Time)' },
+  { value: 'UTC+8', label: 'UTC+8 (China Standard Time - CST)' },
+  { value: 'UTC+8:45', label: 'UTC+8:45 (Australian Central Western Time)' },
+  { value: 'UTC+9', label: 'UTC+9 (Japan Standard Time - JST)' },
+  { value: 'UTC+9:30', label: 'UTC+9:30 (Australian Central Standard Time)' },
+  { value: 'UTC+10', label: 'UTC+10 (Australian Eastern Standard Time)' },
+  { value: 'UTC+10:30', label: 'UTC+10:30 (Lord Howe Standard Time)' },
+  { value: 'UTC+11', label: 'UTC+11 (Solomon Islands Time)' },
+  { value: 'UTC+12', label: 'UTC+12 (New Zealand Standard Time)' },
+  { value: 'UTC+12:45', label: 'UTC+12:45 (Chatham Standard Time)' },
+  { value: 'UTC+13', label: 'UTC+13 (Tonga Time)' },
+  { value: 'UTC+14', label: 'UTC+14 (Line Islands Time)' },
+];
+
+// Comprehensive language list
+export const LANGUAGES = [
+  { value: 'English', label: 'English' },
+  { value: 'Spanish', label: 'Spanish (Español)' },
+  { value: 'French', label: 'French (Français)' },
+  { value: 'German', label: 'German (Deutsch)' },
+  { value: 'Italian', label: 'Italian (Italiano)' },
+  { value: 'Portuguese', label: 'Portuguese (Português)' },
+  { value: 'Russian', label: 'Russian (Русский)' },
+  { value: 'Chinese', label: 'Chinese (中文)' },
+  { value: 'Japanese', label: 'Japanese (日本語)' },
+  { value: 'Korean', label: 'Korean (한국어)' },
+  { value: 'Arabic', label: 'Arabic (العربية)' },
+  { value: 'Hindi', label: 'Hindi (हिन्दी)' },
+  { value: 'Dutch', label: 'Dutch (Nederlands)' },
+  { value: 'Polish', label: 'Polish (Polski)' },
+  { value: 'Turkish', label: 'Turkish (Türkçe)' },
+  { value: 'Vietnamese', label: 'Vietnamese (Tiếng Việt)' },
+  { value: 'Thai', label: 'Thai (ไทย)' },
+  { value: 'Indonesian', label: 'Indonesian (Bahasa Indonesia)' },
+  { value: 'Swedish', label: 'Swedish (Svenska)' },
+  { value: 'Norwegian', label: 'Norwegian (Norsk)' },
+  { value: 'Danish', label: 'Danish (Dansk)' },
+  { value: 'Finnish', label: 'Finnish (Suomi)' },
+  { value: 'Greek', label: 'Greek (Ελληνικά)' },
+  { value: 'Hebrew', label: 'Hebrew (עברית)' },
+  { value: 'Czech', label: 'Czech (Čeština)' },
+  { value: 'Romanian', label: 'Romanian (Română)' },
+  { value: 'Hungarian', label: 'Hungarian (Magyar)' },
+  { value: 'Ukrainian', label: 'Ukrainian (Українська)' },
+  { value: 'Malay', label: 'Malay (Bahasa Melayu)' },
+  { value: 'Tagalog', label: 'Tagalog (Filipino)' },
 ];

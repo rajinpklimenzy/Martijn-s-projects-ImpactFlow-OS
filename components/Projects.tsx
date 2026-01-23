@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, ChevronRight, Loader2 } from 'lucide-react';
-import { Project, Company, User as UserType } from '../types';
-import { apiGetProjects, apiGetCompanies, apiGetUsers } from '../utils/api';
+import { Project, Company, User as UserType, Task } from '../types';
+import { apiGetProjects, apiGetCompanies, apiGetUsers, apiGetTasks } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
 interface ProjectsProps {
@@ -16,6 +16,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Fetch projects, companies, and users
@@ -47,12 +48,23 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
           console.error('Failed to fetch users:', err);
           setUsers([]);
         }
+
+        // Fetch tasks to calculate project progress
+        try {
+          const tasksResponse = await apiGetTasks(userId);
+          const fetchedTasks = tasksResponse?.data || tasksResponse || [];
+          setTasks(Array.isArray(fetchedTasks) ? fetchedTasks : []);
+        } catch (err) {
+          console.error('Failed to fetch tasks:', err);
+          setTasks([]);
+        }
       } catch (err: any) {
         console.error('[PROJECTS] Failed to fetch projects data:', err);
         showError(err.message || 'Failed to load projects');
         setProjects([]);
         setCompanies([]);
         setUsers([]);
+        setTasks([]);
       } finally {
         setIsLoading(false);
       }
@@ -61,7 +73,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     fetchData();
   }, [currentUser]);
 
-  // Listen for project creation/update events
+  // Listen for project creation/update events and task updates
   useEffect(() => {
     const handleRefresh = async () => {
       const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
@@ -74,9 +86,34 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
       }
     };
 
+    const handleTaskRefresh = async () => {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      try {
+        const tasksResponse = await apiGetTasks(userId);
+        const fetchedTasks = tasksResponse?.data || tasksResponse || [];
+        setTasks(Array.isArray(fetchedTasks) ? fetchedTasks : []);
+      } catch (err) {
+        console.error('Failed to refresh tasks:', err);
+      }
+    };
+
     window.addEventListener('refresh-projects', handleRefresh);
-    return () => window.removeEventListener('refresh-projects', handleRefresh);
+    window.addEventListener('refresh-tasks', handleTaskRefresh);
+    return () => {
+      window.removeEventListener('refresh-projects', handleRefresh);
+      window.removeEventListener('refresh-tasks', handleTaskRefresh);
+    };
   }, [currentUser]);
+
+  // Calculate project progress based on completed tasks
+  const calculateProjectProgress = (projectId: string): number => {
+    const projectTasks = tasks.filter(task => task.projectId === projectId);
+    if (projectTasks.length === 0) return 0;
+    
+    const completedTasks = projectTasks.filter(task => task.status === 'Done').length;
+    const progress = Math.round((completedTasks / projectTasks.length) * 100);
+    return progress;
+  };
 
   const getStatusIcon = (status: string) => {
     switch(status) {
@@ -132,7 +169,11 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
             return (
               <div 
                 key={project.id} 
-                onClick={() => onNavigate('tasks')}
+                onClick={() => {
+                  // Store selected project ID in sessionStorage to filter tasks
+                  sessionStorage.setItem('selectedProjectId', project.id);
+                  onNavigate('tasks');
+                }}
                 className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group active:scale-[0.98]"
               >
                 <div className="p-6">
@@ -150,10 +191,10 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                   <div className="space-y-4">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-bold uppercase tracking-wider text-slate-400">Project Progress</span>
-                      <span className="font-bold text-slate-900">{project.progress || 0}%</span>
+                      <span className="font-bold text-slate-900">{calculateProjectProgress(project.id)}%</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div className="bg-indigo-600 h-full transition-all duration-500" style={{width: `${project.progress || 0}%`}} />
+                      <div className="bg-indigo-600 h-full transition-all duration-500" style={{width: `${calculateProjectProgress(project.id)}%`}} />
                     </div>
                   </div>
                 </div>

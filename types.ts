@@ -8,6 +8,12 @@ export interface User {
   role: 'Admin' | 'Manager' | 'Staff';
   avatar: string;
   active: boolean;
+  jobTitle?: string;
+  department?: string;
+  phone?: string;
+  bio?: string;
+  timezone?: string;
+  language?: string;
 }
 
 export interface CalendarEvent {
@@ -61,6 +67,7 @@ export interface Company {
   industry: string;
   website: string;
   logo: string;
+  email?: string;
 }
 
 export interface Deal {
@@ -120,6 +127,14 @@ export interface Thread {
   body?: string;
 }
 
+export interface InvoiceItem {
+  id: string;
+  description: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
 export interface Invoice {
   id: string;
   number: string;
@@ -127,6 +142,11 @@ export interface Invoice {
   amount: number;
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue';
   dueDate: string;
+  description?: string;
+  userId?: string;
+  items?: InvoiceItem[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AutomationRule {
@@ -136,10 +156,14 @@ export interface AutomationRule {
   action: string;
   active: boolean;
   description: string;
+  userId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Notification {
   id: string;
+  userId?: string;
   type: 'lead' | 'deal' | 'task' | 'payment' | 'system';
   title: string;
   message: string;

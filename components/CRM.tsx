@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { MOCK_DEALS } from '../constants';
 import { Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, ExternalLink, Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, Loader2, AlertTriangle } from 'lucide-react';
-import { Company, Contact } from '../types';
-import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiDeleteCompany, apiDeleteContact } from '../utils/api';
+import { Company, Contact, Deal } from '../types';
+import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiDeleteCompany, apiDeleteContact, apiGetDeals } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
 interface CRMProps {
@@ -20,16 +19,18 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCompanyContacts, setSelectedCompanyContacts] = useState<Contact[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [editFormData, setEditFormData] = useState<{ name: string; industry: string; website: string }>({
+  const [editFormData, setEditFormData] = useState<{ name: string; industry: string; website: string; email: string }>({
     name: '',
     industry: '',
-    website: ''
+    website: '',
+    email: ''
   });
   const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
   const [isContactDeleteConfirmOpen, setIsContactDeleteConfirmOpen] = useState(false);
@@ -41,6 +42,17 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setLocalSearchQuery(externalSearchQuery);
     }
   }, [externalSearchQuery]);
+
+  // Fetch deals
+  const fetchDeals = async () => {
+    try {
+      const response = await apiGetDeals();
+      setDeals(response.data || []);
+    } catch (err) {
+      console.error('Failed to fetch deals:', err);
+      setDeals([]);
+    }
+  };
 
   // Fetch companies
   const fetchCompanies = async () => {
@@ -63,6 +75,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       fetchCompanies();
     }
   }, [view, localSearchQuery]);
+
+  // Fetch deals when component mounts
+  useEffect(() => {
+    fetchDeals();
+  }, []);
 
   // Fetch contacts
   const fetchContacts = async () => {
@@ -97,10 +114,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       if (selectedCompany) {
         fetchCompanyContacts();
       }
+      fetchDeals(); // Refresh deals when CRM is refreshed
     };
 
     window.addEventListener('refresh-crm', handleRefresh);
-    return () => window.removeEventListener('refresh-crm', handleRefresh);
+    window.addEventListener('refresh-pipeline', handleRefresh); // Also refresh when deals are updated
+    return () => {
+      window.removeEventListener('refresh-crm', handleRefresh);
+      window.removeEventListener('refresh-pipeline', handleRefresh);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, selectedCompany]);
 
@@ -143,7 +165,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setEditFormData({
         name: selectedCompany.name || '',
         industry: selectedCompany.industry || '',
-        website: selectedCompany.website || ''
+        website: selectedCompany.website || '',
+        email: selectedCompany.email || ''
       });
     }
   }, [selectedCompany]);
@@ -227,7 +250,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   const getCompanyDealsCount = (companyId: string) => {
-    return MOCK_DEALS.filter(d => d.companyId === companyId).length;
+    // Count only open deals (not "Won" or "Lost")
+    return deals.filter(d => 
+      d.companyId === companyId && 
+      d.stage !== 'Won' && 
+      d.stage !== 'Lost'
+    ).length;
   };
 
   const generateEmailFromName = (name: string, domain: string) => {
@@ -261,7 +289,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           </div>
         </div>
         <button 
-          onClick={view === 'companies' ? onAddCompany : onAddContact}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (view === 'companies') {
+              onAddCompany();
+            } else {
+              onAddContact();
+            }
+          }}
           className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
         >
           <Plus className="w-4 h-4" />
@@ -309,7 +345,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               <h3 className="text-lg font-bold text-slate-900">No {view === 'companies' ? 'Companies' : 'Contacts'} Found</h3>
               <p className="text-slate-500 text-sm mt-1">Get started by adding your first {view === 'companies' ? 'company' : 'contact'}.</p>
               <button 
-                onClick={view === 'companies' ? onAddCompany : onAddContact}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (view === 'companies') {
+                    onAddCompany();
+                  } else {
+                    onAddContact();
+                  }
+                }}
                 className="mt-6 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4" />
@@ -495,7 +539,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Contacts ({selectedCompanyContacts.length})</h3>
-                  <button onClick={onAddContact} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-wider flex items-center gap-1">
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onAddContact();
+                    }} 
+                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-wider flex items-center gap-1"
+                  >
                     <Plus className="w-3 h-3" /> Add Contact
                   </button>
                 </div>
@@ -615,6 +666,17 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     value={editFormData.website}
                     onChange={(e) => setEditFormData(prev => ({ ...prev, website: e.target.value }))}
                     placeholder="example.com"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>
+                  <input 
+                    type="email" 
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="company@example.com"
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
                   />
                 </div>

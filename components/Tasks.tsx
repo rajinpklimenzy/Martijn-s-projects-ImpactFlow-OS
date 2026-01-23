@@ -18,6 +18,17 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
+  // Check for selected project ID from sessionStorage
+  useEffect(() => {
+    const projectId = sessionStorage.getItem('selectedProjectId');
+    if (projectId) {
+      setSelectedProjectId(projectId);
+      // Clear it after reading so it doesn't persist if user navigates away
+      // We'll clear it when user explicitly wants to see all tasks
+    }
+  }, []);
 
   // Fetch tasks, projects, and users
   useEffect(() => {
@@ -113,8 +124,14 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     }
   };
 
-  // Filter tasks based on search query
+  // Filter tasks based on selected project and search query
   const filteredTasks = tasks.filter(task => {
+    // Filter by selected project if one is selected
+    if (selectedProjectId && task.projectId !== selectedProjectId) {
+      return false;
+    }
+    
+    // Filter by search query
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -128,7 +145,24 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold">My Tasks</h1>
-          <p className="text-slate-500 text-xs lg:text-sm">Manage implementation goals for {filteredTasks.length} {filteredTasks.length === 1 ? 'item' : 'items'}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-slate-500 text-xs lg:text-sm">Manage implementation goals for {filteredTasks.length} {filteredTasks.length === 1 ? 'item' : 'items'}</p>
+            {selectedProjectId && (
+              <>
+                <span className="text-slate-300">•</span>
+                <button
+                  onClick={() => {
+                    setSelectedProjectId(null);
+                    sessionStorage.removeItem('selectedProjectId');
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1"
+                >
+                  <span>Showing tasks for: {projects.find(p => p.id === selectedProjectId)?.title || 'Project'}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <button 
           onClick={onCreateTask}

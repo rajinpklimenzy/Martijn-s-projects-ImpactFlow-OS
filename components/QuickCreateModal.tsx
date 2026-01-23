@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2 } from 'lucide-react';
 import { MOCK_PROJECTS, MOCK_USERS } from '../constants';
-import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects } from '../utils/api';
+import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiCreateInvoice, apiCreateNotification } from '../utils/api';
 import { Company, User as UserType, Project } from '../types';
 
 interface QuickCreateModalProps {
@@ -117,6 +117,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     setError(null);
 
     try {
+      const currentUser = JSON.parse(localStorage.getItem('user_data') || 'null');
+      const userId = currentUser?.id;
+
       if (type === 'contact') {
         if (!formData.name || !formData.companyId) throw new Error('Name and Company are required');
         await apiCreateContact({
@@ -126,13 +129,32 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           email: formData.email,
           phone: formData.phone
         });
+        if (userId) {
+          await apiCreateNotification({
+            userId,
+            type: 'lead',
+            title: 'New Contact Added',
+            message: `${formData.name} was added under ${companies.find(c => c.id === formData.companyId)?.name || 'a company'}.`,
+            link: '/?tab=crm'
+          });
+        }
       } else if (type === 'company') {
         if (!formData.name) throw new Error('Company name is required');
         await apiCreateCompany({
           name: formData.name,
           industry: formData.industry,
-          website: formData.website
+          website: formData.website,
+          email: formData.email || undefined
         });
+        if (userId) {
+          await apiCreateNotification({
+            userId,
+            type: 'lead',
+            title: 'New Company Added',
+            message: `${formData.name} was added to your CRM.`,
+            link: '/?tab=crm'
+          });
+        }
       } else if (type === 'deal') {
         if (!formData.title || !formData.companyId || !formData.ownerId) throw new Error('Title, Company, and Assignee are required');
         await apiCreateDeal({
@@ -144,6 +166,15 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           expectedCloseDate: formData.expectedCloseDate || undefined,
           description: formData.description || undefined
         });
+        if (userId) {
+          await apiCreateNotification({
+            userId,
+            type: 'deal',
+            title: 'New Deal Created',
+            message: `${formData.title} for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'} was created.`,
+            link: '/?tab=pipeline'
+          });
+        }
       } else if (type === 'project') {
         if (!formData.title || !formData.companyId || !formData.ownerId) throw new Error('Title, Company, and Assignee are required');
         await apiCreateProject({
@@ -155,6 +186,15 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           description: formData.description || undefined,
           assignedUserIds: formData.assignedUserIds.length > 0 ? formData.assignedUserIds : undefined
         });
+        if (userId) {
+          await apiCreateNotification({
+            userId,
+            type: 'system',
+            title: 'New Project Created',
+            message: `${formData.title} project was created for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'}.`,
+            link: '/?tab=projects'
+          });
+        }
       } else if (type === 'task') {
         if (!formData.title || !formData.companyId || !formData.assigneeId) throw new Error('Title, Project, and Assignee are required');
         await apiCreateTask({
@@ -166,6 +206,37 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           status: 'Todo',
           assigneeId: formData.assigneeId
         });
+        if (userId) {
+          const project = projects.find(p => p.id === formData.companyId);
+          await apiCreateNotification({
+            userId,
+            type: 'task',
+            title: 'New Task Created',
+            message: `${formData.title} task was created${project ? ` under ${project.title}` : ''}.`,
+            link: '/?tab=tasks'
+          });
+        }
+      } else if (type === 'invoice') {
+        if (!formData.companyId || !formData.value) throw new Error('Company and Amount are required');
+        const userIdForInvoice = JSON.parse(localStorage.getItem('user_data') || '{}').id;
+        // Invoice number will be auto-generated by backend, don't send it
+        await apiCreateInvoice({
+          companyId: formData.companyId,
+          amount: parseFloat(formData.value) || 0,
+          dueDate: formData.expectedCloseDate || undefined,
+          status: 'Draft',
+          description: formData.description || undefined,
+          userId: userIdForInvoice || undefined
+        });
+        if (userIdForInvoice) {
+          await apiCreateNotification({
+            userId: userIdForInvoice,
+            type: 'payment',
+            title: 'New Invoice Created',
+            message: `Invoice for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'} was created for $${(parseFloat(formData.value) || 0).toLocaleString()}.`,
+            link: '/?tab=invoices'
+          });
+        }
       }
 
       setStep('success');
@@ -257,25 +328,40 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2 space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {type === 'task' ? 'Task Title' : type === 'deal' || type === 'project' ? 'Title / Name' : type === 'company' ? 'Company Name' : 'Full Name'}
-              </label>
-              <input 
-                required 
-                type="text" 
-                placeholder={type === 'task' ? 'Enter task title...' : `Enter ${type === 'company' ? 'company' : type === 'contact' ? 'contact' : type} name...`} 
-                value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name}
-                onChange={(e) => {
-                  if (type === 'deal' || type === 'project' || type === 'task') {
-                    setFormData(prev => ({ ...prev, title: e.target.value }));
-                  } else {
-                    setFormData(prev => ({ ...prev, name: e.target.value }));
-                  }
-                }}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-              />
-            </div>
+            {type !== 'invoice' && (
+              <div className="md:col-span-2 space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  {type === 'task' ? 'Task Title' : type === 'deal' || type === 'project' ? 'Title / Name' : type === 'company' ? 'Company Name' : 'Full Name'}
+                </label>
+                <input 
+                  required 
+                  type="text" 
+                  placeholder={type === 'task' ? 'Enter task title...' : `Enter ${type === 'company' ? 'company' : type === 'contact' ? 'contact' : type} name...`} 
+                  value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name}
+                  onChange={(e) => {
+                    if (type === 'deal' || type === 'project' || type === 'task') {
+                      setFormData(prev => ({ ...prev, title: e.target.value }));
+                    } else {
+                      setFormData(prev => ({ ...prev, name: e.target.value }));
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
+                />
+              </div>
+            )}
+
+            {type === 'invoice' && (
+              <div className="md:col-span-2 space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Invoice Number</label>
+                <input 
+                  type="text" 
+                  value="Auto-generated" 
+                  disabled
+                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm outline-none text-slate-500 cursor-not-allowed" 
+                />
+                <p className="text-[10px] text-slate-400 italic">Invoice number will be generated automatically (e.g., INV-2024-0001)</p>
+              </div>
+            )}
 
             {(type === 'deal' || type === 'project' || type === 'invoice' || type === 'contact') && (
               <div className="space-y-1.5">
@@ -318,6 +404,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Website</label>
                   <input type="text" placeholder="example.com" value={formData.website} onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>
+                  <input type="email" placeholder="company@example.com" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
                 </div>
               </>
             )}
@@ -383,7 +473,37 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               </>
             )}
 
-            {(type === 'deal' || type === 'project' || type === 'task') && (
+            {type === 'invoice' && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input 
+                      required
+                      type="number" 
+                      step="0.01"
+                      placeholder="0.00" 
+                      value={formData.value}
+                      onChange={(e) => setFormData(prev => ({ ...prev, value: e.target.value }))}
+                      className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Due Date</label>
+                  <input 
+                    required 
+                    type="date" 
+                    value={formData.expectedCloseDate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
+                  />
+                </div>
+              </>
+            )}
+
+            {(type === 'deal' || type === 'project' || type === 'task' || type === 'invoice') && (
               <div className="md:col-span-2 space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Description</label>
                 <textarea placeholder="Add relevant details..." value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={3} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 resize-none" />
