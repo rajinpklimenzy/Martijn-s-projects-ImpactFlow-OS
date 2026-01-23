@@ -15,9 +15,11 @@ import Schedule from './components/Schedule.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
+import EventModal from './components/EventModal.tsx';
 import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, LayoutGrid, Users, CheckSquare, FolderKanban } from 'lucide-react';
-import { Notification } from './types.ts';
+import { Notification, CalendarEvent } from './types.ts';
 import { apiLogout } from './utils/api.ts';
+import { ToastProvider } from './contexts/ToastContext.tsx';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -27,9 +29,19 @@ const App: React.FC = () => {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   
   // Create Modal States
-  const [createModalConfig, setCreateModalConfig] = useState<{ isOpen: boolean; type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact' }>({
+  const [createModalConfig, setCreateModalConfig] = useState<{ 
+    isOpen: boolean; 
+    type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
+    stage?: string; // Optional stage for deals
+  }>({
     isOpen: false,
     type: 'deal'
+  });
+
+  // Event Modal States
+  const [eventModal, setEventModal] = useState<{ isOpen: boolean; event: CalendarEvent | null; selectedDate?: Date }>({
+    isOpen: false,
+    event: null
   });
 
   // Notification States
@@ -51,6 +63,21 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Handle URL query parameters for tab navigation (e.g., from OAuth redirects)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && ['dashboard', 'schedule', 'inbox', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'automation', 'users', 'settings'].includes(tabParam)) {
+      setActiveTab(tabParam);
+      // Clean up URL by removing the tab parameter
+      urlParams.delete('tab');
+      const newUrl = urlParams.toString() 
+        ? `${window.location.pathname}?${urlParams.toString()}`
+        : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
@@ -61,8 +88,8 @@ const App: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    apiLogout();
+  const handleLogout = async () => {
+    await apiLogout();
     window.location.reload();
   };
 
@@ -74,23 +101,39 @@ const App: React.FC = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
-  const openCreateModal = (type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact') => {
-    setCreateModalConfig({ isOpen: true, type });
+  const openCreateModal = (type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact', stage?: string) => {
+    setCreateModalConfig({ isOpen: true, type, stage });
+  };
+
+  const openEventModal = (event?: CalendarEvent | null, selectedDate?: Date) => {
+    setEventModal({ isOpen: true, event: event || null, selectedDate });
+  };
+
+  const closeEventModal = () => {
+    setEventModal({ isOpen: false, event: null });
+  };
+
+  const handleEventSuccess = () => {
+    // Refresh schedule if on schedule tab
+    if (activeTab === 'schedule') {
+      // The Schedule component will refetch on its own via useEffect
+      window.dispatchEvent(new CustomEvent('refresh-schedule'));
+    }
   };
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={setActiveTab} />;
-      case 'schedule': return <Schedule />;
-      case 'inbox': return <Inbox />;
+      case 'schedule': return <Schedule currentUser={currentUser} />;
+      case 'inbox': return <Inbox currentUser={currentUser} />;
       case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
-      case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={() => openCreateModal('deal')} />;
-      case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} />;
-      case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} />;
+      case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
+      case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
+      case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} />;
       case 'automation': return <Automations />;
       case 'users': return <UserManagement />;
-      case 'settings': return <Settings />;
+      case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       default: return <Dashboard onNavigate={setActiveTab} />;
     }
   };
@@ -102,7 +145,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <AuthGate onUserLoaded={setCurrentUser}>
+    <ToastProvider>
+      <AuthGate onUserLoaded={setCurrentUser}>
       <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
         {isMobile && isSidebarOpen && (
           <div 
@@ -230,12 +274,41 @@ const App: React.FC = () => {
 
         {createModalConfig.isOpen && (
           <QuickCreateModal 
-            type={createModalConfig.type} 
+            type={createModalConfig.type}
+            stage={createModalConfig.stage}
             onClose={() => setCreateModalConfig({ ...createModalConfig, isOpen: false })} 
+            onSuccess={() => {
+              // Refresh CRM data when contact or company is created
+              if (createModalConfig.type === 'contact' || createModalConfig.type === 'company') {
+                window.dispatchEvent(new Event('refresh-crm'));
+              }
+              // Refresh pipeline when deal is created
+              if (createModalConfig.type === 'deal') {
+                window.dispatchEvent(new Event('refresh-pipeline'));
+              }
+              // Refresh projects when project is created
+              if (createModalConfig.type === 'project') {
+                window.dispatchEvent(new Event('refresh-projects'));
+              }
+              // Refresh tasks when task is created
+              if (createModalConfig.type === 'task') {
+                window.dispatchEvent(new Event('refresh-tasks'));
+              }
+            }}
+          />
+        )}
+
+        {eventModal.isOpen && (
+          <EventModal
+            event={eventModal.event}
+            selectedDate={eventModal.selectedDate}
+            onClose={closeEventModal}
+            onSuccess={handleEventSuccess}
           />
         )}
       </div>
-    </AuthGate>
+      </AuthGate>
+    </ToastProvider>
   );
 };
 

@@ -16,13 +16,22 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleSendCode = async () => {
+    // Validate email before sending
+    if (!email || !email.includes('@')) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      await apiRequestCode({ email });
+      const response = await apiRequestCode({ email });
+      // Clear any previous errors and move to verify step
+      setError(null);
+      setCodeDigits(['', '', '', '', '', '']); // Reset code inputs
       setStep('verify');
     } catch (err: any) {
-      setError(err.message || "Failed to send code. Verify your internet connection.");
+      setError(err.message || "Failed to send code. Please check your internet connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -32,19 +41,48 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     const verificationCode = codeDigits.join('');
     // Only proceed if all 6 digits are entered
     if (verificationCode.length !== 6) {
+      // Don't show error, just return silently
+      return;
+    }
+
+    // Validate that it's all digits
+    if (!/^\d{6}$/.test(verificationCode)) {
+      setError('OTP must contain only numbers');
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
+      console.log('[AUTH] Verifying OTP for:', email);
       const data = await apiVerify({ email, verificationCode });
-      onLogin(data);
+      console.log('[AUTH] OTP verification successful:', data);
+      // Clear error on success
+      setError(null);
+      // Ensure we have token and user before calling onLogin
+      if (data.token && data.user) {
+        onLogin(data);
+      } else {
+        throw new Error('Invalid response from server. Missing token or user data.');
+      }
     } catch (err: any) {
-      setError(err.message || "Invalid or expired code.");
+      console.error('[AUTH] OTP verification failed:', err);
+      // Check for specific error codes
+      if (err.code === 'USER_NOT_REGISTERED' || err.message?.includes('not registered')) {
+        setError('User not registered. Please contact your administrator to create an account.');
+      } else if (err.code === 'USER_DISABLED' || err.message?.includes('disabled')) {
+        setError('Your account has been disabled. Please contact your administrator.');
+      } else {
+        // Show specific error message from backend
+        const errorMessage = err.message || "Invalid or expired code. Please request a new code.";
+        setError(errorMessage);
+      }
       // Clear the code on error
       setCodeDigits(['', '', '', '', '', '']);
-      inputRefs.current[0]?.focus();
+      // Focus first input after a short delay
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
     } finally {
       setLoading(false);
     }
@@ -194,6 +232,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
             {step === 'verify' && (
               <div className="space-y-4 text-center">
+                <div className="mb-4">
+                  <p className="text-xs text-slate-400 mb-2">Code sent to</p>
+                  <p className="text-sm font-semibold text-white">{email}</p>
+                </div>
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-6">Enter Verification Code</label>
                 <div className="flex items-center justify-center gap-2 md:gap-3">
                   {codeDigits.map((digit, index) => (
@@ -213,16 +255,44 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     />
                   ))}
                 </div>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setStep('initial');
-                    setCodeDigits(['', '', '', '', '', '']);
-                  }}
-                  className="mt-6 text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors"
-                >
-                  Request code for a different email
-                </button>
+                <div className="flex flex-col items-center gap-2 mt-6">
+                  <button 
+                    type="button"
+                    onClick={async () => {
+                      setError(null);
+                      setCodeDigits(['', '', '', '', '', '']);
+                      // Request new code for same email
+                      setLoading(true);
+                      try {
+                        await apiRequestCode({ email });
+                        setError(null);
+                        // Focus first input after code is sent
+                        setTimeout(() => {
+                          inputRefs.current[0]?.focus();
+                        }, 100);
+                      } catch (err: any) {
+                        setError(err.message || "Failed to send new code. Please try again.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    disabled={loading}
+                    className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? 'Sending...' : 'Request New Code'}
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setStep('initial');
+                      setCodeDigits(['', '', '', '', '', '']);
+                      setError(null); // Clear error when requesting new code
+                    }}
+                    className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors"
+                  >
+                    Use a different email
+                  </button>
+                </div>
               </div>
             )}
 

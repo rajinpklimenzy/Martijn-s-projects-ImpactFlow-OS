@@ -12,12 +12,37 @@ export interface User {
 
 export interface CalendarEvent {
   id: string;
+  userId?: string;
   title: string;
-  start: string; // ISO string or time format
-  end: string;
-  type: 'meeting' | 'task' | 'deadline';
+  description?: string;
+  start: string; // ISO 8601 datetime or time format (HH:MM)
+  end: string;   // ISO 8601 datetime or time format (HH:MM)
+  type: 'meeting' | 'task' | 'deadline' | 'reminder' | 'custom';
   location?: string;
   participants?: string[];
+  relatedEntity?: {
+    type: 'deal' | 'project' | 'task' | 'contact';
+    id: string;
+  };
+  color?: string;
+  isAllDay?: boolean;
+  recurrence?: {
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    interval: number;
+    endDate?: string;
+  };
+  reminders?: {
+    minutesBefore: number[];
+    email: boolean;
+    push: boolean;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  // Google Calendar specific fields
+  source?: 'google' | 'local';
+  googleEventId?: string;
+  htmlLink?: string;
 }
 
 export interface Contact {
@@ -46,6 +71,9 @@ export interface Deal {
   stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost';
   ownerId: string;
   expectedCloseDate: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Project {
@@ -55,6 +83,11 @@ export interface Project {
   status: 'Planning' | 'Active' | 'On Hold' | 'Completed';
   dealId?: string;
   progress: number;
+  ownerId?: string;
+  description?: string;
+  assignedUserIds?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Task {
@@ -66,6 +99,8 @@ export interface Task {
   priority: 'Low' | 'Medium' | 'High';
   status: 'Todo' | 'In Progress' | 'Review' | 'Done';
   assigneeId: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Thread {
@@ -78,6 +113,11 @@ export interface Thread {
   status: Status;
   assigneeId?: string;
   isStarred?: boolean;
+  sharedBy?: string;
+  sharedByName?: string;
+  gmailMessageId?: string;
+  gmailThreadId?: string;
+  body?: string;
 }
 
 export interface Invoice {

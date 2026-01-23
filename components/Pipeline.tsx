@@ -1,20 +1,205 @@
 
-import React, { useState } from 'react';
-import { MOCK_DEALS, MOCK_COMPANIES, MOCK_USERS } from '../constants';
-import { MoreHorizontal, Plus, Calendar, DollarSign, ArrowRight, Settings2, X, Check, Building2, User, Clock, Trash2 } from 'lucide-react';
-import { Deal } from '../types';
+import React, { useState, useEffect } from 'react';
+import { MOCK_COMPANIES, MOCK_USERS } from '../constants';
+import { MoreHorizontal, Plus, Calendar, DollarSign, ArrowRight, Settings2, X, Check, Building2, User, Clock, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Deal, Company, User as UserType } from '../types';
+import { apiGetDeals, apiUpdateDeal, apiDeleteDeal, apiGetCompanies, apiGetUsers } from '../utils/api';
+import { useToast } from '../contexts/ToastContext';
 
 interface PipelineProps {
   onNavigate: (tab: string) => void;
-  onNewDeal: () => void;
+  onNewDeal: (stage?: string) => void;
+  currentUser?: any;
 }
 
 const DEFAULT_STAGES = ['Discovery', 'Proposal', 'Negotiation', 'Won', 'Lost'];
 
-const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
+const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal, currentUser }) => {
+  const { showSuccess, showError } = useToast();
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [users, setUsers] = useState<UserType[]>([]);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [showStageConfig, setShowStageConfig] = useState(false);
   const [stages, setStages] = useState([...DEFAULT_STAGES]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editFormData, setEditFormData] = useState<any>(null);
+  
+  // Confirmation Modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: () => {},
+    type: 'danger'
+  });
+
+  // Fetch deals, companies, and users
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+        
+        if (!userId) {
+          console.warn('No user ID found, skipping data fetch');
+          setDeals([]);
+          setCompanies([]);
+          setUsers([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        // Fetch deals (userId is optional, but we pass it to filter by owner)
+        const dealsResponse = await apiGetDeals(userId);
+        console.log('[PIPELINE] Deals API response:', dealsResponse);
+        
+        // Handle different response structures
+        const fetchedDeals = dealsResponse?.data || dealsResponse || [];
+        console.log('[PIPELINE] Fetched deals:', fetchedDeals.length, fetchedDeals);
+        setDeals(Array.isArray(fetchedDeals) ? fetchedDeals : []);
+
+        // Fetch companies
+        try {
+          const companiesResponse = await apiGetCompanies();
+          setCompanies(companiesResponse?.data || companiesResponse || []);
+        } catch (err) {
+          console.error('Failed to fetch companies:', err);
+          setCompanies([]);
+        }
+
+        // Fetch users
+        try {
+          const usersResponse = await apiGetUsers();
+          setUsers(usersResponse?.data || usersResponse || []);
+        } catch (err) {
+          console.error('Failed to fetch users:', err);
+          setUsers([]);
+        }
+      } catch (err: any) {
+        console.error('[PIPELINE] Failed to fetch pipeline data:', err);
+        showError(err.message || 'Failed to load deals');
+        setDeals([]);
+        setCompanies([]);
+        setUsers([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [currentUser]);
+
+  // Set edit form data when deal is selected
+  useEffect(() => {
+    if (selectedDeal) {
+      setEditFormData({
+        title: selectedDeal.title,
+        value: selectedDeal.value,
+        stage: selectedDeal.stage,
+        expectedCloseDate: selectedDeal.expectedCloseDate,
+        description: selectedDeal.description || ''
+      });
+    }
+  }, [selectedDeal]);
+
+  // Listen for deal creation/update events
+  useEffect(() => {
+    const handleRefresh = async () => {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      try {
+        const dealsResponse = await apiGetDeals(userId);
+        setDeals(dealsResponse.data || []);
+      } catch (err) {
+        console.error('Failed to refresh deals:', err);
+      }
+    };
+
+    window.addEventListener('refresh-pipeline', handleRefresh);
+    return () => window.removeEventListener('refresh-pipeline', handleRefresh);
+  }, [currentUser]);
+
+  const handleUpdateDeal = async () => {
+    if (!selectedDeal || !editFormData) return;
+
+    setIsSaving(true);
+    try {
+      await apiUpdateDeal(selectedDeal.id, editFormData);
+      showSuccess('Deal updated successfully');
+      
+      // Refresh deals
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      const dealsResponse = await apiGetDeals(userId);
+      setDeals(dealsResponse.data || []);
+      
+      // Update selected deal
+      const updatedDeal = dealsResponse.data?.find((d: Deal) => d.id === selectedDeal.id);
+      if (updatedDeal) {
+        setSelectedDeal(updatedDeal);
+      }
+    } catch (err: any) {
+      console.error('Failed to update deal:', err);
+      showError(err.message || 'Failed to update deal');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteDeal = () => {
+    if (!selectedDeal) return;
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Deal',
+      message: 'Are you sure you want to delete this deal? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        
+        try {
+          await apiDeleteDeal(selectedDeal.id);
+          showSuccess('Deal deleted successfully');
+          setSelectedDeal(null);
+          
+          // Refresh deals
+          const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+          const dealsResponse = await apiGetDeals(userId);
+          setDeals(dealsResponse.data || []);
+        } catch (err: any) {
+          console.error('Failed to delete deal:', err);
+          showError(err.message || 'Failed to delete deal');
+        }
+      }
+    });
+  };
+
+  const handleStageChange = async (dealId: string, newStage: string) => {
+    try {
+      await apiUpdateDeal(dealId, { stage: newStage as any });
+      showSuccess('Deal stage updated');
+      
+      // Refresh deals
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      const dealsResponse = await apiGetDeals(userId);
+      setDeals(dealsResponse.data || []);
+    } catch (err: any) {
+      console.error('Failed to update deal stage:', err);
+      showError(err.message || 'Failed to update deal stage');
+    }
+  };
 
   return (
     <div className="h-full flex flex-col gap-4 lg:gap-6 animate-in slide-in-from-right-2 duration-500 relative">
@@ -42,24 +227,48 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
       </div>
 
       <div className="flex-1 flex gap-4 lg:gap-6 overflow-x-auto pb-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-hide snap-x snap-mandatory lg:snap-none">
-        {stages.map(stage => (
-          <div key={stage} className="flex flex-col w-72 lg:w-80 shrink-0 snap-center">
-            <div className="flex justify-between items-center mb-4 px-2">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 text-sm lg:text-base">{stage}</h3>
-                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-                  {MOCK_DEALS.filter(d => d.stage === stage).length}
-                </span>
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                ${MOCK_DEALS.filter(d => d.stage === stage).reduce((sum, d) => sum + d.value, 0).toLocaleString()}
-              </span>
+        {isLoading ? (
+          <div className="flex items-center justify-center w-full min-h-[400px]">
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+          </div>
+        ) : deals.length === 0 ? (
+          <div className="flex flex-col items-center justify-center w-full min-h-[400px] bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center">
+            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-4">
+              <Building2 className="w-8 h-8" />
             </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">No Deals Found</h3>
+            <p className="text-slate-500 text-sm mb-6">Get started by creating your first deal opportunity.</p>
+            <button 
+              onClick={onNewDeal}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Create Your First Deal
+            </button>
+          </div>
+        ) : (
+          stages.map(stage => {
+            const stageDeals = deals.filter(d => d.stage === stage);
+            const stageValue = stageDeals.reduce((sum, d) => sum + (d.value || 0), 0);
             
-            <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-              {MOCK_DEALS.filter(d => d.stage === stage).map(deal => {
-                const company = MOCK_COMPANIES.find(c => c.id === deal.companyId);
-                const owner = MOCK_USERS.find(u => u.id === deal.ownerId);
+            return (
+              <div key={stage} className="flex flex-col w-72 lg:w-80 shrink-0 snap-center">
+                <div className="flex justify-between items-center mb-4 px-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-slate-900 text-sm lg:text-base">{stage}</h3>
+                    <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                      {stageDeals.length}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    ${stageValue.toLocaleString()}
+                  </span>
+                </div>
+                
+                <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+                  {stageDeals.map(deal => {
+                    const company = companies.find(c => c.id === deal.companyId);
+                    const owner = users.find(u => u.id === deal.ownerId);
                 return (
                   <div 
                     key={deal.id} 
@@ -67,8 +276,18 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
                     className={`bg-white p-4 rounded-xl border transition-all cursor-pointer group select-none active:scale-[0.98] ${selectedDeal?.id === deal.id ? 'border-indigo-600 ring-2 ring-indigo-50 shadow-md' : 'border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200'}`}
                   >
                     <div className="flex justify-between items-start mb-2">
-                      <img src={company?.logo} alt="" className="w-5 h-5 rounded border border-slate-100" />
-                      <button className="p-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <img 
+                        src={company?.logo || `https://picsum.photos/seed/${company?.id || 'default'}/100/100`} 
+                        alt="" 
+                        className="w-5 h-5 rounded border border-slate-100" 
+                      />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDeal(deal);
+                        }}
+                        className="p-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
                         <MoreHorizontal className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600" />
                       </button>
                     </div>
@@ -87,7 +306,11 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
                     </div>
 
                     <div className="flex items-center justify-between pt-3 border-t border-slate-50">
-                      <img src={owner?.avatar} className="w-5 h-5 rounded-full border border-white ring-1 ring-slate-100" />
+                      <img 
+                        src={owner?.avatar || `https://picsum.photos/seed/${owner?.id || 'default'}/100/100`} 
+                        className="w-5 h-5 rounded-full border border-white ring-1 ring-slate-100" 
+                        alt=""
+                      />
                       {deal.stage === 'Won' ? (
                         <button 
                           onClick={(e) => {
@@ -103,17 +326,19 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
                       )}
                     </div>
                   </div>
-                );
-              })}
-              <button 
-                onClick={onNewDeal}
-                className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-[10px] font-bold hover:border-indigo-200 hover:text-indigo-400 transition-all uppercase tracking-widest active:bg-slate-50"
-              >
-                + Add Deal
-              </button>
-            </div>
-          </div>
-        ))}
+                  );
+                  })}
+                  <button 
+                    onClick={() => onNewDeal(stage)}
+                    className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-[10px] font-bold hover:border-indigo-200 hover:text-indigo-400 transition-all uppercase tracking-widest active:bg-slate-50"
+                  >
+                    + Add Deal
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Deal Detail Drawer */}
@@ -140,27 +365,74 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Deal Stage</label>
-                  <select defaultValue={selectedDeal.stage} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100">
-                    {stages.map(s => <option key={s}>{s}</option>)}
+                  <select 
+                    value={editFormData?.stage || selectedDeal.stage} 
+                    onChange={(e) => setEditFormData({ ...editFormData, stage: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100"
+                  >
+                    {stages.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expected Value</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
-                    <input type="text" defaultValue={selectedDeal.value.toLocaleString()} className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100" />
+                    <input 
+                      type="number" 
+                      value={editFormData?.value || selectedDeal.value} 
+                      onChange={(e) => setEditFormData({ ...editFormData, value: parseFloat(e.target.value) || 0 })}
+                      className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100" 
+                    />
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Title</label>
+                <input 
+                  type="text" 
+                  value={editFormData?.title || selectedDeal.title} 
+                  onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100" 
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expected Close Date</label>
+                <input 
+                  type="date" 
+                  value={editFormData?.expectedCloseDate || selectedDeal.expectedCloseDate || ''} 
+                  onChange={(e) => setEditFormData({ ...editFormData, expectedCloseDate: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100" 
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Description / Notes</label>
+                <textarea 
+                  value={editFormData?.description || ''} 
+                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  rows={4}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-100 resize-none" 
+                  placeholder="Add any relevant details..."
+                />
               </div>
 
               <div className="space-y-4">
                 <h3 className="text-sm font-bold text-slate-900">Associations</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors cursor-pointer group">
+                  <div 
+                    onClick={() => onNavigate('crm')}
+                    className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors cursor-pointer group"
+                  >
                     <div className="flex items-center gap-3">
-                      <img src={MOCK_COMPANIES.find(c => c.id === selectedDeal.companyId)?.logo} className="w-10 h-10 rounded border border-slate-100" />
+                      <img 
+                        src={companies.find(c => c.id === selectedDeal.companyId)?.logo || `https://picsum.photos/seed/${selectedDeal.companyId}/100/100`} 
+                        className="w-10 h-10 rounded border border-slate-100" 
+                        alt=""
+                      />
                       <div>
-                        <p className="text-sm font-bold text-slate-900">{MOCK_COMPANIES.find(c => c.id === selectedDeal.companyId)?.name}</p>
+                        <p className="text-sm font-bold text-slate-900">{companies.find(c => c.id === selectedDeal.companyId)?.name || 'Unknown Company'}</p>
                         <p className="text-xs text-slate-500">Company Account</p>
                       </div>
                     </div>
@@ -168,9 +440,13 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
                   </div>
                   <div className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors cursor-pointer group">
                     <div className="flex items-center gap-3">
-                      <img src={MOCK_USERS.find(u => u.id === selectedDeal.ownerId)?.avatar} className="w-10 h-10 rounded-full border border-slate-100" />
+                      <img 
+                        src={users.find(u => u.id === selectedDeal.ownerId)?.avatar || `https://picsum.photos/seed/${selectedDeal.ownerId}/100/100`} 
+                        className="w-10 h-10 rounded-full border border-slate-100" 
+                        alt=""
+                      />
                       <div>
-                        <p className="text-sm font-bold text-slate-900">{MOCK_USERS.find(u => u.id === selectedDeal.ownerId)?.name}</p>
+                        <p className="text-sm font-bold text-slate-900">{users.find(u => u.id === selectedDeal.ownerId)?.name || 'Unknown User'}</p>
                         <p className="text-xs text-slate-500">Deal Owner</p>
                       </div>
                     </div>
@@ -202,8 +478,24 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
-              <button className="flex-1 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">Save Changes</button>
-              <button className="px-5 py-3 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-xl transition-all">
+              <button 
+                onClick={handleUpdateDeal}
+                disabled={isSaving}
+                className="flex-1 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+              <button 
+                onClick={handleDeleteDeal}
+                className="px-5 py-3 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              >
                 <Trash2 className="w-5 h-5" />
               </button>
             </div>
@@ -252,6 +544,60 @@ const Pipeline: React.FC<PipelineProps> = ({ onNavigate, onNewDeal }) => {
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex gap-3">
               <button onClick={() => setShowStageConfig(false)} className="flex-1 py-3 bg-slate-900 text-white text-sm font-bold rounded-xl hover:bg-slate-800 transition-all">Save Workspace</button>
               <button onClick={() => setShowStageConfig(false)} className="px-6 py-3 text-sm font-bold text-slate-500">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-4">
+              {confirmModal.type === 'danger' && (
+                <div className="p-3 bg-red-100 rounded-xl">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                </div>
+              )}
+              {confirmModal.type === 'warning' && (
+                <div className="p-3 bg-amber-100 rounded-xl">
+                  <AlertCircle className="w-6 h-6 text-amber-600" />
+                </div>
+              )}
+              {confirmModal.type === 'info' && (
+                <div className="p-3 bg-blue-100 rounded-xl">
+                  <AlertCircle className="w-6 h-6 text-blue-600" />
+                </div>
+              )}
+              <div className="flex-1">
+                <h3 className="font-bold text-lg text-slate-900 mb-2">
+                  {confirmModal.title}
+                </h3>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  {confirmModal.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all"
+              >
+                {confirmModal.cancelText || 'Cancel'}
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className={`flex-1 px-4 py-2.5 font-bold rounded-xl transition-all ${
+                  confirmModal.type === 'danger'
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : confirmModal.type === 'warning'
+                    ? 'bg-amber-600 text-white hover:bg-amber-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                }`}
+              >
+                {confirmModal.confirmText || 'Confirm'}
+              </button>
             </div>
           </div>
         </div>

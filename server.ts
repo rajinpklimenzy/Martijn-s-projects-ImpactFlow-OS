@@ -15,7 +15,7 @@ const app = express();
 const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) => 
+    new Promise<T>((_, reject) =>
       setTimeout(() => reject(new Error(`${label} operation timed out after ${ms}ms`)), ms)
     )
   ]);
@@ -72,9 +72,9 @@ apiRouter.post('/auth/request-code', async (req, res) => {
 
   try {
     console.log(`[AUTH] Requesting OTP for ${email}`);
-    
+
     const externalResponse = await withTimeout(
-      fetch('https://node-server-architect-595659839658.us-west1.run.app/api/v1/impactOS/auth/send-otp', {
+      fetch(`${process.env.API_BASE_URL}/auth/send-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,23 +104,23 @@ apiRouter.post('/auth/request-code', async (req, res) => {
 
 apiRouter.post('/auth/verify', async (req, res) => {
   const { email, verificationCode } = req.body;
-  
+
   if (!email || !verificationCode) {
     return res.status(400).json({ message: 'Email and verification code are required' });
   }
 
   try {
     console.log(`[VERIFY] Verifying OTP for ${email}`);
-    
+
     const externalResponse = await withTimeout(
-      fetch('https://node-server-architect-595659839658.us-west1.run.app/api/v1/impactOS/auth/verify-otp', {
+      fetch(`${process.env.API_BASE_URL}/auth/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           email,
-          otp: verificationCode 
+          otp: verificationCode
         }),
       }),
       10000,
@@ -140,8 +140,8 @@ apiRouter.post('/auth/verify', async (req, res) => {
     // Map the external API response to match what the frontend expects
     // The external API should return token and user data
     // If it doesn't, we'll use the response as-is and let the frontend handle it
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       token: responseData.token || responseData.accessToken || responseData.idToken,
       user: responseData.user || responseData.data || { email, ...responseData }
     });
