@@ -23,14 +23,20 @@ RUN test -d dist && echo "Build successful" || (echo "Build failed - dist folder
 # Production stage - using nginx to serve static files
 FROM nginx:alpine
 
+# Install gettext for envsubst (to replace environment variables in nginx config)
+RUN apk add --no-cache gettext
+
 # Copy built files to nginx html directory
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configuration template
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# Expose port 80 (nginx default)
-EXPOSE 80
+# Cloud Run sets PORT=8080 automatically
+ENV PORT=8080
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Expose port
+EXPOSE 8080
+
+# Start nginx with environment variable substitution
+CMD sh -c "envsubst '\$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
