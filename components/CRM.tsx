@@ -11,7 +11,6 @@ import { Company, Contact, Deal, User as UserType, SocialSignal } from '../types
 import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
-import { GoogleGenAI, Type } from '@google/genai';
 
 interface CRMProps {
   onNavigate: (tab: string) => void;
@@ -96,49 +95,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
   const handleAiInsightLookup = async () => {
     if (!selectedCompany) return;
-    setIsAiLoading(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Search for recent business news, funding rounds, new hires, and acquisitions for the company "${selectedCompany.name}" (Website: ${selectedCompany.website}). Provide exactly 3 high-value social signals.`;
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                type: { type: Type.STRING, enum: ['funding', 'hiring', 'acquisition', 'news'] },
-                date: { type: Type.STRING },
-                description: { type: Type.STRING }
-              },
-              required: ['title', 'type', 'date', 'description']
-            }
-          }
-        }
-      });
-
-      const signals: any[] = JSON.parse(response.text || '[]');
-      const formattedSignals: SocialSignal[] = signals.map((s, i) => ({
-        id: `ai-${Date.now()}-${i}`,
-        ...s,
-        isAiGenerated: true
-      }));
-
-      const newSignals = [...formattedSignals, ...(selectedCompany.socialSignals || [])];
-      await handleUpdateCompany({ socialSignals: newSignals });
-      showSuccess('AI Intelligence Refresh Complete');
-    } catch (err) {
-      console.error(err);
-      showError('AI lookup unavailable');
-    } finally {
-      setIsAiLoading(false);
-    }
+    // AI functionality is currently unavailable
+    showError('AI Intelligence feature is not available. Please install @google/genai package to enable this feature.');
   };
 
   const getCompanyDealsCount = (companyId: string) => {

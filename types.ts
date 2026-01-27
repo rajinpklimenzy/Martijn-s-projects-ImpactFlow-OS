@@ -16,6 +16,17 @@ export interface User {
   language?: string;
 }
 
+export interface FeedbackItem {
+  id: string;
+  userId: string;
+  type: 'bug' | 'feature' | 'idea';
+  title: string;
+  description: string;
+  status: 'planned' | 'in-progress' | 'done' | 'postponed' | 'canceled';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CalendarEvent {
   id: string;
   userId?: string;
@@ -59,6 +70,17 @@ export interface Contact {
   role: string;
   phone: string;
   lastContacted: string;
+  linkedin?: string;
+  notes?: string;
+}
+
+export interface SocialSignal {
+  id: string;
+  type: 'funding' | 'hiring' | 'acquisition' | 'news';
+  title: string;
+  date: string;
+  description: string;
+  isAiGenerated?: boolean;
 }
 
 export interface Company {
@@ -68,6 +90,10 @@ export interface Company {
   website: string;
   logo: string;
   email?: string;
+  linkedin?: string;
+  ownerId?: string; // Account Manager
+  isTargetAccount?: boolean;
+  socialSignals?: SocialSignal[];
 }
 
 export interface Deal {
@@ -79,6 +105,7 @@ export interface Deal {
   ownerId: string;
   expectedCloseDate: string;
   description?: string;
+  stakeholderIds?: string[]; // IDs of contacts linked to this deal
   createdAt?: string;
   updatedAt?: string;
 }
@@ -93,19 +120,21 @@ export interface Project {
   ownerId?: string;
   description?: string;
   assignedUserIds?: string[];
+  archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
 
 export interface Task {
   id: string;
-  projectId: string;
+  projectId?: string; // Optional for standalone tasks
   title: string;
   description: string;
   dueDate: string;
   priority: 'Low' | 'Medium' | 'High';
   status: 'Todo' | 'In Progress' | 'Review' | 'Done';
   assigneeId: string;
+  archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
