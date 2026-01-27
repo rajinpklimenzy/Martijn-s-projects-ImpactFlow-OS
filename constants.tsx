@@ -1,6 +1,6 @@
 
 import { User, Contact, Company, Deal, Project, Task, Thread, Invoice, AutomationRule, Notification, NotificationPreference, CalendarEvent } from './types.ts';
-import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2 } from 'lucide-react';
+import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map } from 'lucide-react';
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
@@ -8,10 +8,9 @@ export const NAV_ITEMS = [
   { id: 'crm', label: 'CRM', icon: <Users className="w-5 h-5" /> },
   { id: 'pipeline', label: 'Deal Pipeline', icon: <Briefcase className="w-5 h-5" /> },
   { id: 'projects', label: 'Projects', icon: <FileText className="w-5 h-5" /> },
-  { id: 'tasks', label: 'My Tasks', icon: <CheckSquare className="w-5 h-5" /> },
-  { id: 'inbox', label: 'Shared Inbox', icon: <Mail className="w-5 h-5" /> },
+  { id: 'tasks', label: 'Tasks', icon: <CheckSquare className="w-5 h-5" /> },
   { id: 'invoices', label: 'Billing & Invoicing', icon: <DollarSign className="w-5 h-5" /> },
-  { id: 'automation', label: 'Automations', icon: <Zap className="w-5 h-5" /> },
+  { id: 'roadmap', label: 'Roadmap', icon: <Map className="w-5 h-5" /> },
   { id: 'integrations', label: 'Integrations', icon: <Share2 className="w-5 h-5" /> },
 ];
 

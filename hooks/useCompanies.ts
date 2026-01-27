@@ -1,5 +1,6 @@
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGetCompanies, apiCreateCompany, apiUpdateCompany, apiDeleteCompany, apiSearchCompanies } from '../utils/api';
+import { apiGetCompanies, apiCreateCompany, apiUpdateCompany, apiDeleteCompany } from '../utils/api';
 import { Company } from '../types';
 import { useToast } from '../contexts/ToastContext';
 

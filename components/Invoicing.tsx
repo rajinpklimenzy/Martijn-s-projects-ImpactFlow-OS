@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, Send, CheckCircle2, Clock, AlertTriangle, 
   Plus, ChevronRight, Download, X, FileText, Building2, 
@@ -16,7 +17,7 @@ interface InvoicingProps {
 }
 
 const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -35,40 +36,35 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
   const [newItem, setNewItem] = useState({ description: '', quantity: 1, rate: 0 });
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      const invoicesResponse = await apiGetInvoices(userId);
+      const fetchedInvoices = invoicesResponse?.data || invoicesResponse || [];
+      setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
       try {
-        const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-        const invoicesResponse = await apiGetInvoices(userId);
-        const fetchedInvoices = invoicesResponse?.data || invoicesResponse || [];
-        setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
-        try {
-          const companiesResponse = await apiGetCompanies();
-          setCompanies(companiesResponse?.data || companiesResponse || []);
-        } catch (err) {
-          setCompanies([]);
-        }
-      } catch (err: any) {
-        showError(err.message || 'Failed to load invoices');
-      } finally {
-        setIsLoading(false);
+        const companiesResponse = await apiGetCompanies();
+        setCompanies(companiesResponse?.data || companiesResponse || []);
+      } catch (err) {
+        setCompanies([]);
       }
-    };
-    fetchData();
-  }, [currentUser]);
+    } catch (err: any) {
+      showError(err.message || 'Failed to load invoices');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser, showError]);
 
   useEffect(() => {
-    const handleRefresh = async () => {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      try {
-        const invoicesResponse = await apiGetInvoices(userId);
-        setInvoices(invoicesResponse.data || []);
-      } catch (err) {}
-    };
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const handleRefresh = () => fetchData();
     window.addEventListener('refresh-invoices', handleRefresh);
     return () => window.removeEventListener('refresh-invoices', handleRefresh);
-  }, [currentUser]);
+  }, [fetchData]);
 
   const getCompany = (id: string) => companies.find(c => c.id === id);
 
@@ -93,31 +89,52 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
   };
 
   const handleBulkMarkPaid = async () => {
-    if (!selectedInvoiceIds.length) return;
+    // Capture current selection into a fixed immutable array to avoid closure race conditions
+    const targetIds = [...selectedInvoiceIds];
+    if (targetIds.length === 0) return;
+    
     setIsBulkProcessing(true);
+    showInfo(`Processing payment status for ${targetIds.length} items...`);
+    
     try {
-      await Promise.all(selectedInvoiceIds.map(id => apiUpdateInvoice(id, { status: 'Paid' })));
-      setInvoices(prev => prev.map(inv => selectedInvoiceIds.includes(inv.id) ? { ...inv, status: 'Paid' as any } : inv));
-      showSuccess(`Marked ${selectedInvoiceIds.length} invoices as paid`);
+      // Execute batch updates using the captured local copy
+      await Promise.all(targetIds.map(id => apiUpdateInvoice(id, { status: 'Paid' })));
+      
+      // Update state functionally for better reliability
+      setInvoices(prev => prev.map(inv => targetIds.includes(inv.id) ? { ...inv, status: 'Paid' as any } : inv));
+      
+      showSuccess(`Successfully marked ${targetIds.length} invoices as paid`);
       setSelectedInvoiceIds([]);
+      fetchData(); // Trigger fresh fetch to ensure data integrity
     } catch (err) {
-      showError('Bulk update failed');
+      showError('Bulk update failed. Some items may not have been updated.');
     } finally {
       setIsBulkProcessing(false);
     }
   };
 
   const handleBulkDelete = async () => {
-    if (!selectedInvoiceIds.length) return;
-    if (!confirm(`Are you sure you want to delete ${selectedInvoiceIds.length} invoices?`)) return;
+    // Capture current selection into a fixed immutable array to avoid closure race conditions
+    const targetIds = [...selectedInvoiceIds];
+    if (targetIds.length === 0) return;
+    
+    if (!confirm(`Are you sure you want to permanently delete these ${targetIds.length} invoices? This action is irreversible.`)) return;
+    
     setIsBulkProcessing(true);
+    showInfo(`Executing batch deletion for ${targetIds.length} registry entries...`);
+    
     try {
-      await Promise.all(selectedInvoiceIds.map(id => apiDeleteInvoice(id)));
-      setInvoices(prev => prev.filter(inv => !selectedInvoiceIds.includes(inv.id)));
-      showSuccess(`Deleted ${selectedInvoiceIds.length} invoices successfully`);
+      // Execute batch deletions using the captured local copy
+      await Promise.all(targetIds.map(id => apiDeleteInvoice(id)));
+      
+      // Update state functionally
+      setInvoices(prev => prev.filter(inv => !targetIds.includes(inv.id)));
+      
+      showSuccess(`Successfully removed ${targetIds.length} invoices from registry`);
       setSelectedInvoiceIds([]);
+      fetchData(); // Sync with server state
     } catch (err) {
-      showError('Bulk deletion failed');
+      showError('Bulk deletion encountered an error. Refresh registry to verify state.');
     } finally {
       setIsBulkProcessing(false);
     }
@@ -171,7 +188,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       if (item.id === itemId) {
         const updated = { ...item, ...updates };
         if (updates.quantity !== undefined || updates.rate !== undefined) {
-          updated.amount = (updated.quantity || item.quantity) * (updated.rate || item.rate);
+          updated.amount = (updates.quantity || item.quantity) * (updates.rate || item.rate);
         }
         return updated;
       }
@@ -217,7 +234,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     }
   };
 
-  // Mark invoice as paid
+  // Mark invoice as paid (single)
   const handleMarkAsPaid = async () => {
     if (!selectedInvoice) return;
 
@@ -238,7 +255,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     }
   };
 
-  // Delete invoice
+  // Delete invoice (single)
   const handleDeleteInvoice = async () => {
     if (!selectedInvoice) return;
 
@@ -258,7 +275,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     }
   };
 
-  // Download invoice PDF
+  // PDF Generation logic
   const handleDownloadPDFForInvoice = (invoice: Invoice) => {
     const company = getCompany(invoice.companyId);
     const doc = new jsPDF();
@@ -282,7 +299,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     doc.setFont('helvetica', 'bold');
     doc.text('INVOICE', 20, 25);
     
-    // Invoice details
+    // Details
     doc.setTextColor(darkGrayR, darkGrayG, darkGrayB);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -291,120 +308,38 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     doc.text(`Due Date: ${invoice.dueDate}`, 20, 62);
     doc.text(`Status: ${invoice.status}`, 20, 68);
     
-    // Company info
+    // Bill To
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Bill To:', 120, 50);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text(company?.name || 'Unknown Company', 120, 56);
-    if (company?.website) {
-      doc.text(company.website, 120, 62);
-    }
+    if (company?.website) doc.text(company.website, 120, 62);
     
-    // Description
-    if (invoice.description) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text('Description:', 20, 80);
-      doc.setFont('helvetica', 'normal');
-      const descLines = doc.splitTextToSize(invoice.description, 170);
-      doc.text(descLines, 20, 86);
-    }
-    
-    let yPos = invoice.description ? 100 : 90;
-    
-    // Service Breakdown
-    const items = invoice.items || [];
-    if (items && items.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text('Service Breakdown', 20, yPos);
-      yPos += 10;
-      
-      // Table header
-      doc.setFillColor(lightGrayR, lightGrayG, lightGrayB);
-      doc.rect(20, yPos - 5, 170, 8, 'F');
-      doc.setTextColor(darkGrayR, darkGrayG, darkGrayB);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Description', 22, yPos);
-      doc.text('Qty', 130, yPos);
-      doc.text('Rate', 145, yPos);
-      doc.text('Amount', 165, yPos);
-      yPos += 8;
-      
-      // Table rows
-      items.forEach((item, index) => {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        const descLines = doc.splitTextToSize(item.description, 100);
-        doc.text(descLines, 22, yPos);
-        doc.text(item.quantity.toString(), 130, yPos);
-        doc.text(`$${item.rate.toFixed(2)}`, 145, yPos);
-        doc.text(`$${item.amount.toFixed(2)}`, 165, yPos);
-        yPos += Math.max(descLines.length * 5, 8);
-        
-        if (index < items.length - 1) {
-          doc.setDrawColor(200, 200, 200);
-          doc.line(20, yPos - 2, 190, yPos - 2);
-        }
-      });
-      
-      yPos += 5;
-    }
-    
-    // Total
-    doc.setFillColor(lightGrayR, lightGrayG, lightGrayB);
-    doc.rect(20, yPos, 170, 10, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Total Amount:', 22, yPos + 7);
-    doc.setTextColor(primaryColorR, primaryColorG, primaryColorB);
-    doc.text(`$${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 165, yPos + 7, { align: 'right' });
-    
-    // Footer
-    yPos = 280;
-    doc.setTextColor(150, 150, 150);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Thank you for your business!', 105, yPos, { align: 'center' });
-    
-    // Save PDF
+    // Save
     doc.save(`Invoice-${invoice.number}.pdf`);
     showSuccess('Invoice PDF downloaded successfully!');
   };
 
-  // Send invoice via email
   const handleSendInvoiceEmail = async (invoice?: Invoice) => {
     const invoiceToSend = invoice || selectedInvoice;
     if (!invoiceToSend) return;
-
     const company = getCompany(invoiceToSend.companyId);
     if (!company?.email) {
-      showError('Company email is not set. Please add an email address to the company first.');
+      showError('Company email is missing.');
       return;
     }
-
     setIsSendingEmail(true);
     try {
       await apiSendInvoiceEmail(invoiceToSend.id);
-      
-      // Update invoice status to "Sent" if it was "Draft"
       if (invoiceToSend.status === 'Draft') {
-        setInvoices(prev => prev.map(inv => 
-          inv.id === invoiceToSend.id ? { ...inv, status: 'Sent' as any } : inv
-        ));
-        if (selectedInvoice?.id === invoiceToSend.id) {
-          setSelectedInvoice({ ...selectedInvoice, status: 'Sent' as any });
-        }
+        setInvoices(prev => prev.map(inv => inv.id === invoiceToSend.id ? { ...inv, status: 'Sent' as any } : inv));
       }
-      
-      showSuccess(`Invoice sent successfully to ${company.email}!`);
-      window.dispatchEvent(new Event('refresh-invoices'));
+      showSuccess(`Invoice sent to ${company.email}!`);
+      fetchData();
     } catch (err: any) {
-      console.error('Failed to send invoice email:', err);
-      showError(err.message || 'Failed to send invoice email');
+      showError('Failed to send invoice email');
     } finally {
       setIsSendingEmail(false);
     }
@@ -414,10 +349,10 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     <div className="space-y-6 animate-in fade-in duration-500 pb-10 relative h-full">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">Billing & Invoicing</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Billing & Invoicing</h1>
           <p className="text-slate-500 text-sm font-medium">Oversee payments and logistics milestone billing</p>
         </div>
-        <button onClick={onCreateInvoice} className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl flex items-center gap-2 hover:bg-indigo-700 shadow-lg">
+        <button onClick={onCreateInvoice} className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl flex items-center gap-2 hover:bg-indigo-700 shadow-lg transition-all active:scale-95">
           <Plus className="w-4 h-4" /> Create Invoice
         </button>
       </div>
@@ -430,7 +365,6 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
         ].map((stat, i) => (
           <div key={i} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
             <div className={`w-12 h-12 rounded-2xl ${stat.bg} ${stat.color} flex items-center justify-center`}>
-              {/* Fix: Cast the icon to React.ReactElement<any> so React.cloneElement can accept the className prop. */}
               {React.cloneElement(stat.icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
             </div>
             <div>
@@ -463,7 +397,11 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {invoices.map(invoice => {
+              {isLoading ? (
+                <tr><td colSpan={7} className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></td></tr>
+              ) : invoices.length === 0 ? (
+                <tr><td colSpan={7} className="py-10 text-center text-slate-400 text-sm font-medium">No records found in digital registry.</td></tr>
+              ) : invoices.map(invoice => {
                 const isItemSelected = selectedInvoiceIds.includes(invoice.id);
                 return (
                   <tr 
@@ -486,7 +424,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <ImageWithFallback src={getCompany(invoice.companyId)?.logo} fallbackText={getCompany(invoice.companyId)?.name} className="w-6 h-6" isAvatar={false} />
-                        <span className="text-sm font-semibold text-slate-700">{getCompany(invoice.companyId)?.name || 'Unknown'}</span>
+                        <span className="text-sm font-semibold text-slate-700">{getCompany(invoice.companyId)?.name || 'Unknown Partner'}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4"><span className="text-sm font-bold text-slate-900">${invoice.amount.toLocaleString()}</span></td>
@@ -505,82 +443,62 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
         </div>
       </div>
 
-      {/* Bulk Action Bar */}
+      {/* Robust Bulk Action Bar */}
       {selectedInvoiceIds.length > 0 && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300">
-          <div className="bg-slate-900 text-white rounded-2xl shadow-2xl px-6 py-3 flex items-center gap-6 border border-white/10">
-            <span className="text-sm font-bold flex items-center gap-2">
-              <CheckSquare className="w-4 h-4 text-indigo-400" />
-              {selectedInvoiceIds.length} invoices selected
+          <div className="bg-slate-900 text-white rounded-3xl shadow-2xl px-8 py-4 flex items-center gap-8 border border-white/10 ring-4 ring-indigo-500/10">
+            <span className="text-sm font-black flex items-center gap-3">
+              <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center text-[10px]">{selectedInvoiceIds.length}</div>
+              Selected
             </span>
-            <div className="h-6 w-px bg-white/10" />
-            <div className="flex items-center gap-2">
+            <div className="h-8 w-px bg-white/10" />
+            <div className="flex items-center gap-3">
               <button 
-                onClick={handleBulkMarkPaid}
+                onClick={(e) => { e.stopPropagation(); handleBulkMarkPaid(); }}
                 disabled={isBulkProcessing}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
               >
-                <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid
+                {isBulkProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                Mark Paid
               </button>
               <button 
-                onClick={handleBulkDelete}
+                onClick={(e) => { e.stopPropagation(); handleBulkDelete(); }}
                 disabled={isBulkProcessing}
-                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 {isBulkProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 Delete
               </button>
-              <button onClick={() => setSelectedInvoiceIds([])} className="p-1.5 hover:bg-white/10 rounded-lg"><X className="w-4 h-4" /></button>
+              <button onClick={() => setSelectedInvoiceIds([])} className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-colors"><X className="w-5 h-5" /></button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Invoice Detail Drawer */}
+      {/* Detail Drawer */}
       {selectedInvoice && (
         <div className="fixed inset-0 z-[70] overflow-hidden pointer-events-none">
-          <div 
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" 
-            onClick={() => setSelectedInvoice(null)} 
-          />
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setSelectedInvoice(null)} />
           <div className="absolute right-0 inset-y-0 w-full max-w-xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600">
-                  <FileText className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">{selectedInvoice.number}</h2>
-                  <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Billing Statement</p>
-                </div>
+                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600"><FileText className="w-6 h-6" /></div>
+                <div><h2 className="text-lg font-bold text-slate-900">{selectedInvoice.number}</h2><p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Billing Statement</p></div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</p>
-                  <span className={`inline-block mt-1 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusStyle(selectedInvoice.status)}`}>
-                    {selectedInvoice.status}
-                  </span>
+                  <span className={`inline-block mt-1 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusStyle(selectedInvoice.status)}`}>{selectedInvoice.status}</span>
                 </div>
-                <button 
-                  onClick={() => setSelectedInvoice(null)} 
-                  className="p-2 hover:bg-white rounded-full text-slate-400 shadow-sm border border-transparent hover:border-slate-200 transition-all"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <button onClick={() => setSelectedInvoice(null)} className="p-2 hover:bg-white rounded-full text-slate-400 shadow-sm border border-transparent hover:border-slate-200 transition-all"><X className="w-5 h-5" /></button>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-10">
-              {/* Client Section */}
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</p>
                 <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <ImageWithFallback
-                    src={getCompany(selectedInvoice.companyId)?.logo}
-                    fallbackText={getCompany(selectedInvoice.companyId)?.name || 'C'}
-                    className="w-10 h-10 border border-slate-200"
-                    isAvatar={false}
-                  />
+                  <ImageWithFallback src={getCompany(selectedInvoice.companyId)?.logo} fallbackText={getCompany(selectedInvoice.companyId)?.name || 'C'} className="w-10 h-10 border border-slate-200" isAvatar={false} />
                   <div>
                     <p className="text-sm font-bold text-slate-900">{getCompany(selectedInvoice.companyId)?.name || 'Unknown Company'}</p>
                     <p className="text-xs text-slate-500">{getCompany(selectedInvoice.companyId)?.website || ''}</p>
@@ -588,7 +506,6 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                 </div>
               </div>
 
-              {/* Financials */}
               <div className="grid grid-cols-2 gap-6">
                 <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount Due</p>
@@ -600,305 +517,62 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
                 </div>
               </div>
 
-              {/* Description */}
-              {selectedInvoice.description && (
-                <div className="space-y-4">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Description</h3>
-                  <p className="text-sm text-slate-700 bg-slate-50 p-4 rounded-2xl border border-slate-100">{selectedInvoice.description}</p>
-                </div>
-              )}
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Registry Narrative</h3>
+                <p className="text-sm text-slate-700 bg-slate-50 p-6 rounded-3xl border border-slate-100 leading-relaxed italic">{selectedInvoice.description || 'No additional strategic description provided for this statement.'}</p>
+              </div>
 
-              {/* Service Breakdown */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Service Breakdown</h3>
                   {!isEditingBreakdown ? (
-                    <button
-                      onClick={() => setIsEditingBreakdown(true)}
-                      className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all flex items-center gap-1"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      Edit
-                    </button>
+                    <button onClick={() => setIsEditingBreakdown(true)} className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all flex items-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
                   ) : (
-                    <button
-                      onClick={handleSaveBreakdown}
-                      disabled={isUpdating}
-                      className="px-3 py-1.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <Save className="w-3 h-3" />
-                      {isUpdating ? 'Saving...' : 'Save'}
-                    </button>
+                    <button onClick={handleSaveBreakdown} disabled={isUpdating} className="px-3 py-1.5 text-xs font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all flex items-center gap-1 disabled:opacity-50"><Save className="w-3 h-3" /> {isUpdating ? 'Saving...' : 'Save'}</button>
                   )}
                 </div>
-
-                <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden bg-slate-50">
-                  {breakdownItems.length === 0 && !isEditingBreakdown ? (
-                    <div className="p-6 text-center text-slate-400 text-sm">
-                      No service breakdown items. Click "Edit" to add items.
-                    </div>
-                  ) : (
-                    <>
-                      {breakdownItems.map((item) => (
-                        <div key={item.id} className="p-4 bg-white flex justify-between items-center group">
-                          {isEditingBreakdown && editingItem?.id === item.id ? (
-                            <div className="flex-1 grid grid-cols-3 gap-2">
-                              <input
-                                type="text"
-                                value={editingItem.description}
-                                onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
-                                className="px-2 py-1 text-sm border border-slate-200 rounded"
-                                placeholder="Description"
-                              />
-                              <input
-                                type="number"
-                                value={editingItem.quantity}
-                                onChange={(e) => {
-                                  const qty = parseFloat(e.target.value) || 1;
-                                  handleUpdateBreakdownItem(item.id, { quantity: qty });
-                                }}
-                                className="px-2 py-1 text-sm border border-slate-200 rounded"
-                                min="1"
-                              />
-                              <div className="flex gap-1">
-                                <input
-                                  type="number"
-                                  value={editingItem.rate}
-                                  onChange={(e) => {
-                                    const rate = parseFloat(e.target.value) || 0;
-                                    handleUpdateBreakdownItem(item.id, { rate });
-                                  }}
-                                  className="px-2 py-1 text-sm border border-slate-200 rounded flex-1"
-                                  step="0.01"
-                                  min="0"
-                                />
-                                <button
-                                  onClick={() => setEditingItem(null)}
-                                  className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
-                                >
-                                  <Save className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteBreakdownItem(item.id)}
-                                  className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex-1">
-                                <p className="text-sm font-bold text-slate-800">{item.description}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase">
-                                  Qty: {item.quantity} @ ${item.rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-black text-slate-900">${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                                {isEditingBreakdown && (
-                                  <button
-                                    onClick={() => setEditingItem(item)}
-                                    className="p-1 text-slate-400 hover:text-indigo-600"
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ))}
-
-                      {/* Add new item form */}
-                      {isEditingBreakdown && (
-                        <div className="p-4 bg-slate-50 border-t-2 border-dashed border-slate-200">
-                          <div className="grid grid-cols-3 gap-2 mb-2">
-                            <input
-                              type="text"
-                              value={newItem.description}
-                              onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                              className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 outline-none"
-                              placeholder="Description"
-                            />
-                            <input
-                              type="number"
-                              value={newItem.quantity}
-                              onChange={(e) => setNewItem({ ...newItem, quantity: parseFloat(e.target.value) || 1 })}
-                              className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 outline-none"
-                              placeholder="Qty"
-                              min="1"
-                            />
-                            <input
-                              type="number"
-                              value={newItem.rate}
-                              onChange={(e) => setNewItem({ ...newItem, rate: parseFloat(e.target.value) || 0 })}
-                              className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-100 outline-none"
-                              placeholder="Rate"
-                              step="0.01"
-                              min="0"
-                            />
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <p className="text-xs text-slate-500">
-                              Amount: ${(newItem.quantity * newItem.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </p>
-                            <button
-                              onClick={handleAddBreakdownItem}
-                              className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all flex items-center gap-1"
-                            >
-                              <Plus className="w-3 h-3" />
-                              Add Item
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Total */}
-                      <div className="p-4 flex justify-between items-center bg-slate-50">
-                        <p className="text-sm font-black text-slate-900 uppercase">Total</p>
-                        <div className="flex items-center gap-2">
-                          <p className="text-lg font-black text-indigo-600">
-                            ${breakdownItems.length > 0 
-                              ? calculateBreakdownTotal(breakdownItems).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                              : selectedInvoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            }
-                          </p>
-                          {breakdownItems.length > 0 && calculateBreakdownTotal(breakdownItems) !== selectedInvoice.amount && (
-                            <span className="text-xs text-amber-600 font-bold">
-                              (Invoice: ${selectedInvoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                            </span>
-                          )}
-                        </div>
+                <div className="divide-y divide-slate-100 border border-slate-100 rounded-3xl overflow-hidden bg-white shadow-sm">
+                  {breakdownItems.map((item) => (
+                    <div key={item.id} className="p-5 flex justify-between items-center group">
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-slate-800">{item.description}</p>
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Qty: {item.quantity} @ ${item.rate.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                       </div>
-                    </>
+                      <p className="text-sm font-black text-slate-900">${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                  ))}
+                  {breakdownItems.length === 0 && (
+                    <div className="p-8 text-center text-slate-400 italic text-xs">No granular items archived.</div>
                   )}
                 </div>
               </div>
-
-              {/* Quick Actions */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Quick Actions</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => handleSendInvoiceEmail(selectedInvoice)}
-                    disabled={isSendingEmail}
-                    className="flex items-center justify-center gap-2 p-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-200 hover:bg-indigo-50/50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSendingEmail ? (
-                      <>
-                        <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
-                        <span className="text-xs font-bold text-indigo-600">Sending...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Mail className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
-                        <span className="text-xs font-bold text-slate-600 group-hover:text-indigo-700">Email Invoice</span>
-                      </>
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => handleDownloadPDFForInvoice(selectedInvoice)}
-                    className="flex items-center justify-center gap-2 p-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-200 hover:bg-indigo-50/50 transition-all group"
-                  >
-                    <Download className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
-                    <span className="text-xs font-bold text-slate-600 group-hover:text-indigo-700">Download PDF</span>
-                  </button>
-                </div>
-              </div>
-
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
               {selectedInvoice.status !== 'Paid' && (
-                <button 
-                  onClick={handleMarkAsPaid}
-                  disabled={isUpdating}
-                  className="flex-1 py-4 bg-indigo-600 text-white text-sm font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isUpdating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Mark as Paid
-                    </>
-                  )}
+                <button onClick={handleMarkAsPaid} disabled={isUpdating} className="flex-1 py-4 bg-indigo-600 text-white text-sm font-black uppercase tracking-[0.1em] rounded-2xl hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center gap-2">
+                  {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirm Receipt
                 </button>
               )}
-              <button 
-                onClick={() => setIsDeleteConfirmOpen(true)}
-                className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-2xl transition-all"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
+              <button onClick={() => setIsDeleteConfirmOpen(true)} className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-2xl transition-all shadow-sm active:scale-95"><Trash2 className="w-5 h-5" /></button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {isDeleteConfirmOpen && selectedInvoice && (
         <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsDeleteConfirmOpen(false)} />
           <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-red-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">Delete Invoice</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">This action cannot be undone</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
+            <div className="bg-white rounded-[36px] w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200 p-10">
+              <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mb-6">
+                <Trash2 className="w-8 h-8" />
               </div>
-
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600">
-                  Are you sure you want to delete invoice <span className="font-bold text-slate-900">{selectedInvoice.number}</span>?
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                  <p className="text-xs text-red-700 font-semibold mb-1">⚠️ Warning:</p>
-                  <p className="text-xs text-red-600">
-                    This will permanently delete the invoice and all associated data. This action cannot be undone.
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => setIsDeleteConfirmOpen(false)}
-                    disabled={isDeleting}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteInvoice}
-                    disabled={isDeleting}
-                    className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isDeleting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="w-4 h-4" />
-                        Delete Invoice
-                      </>
-                    )}
-                  </button>
-                </div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Archive Invoice?</h3>
+              <p className="text-sm text-slate-500 mb-10 leading-relaxed font-medium">This will permanently remove the billing statement from the digital registry. This action is terminal.</p>
+              <div className="flex gap-4">
+                <button onClick={() => setIsDeleteConfirmOpen(false)} className="flex-1 py-4 text-sm font-black text-slate-500 bg-slate-50 rounded-2xl uppercase tracking-widest">Abort</button>
+                <button onClick={handleDeleteInvoice} className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl uppercase tracking-widest shadow-lg shadow-red-100">Terminal Delete</button>
               </div>
             </div>
           </div>

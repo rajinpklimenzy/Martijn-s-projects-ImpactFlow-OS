@@ -2,15 +2,22 @@
 import { MOCK_USERS } from '../constants.tsx';
 
 /**
- * VIRTUAL BACKEND SIMULATOR
+ * VIRTUAL BACKEND SIMULATOR with LocalStorage Persistence
  */
 
-const virtualDb = {
-  codes: new Map<string, { code: string, expires: number }>(),
-  users: [...MOCK_USERS]
+const getStoredData = (key: string, fallback: any = []) => {
+  if (typeof window === 'undefined') return fallback;
+  const stored = localStorage.getItem(`impactflow_sim_${key}`);
+  return stored ? JSON.parse(stored) : fallback;
+};
+
+const setStoredData = (key: string, data: any) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`impactflow_sim_${key}`, JSON.stringify(data));
 };
 
 export const simulateApi = async (endpoint: string, options: any = {}) => {
+  // Artificial latency for realism
   await new Promise(resolve => setTimeout(resolve, 600));
 
   const body = options.body ? JSON.parse(options.body) : {};
@@ -21,28 +28,17 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
   // Handle Auth Request OTP
   if (endpoint === '/auth/send-otp' || endpoint === '/auth/request-code') {
     const email = body.email?.toLowerCase().trim();
+    console.warn(`[VIRTUAL SERVER] Simulator fallback active for AUTH`);
     
-    console.warn(`[VIRTUAL SERVER] ⚠️  Using simulator fallback - this should only happen if the real API is unreachable`);
-    console.warn(`[VIRTUAL SERVER] ⚠️  Email: ${email} - Checking MOCK_USERS only`);
-    
-    // Strict lookup: vipin@impact24x7.com is NOT in MOCK_USERS (which uses impact247.com)
-    // Any email not explicitly in the list must fail
     const userExists = MOCK_USERS.some(u => u.email.toLowerCase().trim() === email);
-
     if (!userExists) {
-      console.warn(`[VIRTUAL SERVER] ACCESS DENIED for: ${email}`);
-      console.warn(`[VIRTUAL SERVER] ⚠️  NOTE: This is simulator fallback. Check if real API is reachable.`);
       return { 
         status: 404, 
         message: 'Account not found - contact your Administrator', 
         success: false 
       };
     }
-
-    console.info(`[VIRTUAL SERVER] SUCCESS for: ${email}. Code 123456 generated.`);
-    const code = '123456';
-    virtualDb.codes.set(email, { code, expires: Date.now() + 600000 });
-    return { success: true, message: 'Simulated OTP sent' };
+    return { success: true, message: 'Simulated OTP sent to ' + email };
   }
 
   // Handle Auth Verify OTP
@@ -59,21 +55,69 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
     return { success: true, token: 'v-token-123', user };
   }
 
-  // Handle all other routes
-  if (method === 'DELETE' || method === 'PUT' || method === 'PATCH') {
-    return { status: 'ok', message: 'Simulated success', simulated: true };
+  // Persistent Feedback Registry
+  if (endpoint.includes('feedback')) {
+    let feedback = getStoredData('feedback', []);
+    
+    if (method === 'POST') {
+      const newItem = {
+        id: `fb-${Date.now()}`,
+        ...body,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      feedback.unshift(newItem);
+      setStoredData('feedback', feedback);
+      return { success: true, data: newItem, simulated: true };
+    }
+    
+    if (method === 'PATCH' || method === 'PUT') {
+      const id = endpoint.split('/').pop();
+      feedback = feedback.map((item: any) => item.id === id ? { ...item, ...body, updatedAt: new Date().toISOString() } : item);
+      setStoredData('feedback', feedback);
+      return { success: true, simulated: true };
+    }
+
+    if (method === 'DELETE') {
+      const id = endpoint.split('/').pop();
+      feedback = feedback.filter((item: any) => item.id !== id);
+      setStoredData('feedback', feedback);
+      return { success: true, simulated: true };
+    }
+
+    return { success: true, data: feedback, simulated: true };
+  }
+
+  // Standard CRUD persistence for other entities
+  const entities = ['deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts'];
+  const entityMatch = entities.find(e => endpoint.includes(e));
+
+  if (entityMatch) {
+    let data = getStoredData(entityMatch, []);
+    
+    if (method === 'POST') {
+      const newItem = { id: `sim-${entityMatch}-${Date.now()}`, ...body, createdAt: new Date().toISOString() };
+      data.unshift(newItem);
+      setStoredData(entityMatch, data);
+      return { success: true, data: newItem, simulated: true };
+    }
+    
+    if (method === 'GET' && endpoint.split('/').length > 2) {
+      const id = endpoint.split('/').pop();
+      const item = data.find((i: any) => i.id === id);
+      return { success: true, data: item, simulated: true };
+    }
+
+    return { success: true, data: data, simulated: true };
   }
 
   switch (endpoint) {
     case '/me':
     case '/auth/me':
-      return virtualDb.users[0];
-
+      return MOCK_USERS[0];
     case '/google-calendar/status':
       return { connected: false, simulated: true };
-
     default:
-      // Return empty list for most GET requests to avoid leaking dummy data
       return { data: [], status: 'ok', simulated: true };
   }
 };

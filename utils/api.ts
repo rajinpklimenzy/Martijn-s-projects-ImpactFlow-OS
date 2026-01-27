@@ -3,34 +3,24 @@ import { simulateApi } from './apiSimulator.ts';
 
 /**
  * API CONFIGURATION
- * Default: https://node-server.impact24x7.com/api/v1/impactOS (live API)
- * For local development, set API_BASE_URL=http://localhost:8050/api/v1/impactOS in .env
  */
 const getApiBase = () => {
-  // Check if API_BASE_URL is set in environment (highest priority)
-  // This allows overriding for local development
   if (process.env.API_BASE_URL) {
     return process.env.API_BASE_URL;
   }
-  
-  // Default to live/production API URL
   return 'https://node-server.impact24x7.com/api/v1/impactOS';
 };
 
 const API_BASE = getApiBase();
 
-// Log which API base URL is being used (only once on module load)
 if (typeof window !== 'undefined') {
-  console.log(`[API] Using API Base URL: ${API_BASE}`);
+  console.log(`[API] Initializing with Base: ${API_BASE}`);
 }
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth_token');
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const url = `${API_BASE}${cleanEndpoint}`;
-
-  // Debug logging
-  console.log(`[API] Request: ${options.method || 'GET'} ${url}`);
 
   const headers = {
     'Content-Type': 'application/json',
@@ -44,30 +34,31 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       headers,
     });
     
-    console.log(`[API] Response status: ${response.status} ${response.statusText}`);
-
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      // If server returns 404, check if it's the specific "Account not found" message
+      // If the server returns 404 for a new feature (feedback), we fallback to simulation
+      // to prevent breaking the UI while backend deployment is pending.
+      if (response.status === 404 && cleanEndpoint.includes('feedback')) {
+        console.warn(`[SYSTEM] Live endpoint ${cleanEndpoint} not found. Engaging Virtual Engine fallback.`);
+        return simulateApi(cleanEndpoint, options);
+      }
+
       const errorMessage = data.message || data.error?.message || `Server Error ${response.status}`;
-      console.error(`[API] Error response:`, { status: response.status, data, errorMessage });
       const error = new Error(errorMessage);
       (error as any).status = response.status;
       (error as any).code = data.error?.code;
       throw error;
     }
     
-    console.log(`[API] Success response:`, data);
-
     return data;
   } catch (err: any) {
-    // If it's a network failure or a 5xx error, engage simulation
-    // If it's a 403/404 returned by the server explicitly, DO NOT simulate, just re-throw to show error
+    // Catch-all for network failures or 5xx errors
     const isNetworkError = err.name === 'TypeError' || err.message.includes('Failed to fetch');
     const isServiceUnavailable = err.status >= 500;
-    const isClientError = err.status >= 400 && err.status < 500; // 4xx errors should not use simulator
+    const isClientError = err.status >= 400 && err.status < 500;
 
+    // We allow simulation on network errors or 5xx, or explicitly for 404s we just handled
     if (isNetworkError || (isServiceUnavailable && !isClientError)) {
       console.info(`[SYSTEM] Production API unreachable. Engaging Virtual Engine fallback.`);
       return simulateApi(cleanEndpoint, options);
@@ -128,9 +119,8 @@ export const apiUpdateUser = (userId: string, userData: any) =>
 export const apiDeleteUser = (userId: string) =>
   apiFetch(`/users/${userId}`, { method: 'DELETE' });
 
-// Fix: Add missing apiUpdateUserProfile export
 export const apiUpdateUserProfile = (userId: string, data: any) =>
-  apiFetch(`/users/${userId}/profile`, { method: 'PUT', body: JSON.stringify(data) });
+  apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(data) });
 
 /**
  * CRM & PIPELINE
@@ -142,9 +132,9 @@ export const apiDeleteCompany = (id: string) => apiFetch(`/companies/${id}`, { m
 
 export const apiGetContacts = (search?: string) => apiFetch(`/contacts${search ? `?search=${encodeURIComponent(search)}` : ''}`);
 export const apiCreateContact = (data: any) => apiFetch('/contacts', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateContact = (id: string, data: any) => apiFetch(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteContact = (id: string) => apiFetch(`/contacts/${id}`, { method: 'DELETE' });
 
-// Fix: Update apiGetDeals to support multiple parameters as used in useDeals hook
 export const apiGetDeals = (userId?: string, stage?: string, companyId?: string) => {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
@@ -161,7 +151,6 @@ export const apiDeleteDeal = (id: string) => apiFetch(`/deals/${id}`, { method: 
 /**
  * PROJECTS & TASKS
  */
-// Fix: Update apiGetProjects to support multiple parameters as used in useProjects hook
 export const apiGetProjects = (userId?: string, companyId?: string, status?: string) => {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
@@ -176,7 +165,6 @@ export const apiCreateProject = (data: any) => apiFetch('/projects', { method: '
 export const apiUpdateProject = (id: string, data: any) => apiFetch(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteProject = (id: string) => apiFetch(`/projects/${id}`, { method: 'DELETE' });
 
-// Fix: Update apiGetTasks to support multiple parameters as used in useTasks hook
 export const apiGetTasks = (userId?: string, projectId?: string, status?: string) => {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
@@ -193,7 +181,6 @@ export const apiDeleteTask = (id: string) => apiFetch(`/tasks/${id}`, { method: 
 /**
  * INVOICING & REVENUE
  */
-// Fix: Update apiGetInvoices to support multiple parameters as used in useInvoices hook
 export const apiGetInvoices = (userId?: string, companyId?: string, status?: string) => {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
@@ -223,6 +210,14 @@ export const apiMarkNotificationAsRead = (id: string, userId: string) => apiFetc
 export const apiMarkAllNotificationsAsRead = (userId: string) => apiFetch('/notifications/mark-all-read', { method: 'POST', body: JSON.stringify({ userId }) });
 
 /**
+ * FEEDBACK & ROADMAP
+ */
+export const apiGetFeedback = () => apiFetch('/feedback');
+export const apiCreateFeedback = (data: any) => apiFetch('/feedback', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateFeedback = (id: string, data: any) => apiFetch(`/feedback/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+export const apiDeleteFeedback = (id: string) => apiFetch(`/feedback/${id}`, { method: 'DELETE' });
+
+/**
  * EXTERNAL SYNC
  */
 export const apiGetGoogleCalendarStatus = (userId: string) => apiFetch(`/google-calendar/status?userId=${userId}`);
@@ -231,7 +226,6 @@ export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: s
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
 export const apiGetSharedInboxEmails = (userId: string) => apiFetch(`/shared-inbox/emails?userId=${userId}`);
 
-// Fix: Add missing settings and domain exports
 export const apiGetExcludedDomains = () => apiFetch('/settings/excluded-domains');
 export const apiAddExcludedDomain = (domain: string) => apiFetch('/settings/excluded-domains', { method: 'POST', body: JSON.stringify({ domain }) });
 export const apiRemoveExcludedDomain = (id: string) => apiFetch(`/settings/excluded-domains/${id}`, { method: 'DELETE' });
@@ -239,6 +233,5 @@ export const apiRemoveExcludedDomain = (id: string) => apiFetch(`/settings/exclu
 /**
  * EVENTS
  */
-// Fix: Add missing apiCreateEvent and apiUpdateEvent exports
 export const apiCreateEvent = (data: any) => apiFetch('/events', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateEvent = (id: string, data: any) => apiFetch(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });

@@ -1,16 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2 } from 'lucide-react';
-import { MOCK_PROJECTS, MOCK_USERS } from '../constants';
+import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar } from 'lucide-react';
 import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiCreateInvoice, apiCreateNotification } from '../utils/api';
 import { Company, User as UserType, Project } from '../types';
 
 interface QuickCreateModalProps {
   type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
-  stage?: string; // Optional stage for deals
-  lockedType?: boolean; // If true, hide the switch tabs
+  stage?: string;
+  lockedType?: boolean;
   onClose: () => void;
-  onSuccess?: () => void; // Callback to refresh data after creation
+  onSuccess?: () => void;
 }
 
 const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, stage: initialStage, lockedType, onClose, onSuccess }) => {
@@ -25,6 +24,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     name: '',
     title: '',
     companyId: '',
+    projectId: '',
     role: '',
     email: '',
     phone: '',
@@ -38,213 +38,145 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     description: '',
     industry: '',
     website: '',
+    linkedin: '',
     priority: 'Medium',
     assignedUserIds: [] as string[]
   });
 
   useEffect(() => {
-    setFormData({
-      name: '',
-      title: '',
-      companyId: '',
-      role: '',
-      email: '',
-      phone: '',
-      assigneeId: '',
-      ownerId: '',
-      value: '',
-      expectedCloseDate: '',
-      stage: initialStage || 'Discovery',
-      status: 'Planning',
-      progress: '0',
-      priority: 'Medium',
-      description: '',
-      industry: '',
-      website: '',
-      assignedUserIds: []
-    });
+    setFormData(prev => ({
+      ...prev,
+      name: '', title: '', companyId: '', projectId: '', role: '', email: '', phone: '',
+      assigneeId: '', ownerId: '', value: '', expectedCloseDate: '',
+      stage: initialStage || 'Discovery', status: 'Planning', progress: '0',
+      priority: 'Medium', description: '', industry: '', website: '', linkedin: '', assignedUserIds: []
+    }));
     setError(null);
     setStep('form');
   }, [initialType, initialStage]);
 
   useEffect(() => {
-    if (type === 'deal' || type === 'project') {
-      apiGetUsers().then(response => {
-        setUsers(response.data || []);
-        const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
-        if (currentUser.id && !formData.ownerId) {
-          setFormData(prev => ({ ...prev, ownerId: currentUser.id }));
-        }
-      }).catch(err => console.error('Failed to fetch users:', err));
-    }
-  }, [type]);
-
-  useEffect(() => {
-    if (type === 'contact' || type === 'deal' || type === 'project' || type === 'invoice') {
-      apiGetCompanies().then(response => {
-        setCompanies(response.data || []);
-        if (response.data && response.data.length > 0 && !formData.companyId) {
-          setFormData(prev => ({ ...prev, companyId: response.data[0].id }));
-        }
-      }).catch(err => console.error('Failed to fetch companies:', err));
-    }
-  }, [type]);
-
-  useEffect(() => {
-    if (type === 'task') {
-      apiGetProjects().then(response => {
-        const fetchedProjects = response?.data || response || [];
-        setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
-        if (Array.isArray(fetchedProjects) && fetchedProjects.length > 0 && !formData.companyId) {
-          setFormData(prev => ({ ...prev, companyId: fetchedProjects[0].id }));
-        }
-      }).catch(err => console.error('Failed to fetch projects:', err));
-
-      apiGetUsers().then(response => {
-        const fetchedUsers = response?.data || response || [];
-        setUsers(Array.isArray(fetchedUsers) ? fetchedUsers : []);
-        const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
-        if (currentUser.id && !formData.assigneeId) {
-          setFormData(prev => ({ ...prev, assigneeId: currentUser.id }));
-        }
-      }).catch(err => console.error('Failed to fetch users:', err));
-    }
+    const fetchData = async () => {
+       try {
+         const [uRes, cRes, pRes] = await Promise.all([apiGetUsers(), apiGetCompanies(), apiGetProjects()]);
+         setUsers(uRes.data || []);
+         setCompanies(cRes.data || []);
+         setProjects(Array.isArray(pRes) ? pRes : pRes?.data || []);
+         
+         const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
+         if (currentUser.id) {
+           setFormData(prev => ({ 
+             ...prev, 
+             ownerId: prev.ownerId || currentUser.id, 
+             assigneeId: prev.assigneeId || currentUser.id 
+           }));
+         }
+       } catch (err) {
+         console.error('[QUICK-CREATE] Data fetch failed:', err);
+       }
+    };
+    fetchData();
   }, [type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     setError(null);
+
+    // Troubleshoot Diagnostics
+    console.debug(`[QUICK-CREATE] Deployment Start. Type: ${type}`, formData);
 
     try {
       const currentUser = JSON.parse(localStorage.getItem('user_data') || 'null');
       const userId = currentUser?.id;
 
+      // Type-specific logic
       if (type === 'contact') {
-        if (!formData.name || !formData.companyId) throw new Error('Name and Company are required');
-        await apiCreateContact({
-          name: formData.name,
-          companyId: formData.companyId,
-          role: formData.role,
-          email: formData.email,
-          phone: formData.phone
+        if (!formData.name || !formData.email) throw new Error('Full Name and Email are required');
+        await apiCreateContact({ 
+          name: formData.name, 
+          companyId: formData.companyId || undefined, 
+          role: formData.role, 
+          email: formData.email, 
+          phone: formData.phone, 
+          linkedin: formData.linkedin || undefined 
         });
-        if (userId) {
-          await apiCreateNotification({
-            userId,
-            type: 'lead',
-            title: 'New Contact Added',
-            message: `${formData.name} was added under ${companies.find(c => c.id === formData.companyId)?.name || 'a company'}.`,
-            link: '/?tab=crm'
-          });
-        }
       } else if (type === 'company') {
         if (!formData.name) throw new Error('Company name is required');
-        await apiCreateCompany({
-          name: formData.name,
-          industry: formData.industry,
-          website: formData.website,
-          email: formData.email || undefined
+        await apiCreateCompany({ 
+          name: formData.name, 
+          industry: formData.industry, 
+          website: formData.website, 
+          email: formData.email || undefined, 
+          linkedin: formData.linkedin || undefined, 
+          ownerId: formData.ownerId || userId 
         });
-        if (userId) {
-          await apiCreateNotification({
-            userId,
-            type: 'lead',
-            title: 'New Company Added',
-            message: `${formData.name} was added to your CRM.`,
-            link: '/?tab=crm'
-          });
-        }
       } else if (type === 'deal') {
-        if (!formData.title || !formData.companyId || !formData.ownerId) throw new Error('Title, Company, and Assignee are required');
-        await apiCreateDeal({
-          title: formData.title,
-          companyId: formData.companyId,
-          value: parseFloat(formData.value) || 0,
-          stage: formData.stage as any,
-          ownerId: formData.ownerId,
-          expectedCloseDate: formData.expectedCloseDate || undefined,
-          description: formData.description || undefined
+        if (!formData.title || !formData.ownerId) throw new Error('Opportunity Title and Lead Owner are required');
+        await apiCreateDeal({ 
+          title: formData.title, 
+          companyId: formData.companyId || undefined, 
+          value: parseFloat(formData.value) || 0, 
+          stage: formData.stage as any, 
+          ownerId: formData.ownerId, 
+          expectedCloseDate: formData.expectedCloseDate || undefined, 
+          description: formData.description || undefined 
         });
-        if (userId) {
-          await apiCreateNotification({
-            userId,
-            type: 'deal',
-            title: 'New Deal Created',
-            message: `${formData.title} for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'} was created.`,
-            link: '/?tab=pipeline'
-          });
-        }
       } else if (type === 'project') {
-        if (!formData.title || !formData.companyId || !formData.ownerId) throw new Error('Title, Company, and Assignee are required');
-        await apiCreateProject({
-          title: formData.title,
-          companyId: formData.companyId,
-          status: formData.status as any,
-          ownerId: formData.ownerId,
-          progress: parseFloat(formData.progress) || 0,
-          description: formData.description || undefined,
-          assignedUserIds: formData.assignedUserIds.length > 0 ? formData.assignedUserIds : undefined
+        // FIX: The error "Company ID is required" was likely triggered by previous logic.
+        // Standalone projects allow unassigned organizations.
+        if (!formData.title) throw new Error('Project Identification (Title) is mandatory.');
+        if (!formData.ownerId) throw new Error('Project Assignment (Owner) is mandatory.');
+        
+        console.debug('[QUICK-CREATE] Attempting Project Creation...', { title: formData.title, ownerId: formData.ownerId });
+        
+        await apiCreateProject({ 
+          title: formData.title, 
+          companyId: formData.companyId || '', // Pass empty string if unassigned
+          status: formData.status as any, 
+          ownerId: formData.ownerId, 
+          progress: 0, 
+          description: formData.description 
         });
-        if (userId) {
-          await apiCreateNotification({
-            userId,
-            type: 'system',
-            title: 'New Project Created',
-            message: `${formData.title} project was created for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'}.`,
-            link: '/?tab=projects'
-          });
-        }
       } else if (type === 'task') {
-        if (!formData.title || !formData.companyId || !formData.assigneeId) throw new Error('Title, Project, and Assignee are required');
-        await apiCreateTask({
-          title: formData.title,
-          projectId: formData.companyId,
-          description: formData.description || undefined,
-          dueDate: formData.expectedCloseDate || undefined,
-          priority: formData.priority as any,
-          status: 'Todo',
-          assigneeId: formData.assigneeId
+        if (!formData.title || !formData.assigneeId) throw new Error('Task Title and Assignee are required');
+        
+        console.debug('[QUICK-CREATE] Attempting Task Creation...', { title: formData.title, assigneeId: formData.assigneeId });
+
+        await apiCreateTask({ 
+          title: formData.title, 
+          projectId: formData.projectId || undefined, 
+          description: formData.description || undefined, 
+          dueDate: formData.expectedCloseDate || undefined, 
+          priority: formData.priority as any, 
+          status: 'Todo', 
+          assigneeId: formData.assigneeId 
         });
-        if (userId) {
-          const project = projects.find(p => p.id === formData.companyId);
-          await apiCreateNotification({
-            userId,
-            type: 'task',
-            title: 'New Task Created',
-            message: `${formData.title} task was created${project ? ` under ${project.title}` : ''}.`,
-            link: '/?tab=tasks'
-          });
-        }
       } else if (type === 'invoice') {
-        if (!formData.companyId || !formData.value) throw new Error('Company and Amount are required');
-        const userIdForInvoice = JSON.parse(localStorage.getItem('user_data') || '{}').id;
-        // Invoice number will be auto-generated by backend, don't send it
-        await apiCreateInvoice({
-          companyId: formData.companyId,
-          amount: parseFloat(formData.value) || 0,
-          dueDate: formData.expectedCloseDate || undefined,
-          status: 'Draft',
-          description: formData.description || undefined,
-          userId: userIdForInvoice || undefined
+        if (!formData.companyId || !formData.value) throw new Error('Company and Economic Value are required');
+        await apiCreateInvoice({ 
+          companyId: formData.companyId, 
+          amount: parseFloat(formData.value) || 0, 
+          dueDate: formData.expectedCloseDate || undefined, 
+          status: 'Draft', 
+          userId: userId || undefined 
         });
-        if (userIdForInvoice) {
-          await apiCreateNotification({
-            userId: userIdForInvoice,
-            type: 'payment',
-            title: 'New Invoice Created',
-            message: `Invoice for ${companies.find(c => c.id === formData.companyId)?.name || 'a company'} was created for $${(parseFloat(formData.value) || 0).toLocaleString()}.`,
-            link: '/?tab=invoices'
-          });
-        }
       }
 
+      console.debug('[QUICK-CREATE] Registry success. Finalizing UI update.');
       setStep('success');
       if (onSuccess) onSuccess();
-      setTimeout(onClose, 2000);
+      
+      // Explicit delay before closing to show success state
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+
     } catch (err: any) {
-      console.error('Failed to create:', err);
-      setError(err.message || 'Failed to create. Please try again.');
+      console.error('[QUICK-CREATE] Deployment failed:', err);
+      setError(err.message || 'Operational error. Verify mandatory fields and team authorization.');
       setIsSubmitting(false);
     }
   };
@@ -252,270 +184,210 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const getTitle = () => {
     switch(type) {
       case 'deal': return 'New Opportunity';
-      case 'project': return 'Create Project';
+      case 'project': return 'Launch Project';
       case 'task': return 'New Task';
-      case 'invoice': return 'Create Invoice';
+      case 'invoice': return 'Draft Invoice';
       case 'company': return 'Add Company';
       case 'contact': return 'Add Contact';
-      default: return 'Quick Create';
+      default: return 'Quick Entry';
     }
   };
 
+  const RequiredAsterisk = () => <span className="text-red-500 ml-1 font-black">*</span>;
+
   if (step === 'success') {
     return (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div className="bg-white rounded-2xl w-full max-w-sm p-12 text-center animate-in zoom-in-95 duration-200">
-          <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6 text-emerald-600">
-            <CheckCircle2 className="w-10 h-10" />
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="bg-white rounded-[40px] w-full max-w-sm p-12 text-center animate-in zoom-in-95 duration-300 shadow-2xl">
+          <div className="w-24 h-24 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-8 text-emerald-500 ring-8 ring-emerald-50/50">
+            <CheckCircle2 className="w-12 h-12 animate-in zoom-in duration-500" />
           </div>
-          <h3 className="text-xl font-bold text-slate-900 mb-2">Successfully Created!</h3>
-          <p className="text-sm text-slate-500">Your {type} has been added to the ImpactFlow workspace.</p>
+          <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Deployment Success</h3>
+          <p className="text-slate-500 text-sm font-medium">Record integrated into ImpactFlow OS.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 rounded-lg text-white">
-              {(type === 'deal' || type === 'company') && <Building2 className="w-5 h-5" />}
-              {type === 'project' && <FolderKanban className="w-5 h-5" />}
-              {type === 'task' && <CheckSquare className="w-5 h-5" />}
-              {type === 'invoice' && <FileText className="w-5 h-5" />}
-              {type === 'contact' && <User className="w-5 h-5" />}
+    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="bg-white rounded-[48px] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <div className="flex items-center gap-5">
+            <div className="p-4 bg-indigo-600 rounded-[20px] text-white shadow-2xl shadow-indigo-100 ring-4 ring-indigo-50">
+              {(type === 'deal' || type === 'company') && <Building2 className="w-6 h-6" />}
+              {type === 'project' && <FolderKanban className="w-6 h-6" />}
+              {type === 'task' && <CheckSquare className="w-6 h-6" />}
+              {type === 'invoice' && <FileText className="w-6 h-6" />}
+              {type === 'contact' && <User className="w-6 h-6" />}
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">{getTitle()}</h3>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">New ImpactFlow Entry</p>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-1">{getTitle()}</h3>
+              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">Digital Enterprise Registry</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[75vh] overflow-y-auto custom-scrollbar">
           {!lockedType && (
-            <div className="flex bg-slate-100 p-1 rounded-xl mb-4 overflow-x-auto scrollbar-hide">
-              {[
-                { id: 'deal', icon: <Building2 className="w-3.5 h-3.5" />, label: 'Deal' },
-                { id: 'project', icon: <FolderKanban className="w-3.5 h-3.5" />, label: 'Project' },
-                { id: 'task', icon: <CheckSquare className="w-3.5 h-3.5" />, label: 'Task' },
-                { id: 'invoice', icon: <FileText className="w-3.5 h-3.5" />, label: 'Invoice' },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setType(tab.id as any)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap px-4 ${
-                    type === tab.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
+            <div className="flex bg-slate-100 p-1 rounded-[20px] mb-4 overflow-x-auto scrollbar-hide border border-slate-200">
+              {['deal', 'project', 'task', 'invoice', 'company', 'contact'].map(tab => (
+                <button 
+                  key={tab} 
+                  type="button" 
+                  onClick={() => setType(tab as any)} 
+                  className={`flex-1 min-w-[80px] flex items-center justify-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${type === tab ? 'bg-white text-indigo-600 shadow-md border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
                 >
-                  {tab.icon}
-                  {tab.label}
+                  {tab}
                 </button>
               ))}
             </div>
           )}
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl">
-              {error}
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs p-5 rounded-3xl font-bold flex items-start gap-3 animate-in slide-in-from-top-2">
+              <AlertCircle className="w-5 h-5 shrink-0" /> 
+              <span>{error}</span>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {type !== 'invoice' && (
-              <div className="md:col-span-2 space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  {type === 'task' ? 'Task Title' : type === 'deal' || type === 'project' ? 'Title / Name' : type === 'company' ? 'Company Name' : 'Full Name'}
-                </label>
-                <input 
-                  required 
-                  type="text" 
-                  placeholder={type === 'task' ? 'Enter task title...' : `Enter ${type === 'company' ? 'company' : type === 'contact' ? 'contact' : type} name...`} 
-                  value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name}
-                  onChange={(e) => {
-                    if (type === 'deal' || type === 'project' || type === 'task') {
-                      setFormData(prev => ({ ...prev, title: e.target.value }));
-                    } else {
-                      setFormData(prev => ({ ...prev, name: e.target.value }));
-                    }
-                  }}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                />
-              </div>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Common Name/Title Field */}
+            <div className="md:col-span-2 space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                {type === 'deal' || type === 'project' || type === 'task' ? 'Official Identification' : 'Full Registered Name'} <RequiredAsterisk />
+              </label>
+              <input 
+                required 
+                type="text" 
+                placeholder={type === 'deal' ? "e.g., Q4 Logistics Transformation" : "Provide identifier..."} 
+                value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name} 
+                onChange={(e) => setFormData(prev => ({ ...prev, [type === 'deal' || type === 'project' || type === 'task' ? 'title' : 'name']: e.target.value }))} 
+                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold placeholder:text-slate-300" 
+              />
+            </div>
 
-            {type === 'invoice' && (
-              <div className="md:col-span-2 space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Invoice Number</label>
-                <input 
-                  type="text" 
-                  value="Auto-generated" 
-                  disabled
-                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm outline-none text-slate-500 cursor-not-allowed" 
-                />
-                <p className="text-[10px] text-slate-400 italic">Invoice number will be generated automatically (e.g., INV-2024-0001)</p>
-              </div>
-            )}
-
+            {/* Entity Associations */}
             {(type === 'deal' || type === 'project' || type === 'invoice' || type === 'contact') && (
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Company</label>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Organization {type === 'invoice' && <RequiredAsterisk />}</label>
                 <select 
-                  required={type === 'contact' || type === 'deal' || type === 'project'}
-                  value={formData.companyId}
-                  onChange={(e) => setFormData(prev => ({ ...prev, companyId: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                  required={type === 'invoice'} 
+                  value={formData.companyId} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, companyId: e.target.value }))} 
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
                 >
-                  <option value="">Select a company</option>
+                  <option value="">No Organization (Unassigned)</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             )}
 
-            {type === 'contact' && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Role</label>
-                  <input type="text" placeholder="e.g., COO, Manager" value={formData.role} onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>
-                  <input type="email" placeholder="email@example.com" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Phone</label>
-                  <input type="tel" placeholder="+1 555-0123" value={formData.phone} onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-              </>
-            )}
-
-            {type === 'company' && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Industry</label>
-                  <input type="text" placeholder="e.g., Shipping, Tech" value={formData.industry} onChange={(e) => setFormData(prev => ({ ...prev, industry: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Website</label>
-                  <input type="text" placeholder="example.com" value={formData.website} onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>
-                  <input type="email" placeholder="company@example.com" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-              </>
-            )}
-
+            {/* Task specific Project Link */}
             {type === 'task' && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Target Project</label>
-                  <select required value={formData.companyId} onChange={(e) => setFormData(prev => ({ ...prev, companyId: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100">
-                    <option value="">Select a project</option>
-                    {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Priority</label>
-                  <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100">
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Due Date</label>
-                  <input type="date" value={formData.expectedCloseDate} onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assignee</label>
-                  <select required value={formData.assigneeId} onChange={(e) => setFormData(prev => ({ ...prev, assigneeId: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100">
-                    <option value="">Select assignee</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {type === 'deal' && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expected Value</label>
-                  <input type="number" placeholder="0.00" value={formData.value} onChange={(e) => setFormData(prev => ({ ...prev, value: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expected Close</label>
-                  <input type="date" value={formData.expectedCloseDate} onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stage</label>
-                  <select value={formData.stage} onChange={(e) => setFormData(prev => ({ ...prev, stage: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100">
-                    <option value="Discovery">Discovery</option>
-                    <option value="Proposal">Proposal</option>
-                    <option value="Negotiation">Negotiation</option>
-                    <option value="Won">Won</option>
-                    <option value="Lost">Lost</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Owner</label>
-                  <select required value={formData.ownerId} onChange={(e) => setFormData(prev => ({ ...prev, ownerId: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100">
-                    <option value="">Select owner</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {type === 'invoice' && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Amount</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <input 
-                      required
-                      type="number" 
-                      step="0.01"
-                      placeholder="0.00" 
-                      value={formData.value}
-                      onChange={(e) => setFormData(prev => ({ ...prev, value: e.target.value }))}
-                      className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Due Date</label>
-                  <input 
-                    required 
-                    type="date" 
-                    value={formData.expectedCloseDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-              </>
-            )}
-
-            {(type === 'deal' || type === 'project' || type === 'task' || type === 'invoice') && (
-              <div className="md:col-span-2 space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Description</label>
-                <textarea placeholder="Add relevant details..." value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={3} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 resize-none" />
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Project Workflow</label>
+                <select 
+                  value={formData.projectId} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, projectId: e.target.value }))} 
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none"
+                >
+                  <option value="">General / Standalone</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
               </div>
             )}
+
+            {/* Ownership/Assignment */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                Designated Lead / Assignee <RequiredAsterisk />
+              </label>
+              <select 
+                required 
+                value={type === 'task' ? formData.assigneeId : formData.ownerId} 
+                onChange={(e) => setFormData(prev => ({ ...prev, [type === 'task' ? 'assigneeId' : 'ownerId']: e.target.value }))} 
+                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none"
+              >
+                <option value="">Select Resource Personnel</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+
+            {/* Financial Value */}
+            {(type === 'deal' || type === 'invoice') && (
+              <div className="space-y-2">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Economic Value ($) <RequiredAsterisk /></label>
+                 <div className="relative">
+                   <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
+                   <input 
+                    required 
+                    type="number" 
+                    placeholder="0.00" 
+                    value={formData.value} 
+                    onChange={(e) => setFormData(prev => ({ ...prev, value: e.target.value }))} 
+                    className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-black text-indigo-600" 
+                   />
+                 </div>
+              </div>
+            )}
+
+            {/* Timeline */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Target Milestone Date</label>
+              <div className="relative">
+                <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="date" 
+                  value={formData.expectedCloseDate} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))} 
+                  className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold" 
+                />
+              </div>
+            </div>
+
+            {/* Task Priority */}
+            {type === 'task' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Priority Classification</label>
+                <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+                  {['Low', 'Medium', 'High'].map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setFormData({...formData, priority: p as any})}
+                      className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.priority === p ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Context/Description Area */}
+            <div className="md:col-span-2 space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Strategic Description / Context</label>
+              <textarea 
+                placeholder="Detail the operational scope or requirements..." 
+                value={formData.description} 
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} 
+                rows={3} 
+                className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[32px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 resize-none font-medium placeholder:text-slate-300" 
+              />
+            </div>
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200">Cancel</button>
-            <button type="submit" disabled={isSubmitting} className="flex-[2] py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-[0.98]">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Create {type}
+          <div className="flex gap-6 pt-6 border-t border-slate-100">
+            <button type="button" onClick={onClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">Abort</button>
+            <button 
+              type="submit" 
+              disabled={isSubmitting} 
+              className="flex-[2] py-5 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[24px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-4 disabled:opacity-50"
+            >
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Execute Deploy
             </button>
           </div>
         </form>

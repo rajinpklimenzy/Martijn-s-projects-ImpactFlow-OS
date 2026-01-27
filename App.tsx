@@ -2,21 +2,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NAV_ITEMS } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
-import Inbox from './components/Inbox.tsx';
 import CRM from './components/CRM.tsx';
 import Pipeline from './components/Pipeline.tsx';
 import Projects from './components/Projects.tsx';
 import Tasks from './components/Tasks.tsx';
 import Invoicing from './components/Invoicing.tsx';
-import Automations from './components/Automations.tsx';
 import UserManagement from './components/UserManagement.tsx';
 import Settings from './components/Settings.tsx';
 import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
+import Roadmap from './components/Roadmap.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
+import BugReportWidget from './components/BugReportWidget.tsx';
 import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus } from 'lucide-react';
 import { Notification, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
@@ -93,7 +93,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['dashboard', 'schedule', 'inbox', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'automation', 'users', 'settings', 'integrations'].includes(tabParam)) {
+    if (tabParam && ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations'].includes(tabParam)) {
       setActiveTab(tabParam);
       urlParams.delete('tab');
       const newUrl = urlParams.toString() 
@@ -158,14 +158,12 @@ const App: React.FC = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={setActiveTab} />;
       case 'schedule': return <Schedule currentUser={currentUser} onNavigate={setActiveTab} onNewEvent={() => openEventModal()} />;
-      case 'inbox': return <Inbox />;
       case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
-      case 'automation': return <Automations />;
-      case 'integrations': return <Integrations />;
+      case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       default: return <Dashboard onNavigate={setActiveTab} />;
@@ -248,7 +246,7 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col overflow-hidden w-full">
+        <main className="flex-1 flex flex-col overflow-hidden w-full relative">
           <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 relative">
             <div className="flex items-center gap-2 lg:gap-4">
               <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
@@ -305,6 +303,9 @@ const App: React.FC = () => {
               {renderContent()}
             </div>
           </section>
+
+          {/* Persistent Feedback Widget */}
+          <BugReportWidget currentUser={currentUser} />
         </main>
 
         {createModalConfig.isOpen && (

@@ -1,3 +1,4 @@
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGetDeals, apiCreateDeal, apiUpdateDeal, apiDeleteDeal } from '../utils/api';
 import { Deal } from '../types';
@@ -48,7 +49,8 @@ export const useCreateDeal = () => {
 
   return useMutation({
     mutationFn: async (dealData: Partial<Deal>) => {
-      const response = await apiCreateDeal(dealData);
+      // Fix: cast Partial<Deal> to any to satisfy the specific required properties in apiCreateDeal signature
+      const response = await apiCreateDeal(dealData as any);
       return response.data || response;
     },
     onSuccess: () => {
