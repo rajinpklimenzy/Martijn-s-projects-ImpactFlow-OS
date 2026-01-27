@@ -13,6 +13,33 @@ interface CRMProps {
   externalSearchQuery?: string;
 }
 
+// Format date to readable format with AM/PM
+const formatLastContacted = (dateString: string | undefined): string => {
+  if (!dateString) return 'Never';
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    // Format: "Jan 22, 2026 at 8:41 AM"
+    const datePart = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    const timePart = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    
+    return `${datePart} at ${timePart}`;
+  } catch (error) {
+    return 'Invalid date';
+  }
+};
+
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
   const { showSuccess, showError } = useToast();
   const [view, setView] = useState<'companies' | 'contacts'>('companies');
@@ -452,7 +479,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-600">
                       <Clock className="w-4 h-4 text-slate-400" />
-                      <span>Last contacted: {contact.lastContacted}</span>
+                      <span>Last contacted: {formatLastContacted(contact.lastContacted)}</span>
                     </div>
                   </div>
                   <div className="flex gap-2">

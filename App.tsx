@@ -61,13 +61,39 @@ const App: React.FC = () => {
         if (!storedUser?.id) return;
         const res = await apiGetNotifications(storedUser.id, 20);
         const data = res?.data || res || [];
+        // Format notification timestamp to readable format with AM/PM
+        const formatNotificationTime = (dateString: string | number | undefined): string => {
+          if (!dateString) return 'Just now';
+          try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return 'Invalid date';
+            
+            // Format: "Jan 22, 2026 at 8:41 AM"
+            const datePart = date.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            });
+            
+            const timePart = date.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            });
+            
+            return `${datePart} at ${timePart}`;
+          } catch (error) {
+            return 'Invalid date';
+          }
+        };
+
         const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => ({
           id: n.id,
           userId: n.userId,
           type: n.type || 'system',
           title: n.title,
           message: n.message,
-          timestamp: new Date(n.createdAt || Date.now()).toLocaleString(),
+          timestamp: formatNotificationTime(n.createdAt || Date.now()),
           read: !!n.read,
           link: n.link || undefined,
         }));
