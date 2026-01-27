@@ -17,6 +17,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -52,23 +53,32 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       priority: 'Medium', description: '', industry: '', website: '', linkedin: '', assignedUserIds: []
     }));
     setError(null);
+    setFieldErrors({});
     setStep('form');
   }, [initialType, initialStage]);
 
   useEffect(() => {
     const fetchData = async () => {
        try {
-         const [uRes, cRes, pRes] = await Promise.all([apiGetUsers(), apiGetCompanies(), apiGetProjects()]);
+         const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
+         const userId = currentUser?.id;
+         
+         const [uRes, cRes, pRes] = await Promise.all([
+           apiGetUsers(), 
+           apiGetCompanies(), 
+           apiGetProjects(userId, undefined, 'Active') // Only fetch Active projects
+         ]);
          setUsers(uRes.data || []);
          setCompanies(cRes.data || []);
-         setProjects(Array.isArray(pRes) ? pRes : pRes?.data || []);
+         // Filter to only show Active projects
+         const allProjects = Array.isArray(pRes) ? pRes : pRes?.data || [];
+         setProjects(allProjects.filter((p: Project) => p.status === 'Active'));
          
-         const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
-         if (currentUser.id) {
+         if (userId) {
            setFormData(prev => ({ 
              ...prev, 
-             ownerId: prev.ownerId || currentUser.id, 
-             assigneeId: prev.assigneeId || currentUser.id 
+             ownerId: prev.ownerId || userId, 
+             assigneeId: prev.assigneeId || userId 
            }));
          }
        } catch (err) {
@@ -78,12 +88,50 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     fetchData();
   }, [type]);
 
+  const validateForm = (): boolean => {
+    const errors: { [key: string]: string } = {};
+    
+    if (type === 'contact') {
+      if (!formData.name?.trim()) errors.name = 'Full Name is required';
+      if (!formData.email?.trim()) errors.email = 'Email Address is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email address';
+    } else if (type === 'company') {
+      if (!formData.name?.trim()) errors.name = 'Company Name is required';
+    } else if (type === 'deal') {
+      if (!formData.title?.trim()) errors.title = 'Opportunity Title is required';
+      if (!formData.ownerId) errors.ownerId = 'Designated Lead / Assignee is required';
+    } else if (type === 'project') {
+      if (!formData.title?.trim()) errors.title = 'Project Identification (Title) is required';
+      if (!formData.ownerId) errors.ownerId = 'Designated Lead / Assignee is required';
+    } else if (type === 'task') {
+      if (!formData.title?.trim()) errors.title = 'Task Title is required';
+      if (!formData.assigneeId) errors.assigneeId = 'Designated Lead / Assignee is required';
+    } else if (type === 'invoice') {
+      if (!formData.companyId) errors.companyId = 'Linked Organization is required';
+      if (!formData.value || parseFloat(formData.value) <= 0) errors.value = 'Economic Value must be greater than $0';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-    setIsSubmitting(true);
+    // Clear previous errors
     setError(null);
+    setFieldErrors({});
+
+    // Validate form
+    if (!validateForm()) {
+      const errorMessages = Object.values(fieldErrors);
+      setError(errorMessages.length > 0 ? errorMessages[0] : 'Please fill in all required fields');
+      setIsSubmitting(false);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     // Troubleshoot Diagnostics
     console.debug(`[QUICK-CREATE] Deployment Start. Type: ${type}`, formData);
@@ -94,7 +142,6 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
       // Type-specific logic
       if (type === 'contact') {
-        if (!formData.name || !formData.email) throw new Error('Full Name and Email are required');
         await apiCreateContact({ 
           name: formData.name, 
           companyId: formData.companyId || undefined, 
@@ -104,7 +151,6 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           linkedin: formData.linkedin || undefined 
         });
       } else if (type === 'company') {
-        if (!formData.name) throw new Error('Company name is required');
         await apiCreateCompany({ 
           name: formData.name, 
           industry: formData.industry, 
@@ -114,10 +160,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           ownerId: formData.ownerId || userId 
         });
       } else if (type === 'deal') {
-        if (!formData.title || !formData.ownerId) throw new Error('Opportunity Title and Lead Owner are required');
         await apiCreateDeal({ 
           title: formData.title, 
-          companyId: formData.companyId || undefined, 
+          companyId: formData.companyId && formData.companyId.trim() !== '' ? formData.companyId : undefined, // Allow undefined for standalone deals
           value: parseFloat(formData.value) || 0, 
           stage: formData.stage as any, 
           ownerId: formData.ownerId, 
@@ -125,24 +170,17 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           description: formData.description || undefined 
         });
       } else if (type === 'project') {
-        // FIX: The error "Company ID is required" was likely triggered by previous logic.
-        // Standalone projects allow unassigned organizations.
-        if (!formData.title) throw new Error('Project Identification (Title) is mandatory.');
-        if (!formData.ownerId) throw new Error('Project Assignment (Owner) is mandatory.');
-        
         console.debug('[QUICK-CREATE] Attempting Project Creation...', { title: formData.title, ownerId: formData.ownerId });
         
         await apiCreateProject({ 
           title: formData.title, 
-          companyId: formData.companyId || '', // Pass empty string if unassigned
+          companyId: formData.companyId && formData.companyId.trim() !== '' ? formData.companyId : undefined, // Allow undefined for standalone projects
           status: formData.status as any, 
           ownerId: formData.ownerId, 
           progress: 0, 
           description: formData.description 
         });
       } else if (type === 'task') {
-        if (!formData.title || !formData.assigneeId) throw new Error('Task Title and Assignee are required');
-        
         console.debug('[QUICK-CREATE] Attempting Task Creation...', { title: formData.title, assigneeId: formData.assigneeId });
 
         await apiCreateTask({ 
@@ -155,7 +193,6 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           assigneeId: formData.assigneeId 
         });
       } else if (type === 'invoice') {
-        if (!formData.companyId || !formData.value) throw new Error('Company and Economic Value are required');
         await apiCreateInvoice({ 
           companyId: formData.companyId, 
           amount: parseFloat(formData.value) || 0, 
@@ -251,6 +288,20 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               <span>{error}</span>
             </div>
           )}
+          
+          {Object.keys(fieldErrors).length > 0 && !error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs p-5 rounded-3xl font-bold flex items-start gap-3 animate-in slide-in-from-top-2">
+              <AlertCircle className="w-5 h-5 shrink-0" /> 
+              <div className="flex-1">
+                <p className="mb-2">Please correct the following errors:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  {Object.entries(fieldErrors).map(([field, message]) => (
+                    <li key={field}>{message}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Common Name/Title Field */}
@@ -263,8 +314,23 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 type="text" 
                 placeholder={type === 'deal' ? "e.g., Q4 Logistics Transformation" : "Provide identifier..."} 
                 value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name} 
-                onChange={(e) => setFormData(prev => ({ ...prev, [type === 'deal' || type === 'project' || type === 'task' ? 'title' : 'name']: e.target.value }))} 
-                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold placeholder:text-slate-300" 
+                onChange={(e) => {
+                  const fieldName = type === 'deal' || type === 'project' || type === 'task' ? 'title' : 'name';
+                  setFormData(prev => ({ ...prev, [fieldName]: e.target.value }));
+                  // Clear error when user starts typing
+                  if (fieldErrors[fieldName]) {
+                    setFieldErrors(prev => {
+                      const newErrors = { ...prev };
+                      delete newErrors[fieldName];
+                      return newErrors;
+                    });
+                  }
+                }} 
+                className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  fieldErrors.title || fieldErrors.name 
+                    ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
+                    : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                }`}
               />
             </div>
 
@@ -275,12 +341,85 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 <select 
                   required={type === 'invoice'} 
                   value={formData.companyId} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, companyId: e.target.value }))} 
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, companyId: e.target.value }));
+                    // Clear error when user selects
+                    if (fieldErrors.companyId) {
+                      setFieldErrors(prev => {
+                        const newErrors = { ...prev };
+                        delete newErrors.companyId;
+                        return newErrors;
+                      });
+                    }
+                  }} 
+                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat ${
+                    fieldErrors.companyId 
+                      ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
+                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                  } bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22${fieldErrors.companyId ? '%23ef4444' : '%236b7280'}%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]`}
                 >
                   <option value="">No Organization (Unassigned)</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+            )}
+
+            {/* Contact Email Field */}
+            {type === 'contact' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                  Email Address <RequiredAsterisk />
+                </label>
+                <input 
+                  required
+                  type="email" 
+                  placeholder="contact@company.com" 
+                  value={formData.email} 
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, email: e.target.value }));
+                    // Clear error when user starts typing
+                    if (fieldErrors.email) {
+                      setFieldErrors(prev => {
+                        const newErrors = { ...prev };
+                        delete newErrors.email;
+                        return newErrors;
+                      });
+                    }
+                  }} 
+                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                    fieldErrors.email 
+                      ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
+                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                  }`}
+                />
+              </div>
+            )}
+
+            {/* Contact Role Field */}
+            {type === 'contact' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Role / Title</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g., CEO, Manager" 
+                  value={formData.role} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} 
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300" 
+                />
+              </div>
+            )}
+
+            {/* Contact Phone Field */}
+            {type === 'contact' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Phone Number</label>
+                <input 
+                  type="tel" 
+                  placeholder="+1 (555) 000-0000" 
+                  value={formData.phone} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))} 
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300" 
+                />
               </div>
             )}
 
@@ -289,12 +428,20 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Project Workflow</label>
                 <select 
-                  value={formData.projectId} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, projectId: e.target.value }))} 
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none"
+                  value={formData.projectId || ''} 
+                  onChange={(e) => {
+                    const selectedProjectId = e.target.value;
+                    setFormData(prev => ({ 
+                      ...prev, 
+                      projectId: selectedProjectId === '' ? '' : selectedProjectId // Keep empty string for "General / Standalone"
+                    }));
+                  }} 
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
                 >
                   <option value="">General / Standalone</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  {projects.filter((p: Project) => p.status === 'Active').map((p: Project) => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
                 </select>
               </div>
             )}
@@ -307,8 +454,23 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               <select 
                 required 
                 value={type === 'task' ? formData.assigneeId : formData.ownerId} 
-                onChange={(e) => setFormData(prev => ({ ...prev, [type === 'task' ? 'assigneeId' : 'ownerId']: e.target.value }))} 
-                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold appearance-none"
+                onChange={(e) => {
+                  const fieldName = type === 'task' ? 'assigneeId' : 'ownerId';
+                  setFormData(prev => ({ ...prev, [fieldName]: e.target.value }));
+                  // Clear error when user selects
+                  if (fieldErrors[fieldName]) {
+                    setFieldErrors(prev => {
+                      const newErrors = { ...prev };
+                      delete newErrors[fieldName];
+                      return newErrors;
+                    });
+                  }
+                }} 
+                className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none ${
+                  fieldErrors.ownerId || fieldErrors.assigneeId 
+                    ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
+                    : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                }`}
               >
                 <option value="">Select Resource Personnel</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -326,8 +488,22 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     type="number" 
                     placeholder="0.00" 
                     value={formData.value} 
-                    onChange={(e) => setFormData(prev => ({ ...prev, value: e.target.value }))} 
-                    className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-black text-indigo-600" 
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, value: e.target.value }));
+                      // Clear error when user starts typing
+                      if (fieldErrors.value) {
+                        setFieldErrors(prev => {
+                          const newErrors = { ...prev };
+                          delete newErrors.value;
+                          return newErrors;
+                        });
+                      }
+                    }} 
+                    className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-black transition-all ${
+                      fieldErrors.value 
+                        ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500 text-red-600' 
+                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600'
+                    }`}
                    />
                  </div>
               </div>

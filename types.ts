@@ -99,7 +99,7 @@ export interface Company {
 export interface Deal {
   id: string;
   title: string;
-  companyId: string;
+  companyId: string | null; // Can be null for standalone/direct deals
   value: number;
   stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost';
   ownerId: string;
@@ -113,7 +113,7 @@ export interface Deal {
 export interface Project {
   id: string;
   title: string;
-  companyId: string;
+  companyId: string | null; // Can be null for standalone/general projects
   status: 'Planning' | 'Active' | 'On Hold' | 'Completed';
   dealId?: string;
   progress: number;

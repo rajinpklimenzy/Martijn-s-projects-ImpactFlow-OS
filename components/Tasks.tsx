@@ -7,8 +7,9 @@ import {
   Archive, RotateCcw, Box, FileSpreadsheet, Info, ArrowRight, Table,
   FileText
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Task, Project, User as UserType } from '../types';
-import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiCreateTask } from '../utils/api';
+import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiCreateTask, apiBulkImportTasks } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 
@@ -29,6 +30,14 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importStep, setImportStep] = useState<'upload' | 'mapping'>('upload');
   const [detectedColumns, setDetectedColumns] = useState<string[]>([]);
+  const [parsedData, setParsedData] = useState<any[]>([]);
+  const [columnMapping, setColumnMapping] = useState<{ [key: string]: string }>({
+    title: '',
+    dueDate: '',
+    description: '',
+    priority: ''
+  });
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
@@ -60,29 +69,326 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "Title,Due Date (YYYY-MM-DD),Priority (Low/Medium/High),Description\nUpdate Logistics Map,2024-12-31,High,Audit the EMEA transit routes";
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'ImpactFlow_Task_Import_Template.csv';
-    a.click();
+    // Create Excel template using xlsx
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Title', 'Due Date (YYYY-MM-DD)', 'Priority (Low/Medium/High)', 'Description'],
+      ['Update Logistics Map', '2024-12-31', 'High', 'Audit the EMEA transit routes']
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+    XLSX.writeFile(wb, 'ImpactFlow_Task_Import_Template.xlsx');
     showInfo('Registry template downloaded');
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExecuteImport = async () => {
+    // Validate required mappings
+    if (!columnMapping.title || !columnMapping.dueDate) {
+      showError('Please map required fields: Title and Due Date');
+      return;
+    }
+
+    if (parsedData.length === 0) {
+      showError('No data to import');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      if (!userId) {
+        showError('Please log in to import tasks');
+        setIsImporting(false);
+        return;
+      }
+
+      // Transform parsed data to task format
+      const tasksToImport = parsedData.map((row, index) => {
+        // Get values from mapped columns
+        const title = String(row[columnMapping.title] || '').trim();
+        const dueDateRaw = String(row[columnMapping.dueDate] || '').trim();
+        const description = columnMapping.description ? String(row[columnMapping.description] || '').trim() : '';
+        const priorityRaw = columnMapping.priority ? String(row[columnMapping.priority] || '').trim() : 'Medium';
+
+        // Parse and format due date
+        let dueDate = '';
+        if (dueDateRaw) {
+          // Handle Excel date serial numbers (e.g., 45658)
+          if (/^\d+$/.test(dueDateRaw) && parseFloat(dueDateRaw) > 25569) {
+            // Excel serial date (days since 1900-01-01)
+            const excelEpoch = new Date(1900, 0, 1);
+            const days = parseFloat(dueDateRaw) - 2; // Excel counts from 1900-01-01, but has a bug with 1900 being a leap year
+            const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+            if (!isNaN(date.getTime())) {
+              dueDate = date.toISOString().split('T')[0];
+            }
+          } else {
+            // Try various date formats
+            let parsedDate: Date | null = null;
+            
+            // YYYY-MM-DD format
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dueDateRaw)) {
+              parsedDate = new Date(dueDateRaw);
+            }
+            // DD/MM/YYYY or DD/MM/YY format
+            else if (dueDateRaw.includes('/')) {
+              const parts = dueDateRaw.split('/').map(p => p.trim());
+              if (parts.length === 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                let year = parseInt(parts[2], 10);
+                if (year < 100) year += 2000; // Convert YY to YYYY
+                if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                  parsedDate = new Date(year, month, day);
+                }
+              }
+            }
+            // MM/DD/YYYY format (US format)
+            else if (dueDateRaw.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+              const parts = dueDateRaw.split('/');
+              const month = parseInt(parts[0], 10) - 1;
+              const day = parseInt(parts[1], 10);
+              const year = parseInt(parts[2], 10);
+              if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                parsedDate = new Date(year, month, day);
+              }
+            }
+            // Try direct Date parse as fallback
+            if (!parsedDate || isNaN(parsedDate.getTime())) {
+              parsedDate = new Date(dueDateRaw);
+            }
+            
+            if (parsedDate && !isNaN(parsedDate.getTime())) {
+              dueDate = parsedDate.toISOString().split('T')[0];
+            }
+          }
+        }
+
+        // Normalize priority
+        const priorityMap: { [key: string]: 'Low' | 'Medium' | 'High' } = {
+          'low': 'Low',
+          'medium': 'Medium',
+          'high': 'High',
+          'l': 'Low',
+          'm': 'Medium',
+          'h': 'High'
+        };
+        const priority = priorityMap[priorityRaw.toLowerCase()] || 'Medium';
+
+        return {
+          title,
+          dueDate,
+          description,
+          priority,
+          status: 'Todo' as const,
+          assigneeId: userId, // Assign to current user by default
+          _rowIndex: index, // For debugging
+          _rawDate: dueDateRaw // For debugging
+        };
+      }).filter(task => {
+        const isValid = task.title && task.dueDate;
+        if (!isValid) {
+          console.warn('Filtered out invalid task:', {
+            title: task.title,
+            dueDate: task.dueDate,
+            rawDate: (task as any)._rawDate,
+            rowIndex: (task as any)._rowIndex
+          });
+        }
+        return isValid;
+      }).map(({ _rowIndex, _rawDate, ...task }) => task); // Remove debug fields
+
+      if (tasksToImport.length === 0) {
+        // Provide more helpful error message
+        const sampleRow = parsedData[0];
+        const sampleTitle = sampleRow ? String(sampleRow[columnMapping.title] || '').trim() : 'N/A';
+        const sampleDate = sampleRow ? String(sampleRow[columnMapping.dueDate] || '').trim() : 'N/A';
+        console.error('Import validation failed:', {
+          totalRows: parsedData.length,
+          mappedTitle: columnMapping.title,
+          mappedDueDate: columnMapping.dueDate,
+          sampleTitle,
+          sampleDate,
+          parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
+        });
+        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly\n2. Due Date column is mapped correctly\n3. Date format is valid (YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"`);
+        setIsImporting(false);
+        return;
+      }
+
+      // Call bulk import API
+      const response = await apiBulkImportTasks(tasksToImport);
+      const result = response.data || response;
+      
+      const successCount = result.successful || tasksToImport.length;
+      const failedCount = result.failed || 0;
+      
+      if (failedCount > 0) {
+        showError(`Imported ${successCount} task(s), but ${failedCount} failed. Please check the data format.`);
+      } else {
+        showSuccess(`Successfully imported ${successCount} task(s)`);
+      }
+      
+      setIsImportOpen(false);
+      
+      // Reset state
+      setParsedData([]);
+      setDetectedColumns([]);
+      setColumnMapping({ title: '', dueDate: '', description: '', priority: '' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      // Refresh tasks list
+      fetchData();
+    } catch (err: any) {
+      console.error('Import error:', err);
+      showError(err.message || 'Failed to import tasks. Please check your data format.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Simulate reading headers for mapping
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const headers = text.split('\n')[0].split(',').map(h => h.trim());
-      setDetectedColumns(headers);
-      setImportStep('mapping');
-    };
-    reader.readAsText(file);
+    try {
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+      
+      if (fileExtension === 'csv') {
+        // Handle CSV files - use XLSX to parse CSV for better handling of quoted values
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array', sheetStubs: true });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            
+            // Convert to JSON with header row, preserving cell types for date detection
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+              header: 1, 
+              defval: '',
+              raw: false, // Convert dates to strings
+              dateNF: 'yyyy-mm-dd' // Format dates as YYYY-MM-DD
+            }) as any[][];
+            
+            if (jsonData.length === 0) {
+              showError('File is empty');
+              return;
+            }
+            
+            // First row is headers
+            const headers = jsonData[0].map(h => String(h || '').trim()).filter(h => h);
+            if (headers.length === 0) {
+              showError('No headers found in file');
+              return;
+            }
+            
+            setDetectedColumns(headers);
+            
+          // Parse data rows
+          const parsedRows: any[] = [];
+          for (let i = 1; i < jsonData.length; i++) {
+            const row: any = {};
+            headers.forEach((header, index) => {
+              const cellValue = jsonData[i][index];
+              // Handle Excel date serial numbers - if it's a number > 25569, it's likely an Excel date
+              if (typeof cellValue === 'number' && cellValue > 25569 && header.toLowerCase().includes('date')) {
+                // Convert Excel serial date to ISO string
+                const excelEpoch = new Date(1900, 0, 1);
+                const days = cellValue - 2; // Excel counts from 1900-01-01
+                const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+                row[header] = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+              } else {
+                row[header] = cellValue != null ? String(cellValue).trim() : '';
+              }
+            });
+            if (Object.values(row).some(v => v)) { // Only add non-empty rows
+              parsedRows.push(row);
+            }
+          }
+            setParsedData(parsedRows);
+            
+            // Auto-map columns based on header names
+            const autoMapping: { [key: string]: string } = {
+              title: headers.find(h => h.toLowerCase().includes('title') || h.toLowerCase().includes('name')) || '',
+              dueDate: headers.find(h => h.toLowerCase().includes('due') || (h.toLowerCase().includes('date') && !h.toLowerCase().includes('created') && !h.toLowerCase().includes('updated'))) || '',
+              description: headers.find(h => h.toLowerCase().includes('description') || h.toLowerCase().includes('desc')) || '',
+              priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || ''
+            };
+            setColumnMapping(autoMapping);
+            setImportStep('mapping');
+          } catch (parseError: any) {
+            console.error('CSV parse error:', parseError);
+            showError('Failed to parse CSV file: ' + (parseError.message || 'Unknown error'));
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        // Handle Excel files
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // Convert to JSON with date formatting
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+            header: 1,
+            raw: false, // Convert dates to strings
+            dateNF: 'yyyy-mm-dd' // Format dates as YYYY-MM-DD
+          }) as any[][];
+          
+          if (jsonData.length === 0) {
+            showError('File is empty');
+            return;
+          }
+          
+          // First row is headers
+          const headers = jsonData[0].map(h => String(h || '').trim()).filter(h => h);
+          setDetectedColumns(headers);
+          
+          // Parse data rows
+          const parsedRows: any[] = [];
+          for (let i = 1; i < jsonData.length; i++) {
+            const row: any = {};
+            headers.forEach((header, index) => {
+              const cellValue = jsonData[i][index];
+              // Handle Excel date serial numbers - if it's a number > 25569, it's likely an Excel date
+              if (typeof cellValue === 'number' && cellValue > 25569 && header.toLowerCase().includes('date')) {
+                // Convert Excel serial date to ISO string
+                const excelEpoch = new Date(1900, 0, 1);
+                const days = cellValue - 2; // Excel counts from 1900-01-01
+                const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+                row[header] = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+              } else {
+                row[header] = cellValue != null ? String(cellValue).trim() : '';
+              }
+            });
+            if (Object.values(row).some(v => v)) { // Only add non-empty rows
+              parsedRows.push(row);
+            }
+          }
+          setParsedData(parsedRows);
+          
+          // Auto-map columns based on header names
+          const autoMapping: { [key: string]: string } = {
+            title: headers.find(h => h.toLowerCase().includes('title') || h.toLowerCase().includes('name')) || '',
+            dueDate: headers.find(h => h.toLowerCase().includes('due') || h.toLowerCase().includes('date')) || '',
+            description: headers.find(h => h.toLowerCase().includes('description') || h.toLowerCase().includes('desc')) || '',
+            priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || ''
+          };
+          setColumnMapping(autoMapping);
+          setImportStep('mapping');
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        showError('Unsupported file format. Please use CSV, XLS, or XLSX.');
+      }
+    } catch (error: any) {
+      console.error('Error parsing file:', error);
+      showError('Failed to parse file: ' + (error.message || 'Unknown error'));
+    }
   };
 
   const toggleStatus = async (id: string, current: string, e: React.MouseEvent) => {
@@ -261,7 +567,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                     </div>
                     
                     <p className="text-sm text-slate-500 leading-relaxed">
-                      We've detected {detectedColumns.length} columns in your file. Ensure the ImpactFlow system properties are correctly mapped below.
+                      We've detected {detectedColumns.length} columns and {parsedData.length} rows in your file. Ensure the ImpactFlow system properties are correctly mapped below.
                     </p>
 
                     <div className="space-y-4 bg-slate-50 p-8 rounded-[32px] border border-slate-100">
@@ -270,34 +576,58 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                         { label: 'Due Date', key: 'dueDate', required: true, icon: <Calendar className="w-4 h-4" /> },
                         { label: 'Task Description', key: 'description', required: false, icon: <Info className="w-4 h-4" /> },
                         { label: 'Priority Level', key: 'priority', required: false, icon: <Tag className="w-4 h-4" /> }
-                      ].map(prop => {
-                        const matched = detectedColumns.find(c => c.toLowerCase().includes(prop.key.toLowerCase()));
-                        return (
-                          <div key={prop.key} className="flex flex-col sm:flex-row sm:items-center gap-4 group">
-                             <div className="flex-1 flex items-center gap-3">
-                               <div className="w-10 h-10 bg-white border border-slate-100 rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 group-hover:border-indigo-200 transition-all">
-                                 {prop.icon}
-                               </div>
-                               <div>
-                                 <p className="text-xs font-black text-slate-700 uppercase tracking-tighter">{prop.label} {prop.required && <span className="text-red-500">*</span>}</p>
-                               </div>
-                             </div>
-                             <ArrowRight className="w-4 h-4 text-slate-300 hidden sm:block" />
-                             <select className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-100">
-                               <option value="">-- Select Source Column --</option>
-                               {detectedColumns.map(col => (
-                                 <option key={col} value={col} selected={col === matched}>{col}</option>
-                               ))}
-                             </select>
+                      ].map(prop => (
+                        <div key={prop.key} className="flex flex-col sm:flex-row sm:items-center gap-4 group">
+                          <div className="flex-1 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white border border-slate-100 rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 group-hover:border-indigo-200 transition-all">
+                              {prop.icon}
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-700 uppercase tracking-tighter">{prop.label} {prop.required && <span className="text-red-500">*</span>}</p>
+                            </div>
                           </div>
-                        );
-                      })}
+                          <ArrowRight className="w-4 h-4 text-slate-300 hidden sm:block" />
+                          <select 
+                            value={columnMapping[prop.key] || ''}
+                            onChange={(e) => setColumnMapping({ ...columnMapping, [prop.key]: e.target.value })}
+                            className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-indigo-100"
+                          >
+                            <option value="">-- Select Source Column --</option>
+                            {detectedColumns.map(col => (
+                              <option key={col} value={col}>{col}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
                     </div>
 
                     <div className="flex gap-4 pt-6">
-                      <button onClick={() => setImportStep('upload')} className="flex-1 py-5 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-[24px] hover:bg-slate-50 transition-all">Back to Upload</button>
-                      <button onClick={() => { showSuccess('Data migration initiated. Check background process.'); setIsImportOpen(false); }} className="flex-[2] py-5 bg-indigo-600 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 transition-all shadow-2xl flex items-center justify-center gap-3">
-                        <Save className="w-5 h-5" /> Execute Registry Deploy
+                      <button 
+                        onClick={() => {
+                          setImportStep('upload');
+                          setParsedData([]);
+                          setDetectedColumns([]);
+                          setColumnMapping({ title: '', dueDate: '', description: '', priority: '' });
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }} 
+                        className="flex-1 py-5 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-[24px] hover:bg-slate-50 transition-all"
+                      >
+                        Back to Upload
+                      </button>
+                      <button 
+                        onClick={handleExecuteImport}
+                        disabled={isImporting || !columnMapping.title || !columnMapping.dueDate}
+                        className="flex-[2] py-5 bg-indigo-600 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 transition-all shadow-2xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isImporting ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" /> Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-5 h-5" /> Execute Registry Deploy
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>

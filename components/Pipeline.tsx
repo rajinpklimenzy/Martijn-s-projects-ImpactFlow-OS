@@ -36,6 +36,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
   const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'activity' | 'stakeholders'>('overview');
   const [isLinkingStakeholder, setIsLinkingStakeholder] = useState(false);
   const [stakeholderSearch, setStakeholderSearch] = useState('');
+  const [deleteConfirmDeal, setDeleteConfirmDeal] = useState<Deal | null>(null);
 
   // Pipeline/Stage State
   const [pipelines, setPipelines] = useState<PipelineConfig[]>(() => {
@@ -129,13 +130,17 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
   };
 
   const handleDeleteDeal = async (id: string) => {
-    if (!confirm('Archive this opportunity?')) return;
     try {
       await apiDeleteDeal(id);
       setDeals(prev => prev.filter(d => d.id !== id));
-      setSelectedDeal(null);
-      showSuccess('Deal removed');
-    } catch (err) { showError('Deletion failed'); }
+      if (selectedDeal?.id === id) {
+        setSelectedDeal(null);
+      }
+      setDeleteConfirmDeal(null);
+      showSuccess('Opportunity removed from pipeline');
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete opportunity');
+    }
   };
 
   const handleLinkStakeholder = async (contactId: string) => {
@@ -421,9 +426,63 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
 
             {/* Footer Actions */}
             <div className="p-8 border-t border-slate-100 bg-white flex gap-4">
-              <button onClick={() => handleDeleteDeal(selectedDeal.id)} className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-[24px] transition-all group"><Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" /></button>
+              <button onClick={() => setDeleteConfirmDeal(selectedDeal)} className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-[24px] transition-all group"><Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" /></button>
               <button onClick={() => showInfo('Lifecycle management automated through digital registry.')} className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3">
                 <CheckSquare className="w-5 h-5" /> Confirm Strategic Deployment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmDeal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Delete Opportunity?</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. The opportunity will be permanently removed from the pipeline.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <Briefcase className="w-5 h-5 text-indigo-500" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-slate-900">{deleteConfirmDeal.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">{deleteConfirmDeal.stage}</span>
+                      <span className="w-1 h-1 rounded-full bg-slate-300" />
+                      <span className="text-[10px] text-indigo-600 font-black">${deleteConfirmDeal.value.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+                {dealCompany && (
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
+                    <ImageWithFallback src={dealCompany.logo} fallbackText={dealCompany.name} className="w-6 h-6" isAvatar={false} />
+                    <p className="text-xs font-bold text-slate-600">{dealCompany.name}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmDeal(null)}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteDeal(deleteConfirmDeal.id)}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg"
+              >
+                Delete Opportunity
               </button>
             </div>
           </div>

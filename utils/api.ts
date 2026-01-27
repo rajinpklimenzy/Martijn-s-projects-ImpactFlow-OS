@@ -177,6 +177,7 @@ export const apiGetTasks = (userId?: string, projectId?: string, status?: string
 export const apiCreateTask = (data: any) => apiFetch('/tasks', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateTask = (id: string, data: any) => apiFetch(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteTask = (id: string) => apiFetch(`/tasks/${id}`, { method: 'DELETE' });
+export const apiBulkImportTasks = (tasks: any[]) => apiFetch('/tasks/bulk-import', { method: 'POST', body: JSON.stringify({ tasks }) });
 
 /**
  * INVOICING & REVENUE

@@ -40,6 +40,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editContactFormData, setEditContactFormData] = useState<Partial<Contact>>({});
   const [activeContactTab, setActiveContactTab] = useState<'details' | 'notes' | 'activity'>('details');
+  const [isUpdatingContact, setIsUpdatingContact] = useState(false);
+  
+  // Delete confirmation state
+  const [deleteConfirmCompany, setDeleteConfirmCompany] = useState<Company | null>(null);
 
   useEffect(() => {
     if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
@@ -83,14 +87,43 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   const handleUpdateContactDetails = async () => {
-    if (!selectedContact) return;
+    if (!selectedContact || isUpdatingContact) return;
+    
+    // Validate required fields
+    if (!editContactFormData.name || !editContactFormData.email) {
+      showError('Name and Email are required fields');
+      return;
+    }
+
+    setIsUpdatingContact(true);
     try {
       await apiUpdateContact(selectedContact.id, editContactFormData);
-      setSelectedContact({ ...selectedContact, ...editContactFormData });
-      setContacts(prev => prev.map(c => c.id === selectedContact.id ? { ...c, ...editContactFormData } : c));
+      const updatedContact = { ...selectedContact, ...editContactFormData };
+      setSelectedContact(updatedContact);
+      setContacts(prev => prev.map(c => c.id === selectedContact.id ? updatedContact : c));
       setIsEditingContact(false);
-      showSuccess('Contact updated successfully');
-    } catch (err) { showError('Update failed'); }
+      showSuccess('Contact profile updated successfully');
+    } catch (err: any) {
+      console.error('Contact update error:', err);
+      showError(err.message || 'Failed to update contact. Please try again.');
+    } finally {
+      setIsUpdatingContact(false);
+    }
+  };
+
+  const handleDeleteCompany = async (id: string) => {
+    try {
+      await apiDeleteCompany(id);
+      setCompanies(prev => prev.filter(c => c.id !== id));
+      if (selectedCompany?.id === id) {
+        setSelectedCompany(null);
+        setIsEditingCompany(false);
+      }
+      setDeleteConfirmCompany(null);
+      showSuccess('Company deleted successfully');
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete company');
+    }
   };
 
   const handleAiInsightLookup = async () => {
@@ -203,7 +236,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 {isEditingCompany ? (
                   <button onClick={async () => { await handleUpdateCompany(editCompanyFormData); setIsEditingCompany(false); }} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg"><Save className="w-5 h-5" /></button>
                 ) : (
-                  <button onClick={() => { setEditCompanyFormData({ ...selectedCompany }); setIsEditingCompany(true); }} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Edit3 className="w-5 h-5" /></button>
+                  <>
+                    <button onClick={() => { setEditCompanyFormData({ ...selectedCompany }); setIsEditingCompany(true); }} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Edit3 className="w-5 h-5" /></button>
+                    <button onClick={() => setDeleteConfirmCompany(selectedCompany)} className="p-2 hover:bg-red-50 rounded-xl text-red-500 transition-all" title="Delete Company"><Trash2 className="w-5 h-5" /></button>
+                  </>
                 )}
                 <button onClick={() => { setSelectedCompany(null); setIsEditingCompany(false); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-5 h-5" /></button>
               </div>
@@ -333,12 +369,40 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   
                   <div className="flex gap-2 mt-4">
                     {!isEditingContact ? (
-                      <button onClick={() => { setEditContactFormData({...selectedContact}); setIsEditingContact(true); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"><Edit3 className="w-3.5 h-3.5" /> Edit Profile</button>
+                      <>
+                        <button onClick={() => { setEditContactFormData({...selectedContact}); setIsEditingContact(true); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"><Edit3 className="w-3.5 h-3.5" /> Edit Profile</button>
+                        <a href={`mailto:${selectedContact.email}`} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"><Mail className="w-4 h-4" /></a>
+                        {selectedContact.linkedin && <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="p-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006da5] transition-all shadow-lg shadow-blue-100"><Linkedin className="w-4 h-4" /></a>}
+                      </>
                     ) : (
-                      <button onClick={handleUpdateContactDetails} className="px-4 py-2 bg-indigo-600 border border-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest text-white hover:bg-indigo-700 transition-all flex items-center gap-2"><Save className="w-3.5 h-3.5" /> Save Changes</button>
+                      <>
+                        <button 
+                          onClick={handleUpdateContactDetails} 
+                          disabled={isUpdatingContact}
+                          className="px-4 py-2 bg-indigo-600 border border-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest text-white hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isUpdatingContact ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-3.5 h-3.5" /> Save Changes
+                            </>
+                          )}
+                        </button>
+                        <button 
+                          onClick={() => { 
+                            setIsEditingContact(false); 
+                            setEditContactFormData({...selectedContact}); 
+                          }} 
+                          disabled={isUpdatingContact}
+                          className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-slate-300 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <X className="w-3.5 h-3.5" /> Cancel
+                        </button>
+                      </>
                     )}
-                    <a href={`mailto:${selectedContact.email}`} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"><Mail className="w-4 h-4" /></a>
-                    {selectedContact.linkedin && <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="p-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006da5] transition-all shadow-lg shadow-blue-100"><Linkedin className="w-4 h-4" /></a>}
                   </div>
                 </div>
               </div>
@@ -368,32 +432,71 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               {activeContactTab === 'details' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   {isEditingContact ? (
-                    <div className="space-y-8">
+                    <div className="space-y-8 animate-in slide-in-from-top-2 duration-300">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Legal Name</label>
-                          <input type="text" value={editContactFormData.name} onChange={e => setEditContactFormData({...editContactFormData, name: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50" />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Legal Name <span className="text-red-500">*</span></label>
+                          <input 
+                            required
+                            type="text" 
+                            value={editContactFormData.name || ''} 
+                            onChange={e => setEditContactFormData({...editContactFormData, name: e.target.value})} 
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
+                          />
                         </div>
                         <div className="space-y-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Professional Role</label>
-                          <input type="text" value={editContactFormData.role} onChange={e => setEditContactFormData({...editContactFormData, role: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50" />
+                          <input 
+                            type="text" 
+                            value={editContactFormData.role || ''} 
+                            onChange={e => setEditContactFormData({...editContactFormData, role: e.target.value})} 
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
+                          />
                         </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Linked Organization</label>
+                        <select 
+                          value={editContactFormData.companyId || ''} 
+                          onChange={e => setEditContactFormData({...editContactFormData, companyId: e.target.value})} 
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
+                        >
+                          <option value="">No Organization (Unassigned)</option>
+                          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
                       </div>
                       
                       <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-6">
                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-200 pb-2">Communication Registry</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Enterprise Email</label>
-                            <input type="email" value={editContactFormData.email} onChange={e => setEditContactFormData({...editContactFormData, email: e.target.value})} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold" />
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Enterprise Email <span className="text-red-500">*</span></label>
+                            <input 
+                              required
+                              type="email" 
+                              value={editContactFormData.email || ''} 
+                              onChange={e => setEditContactFormData({...editContactFormData, email: e.target.value})} 
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
+                            />
                           </div>
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Mobile Contact</label>
-                            <input type="tel" value={editContactFormData.phone} onChange={e => setEditContactFormData({...editContactFormData, phone: e.target.value})} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold" />
+                            <input 
+                              type="tel" 
+                              value={editContactFormData.phone || ''} 
+                              onChange={e => setEditContactFormData({...editContactFormData, phone: e.target.value})} 
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
+                            />
                           </div>
                           <div className="space-y-2 md:col-span-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">LinkedIn Intelligence URL</label>
-                            <input type="url" value={editContactFormData.linkedin} onChange={e => setEditContactFormData({...editContactFormData, linkedin: e.target.value})} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold" />
+                            <input 
+                              type="url" 
+                              value={editContactFormData.linkedin || ''} 
+                              onChange={e => setEditContactFormData({...editContactFormData, linkedin: e.target.value})} 
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
+                            />
                           </div>
                         </div>
                       </div>
@@ -524,6 +627,55 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               </button>
               <button onClick={() => { setSelectedContact(null); setIsEditingContact(false); }} className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[28px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3">
                 <UserCheck className="w-5 h-5" /> Finalize Profile Audit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Company Confirmation Modal */}
+      {deleteConfirmCompany && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Delete Company?</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. All associated contacts, deals, and projects will be affected.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <ImageWithFallback 
+                    src={deleteConfirmCompany.logo} 
+                    fallbackText={deleteConfirmCompany.name} 
+                    className="w-10 h-10 border border-slate-200" 
+                    isAvatar={false} 
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{deleteConfirmCompany.name}</p>
+                    <p className="text-xs text-slate-500">{deleteConfirmCompany.industry}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmCompany(null)}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteCompany(deleteConfirmCompany.id)}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg"
+              >
+                Delete Company
               </button>
             </div>
           </div>

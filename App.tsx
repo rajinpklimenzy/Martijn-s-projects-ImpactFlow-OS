@@ -166,6 +166,7 @@ const App: React.FC = () => {
       case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
+      case 'integrations': return <Integrations />;
       default: return <Dashboard onNavigate={setActiveTab} />;
     }
   };
