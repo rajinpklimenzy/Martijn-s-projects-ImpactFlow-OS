@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, ExternalLink, Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, Loader2, AlertTriangle } from 'lucide-react';
+import { Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, ExternalLink, Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, Loader2, AlertTriangle, CheckSquare, ListChecks } from 'lucide-react';
 import { Company, Contact, Deal } from '../types';
 import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiDeleteCompany, apiDeleteContact, apiGetDeals } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
@@ -13,33 +13,6 @@ interface CRMProps {
   externalSearchQuery?: string;
 }
 
-// Format date to readable format with AM/PM
-const formatLastContacted = (dateString: string | undefined): string => {
-  if (!dateString) return 'Never';
-  
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid date';
-    
-    // Format: "Jan 22, 2026 at 8:41 AM"
-    const datePart = date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-    
-    const timePart = date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-    
-    return `${datePart} at ${timePart}`;
-  } catch (error) {
-    return 'Invalid date';
-  }
-};
-
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
   const { showSuccess, showError } = useToast();
   const [view, setView] = useState<'companies' | 'contacts'>('companies');
@@ -50,135 +23,87 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [deals, setDeals] = useState<Deal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCompanyContacts, setSelectedCompanyContacts] = useState<Contact[]>([]);
+  
+  // Selection State
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  // Edit/Single Delete States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [editFormData, setEditFormData] = useState<{ name: string; industry: string; website: string; email: string }>({
-    name: '',
-    industry: '',
-    website: '',
-    email: ''
-  });
-  const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
-  const [isContactDeleteConfirmOpen, setIsContactDeleteConfirmOpen] = useState(false);
-  const [isDeletingContact, setIsDeletingContact] = useState(false);
+  const [editFormData, setEditFormData] = useState({ name: '', industry: '', website: '', email: '' });
 
-  // Sync external search query from App header if provided
   useEffect(() => {
-    if (externalSearchQuery !== undefined) {
-      setLocalSearchQuery(externalSearchQuery);
-    }
+    if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
   }, [externalSearchQuery]);
 
-  // Fetch deals
   const fetchDeals = async () => {
     try {
       const response = await apiGetDeals();
       setDeals(response.data || []);
-    } catch (err) {
-      console.error('Failed to fetch deals:', err);
-      setDeals([]);
-    }
+    } catch (err) { setDeals([]); }
   };
 
-  // Fetch companies
   const fetchCompanies = async () => {
     setIsLoading(true);
     try {
-      // Only pass search query if it's not empty
-      const searchQuery = localSearchQuery.trim() || undefined;
-      const response = await apiGetCompanies(searchQuery);
+      const response = await apiGetCompanies(localSearchQuery.trim() || undefined);
       setCompanies(response.data || []);
-    } catch (err) {
-      console.error('Failed to fetch companies:', err);
-      setCompanies([]);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err) { setCompanies([]); }
+    finally { setIsLoading(false); }
   };
 
-  useEffect(() => {
-    if (view === 'companies') {
-      fetchCompanies();
-    }
-  }, [view, localSearchQuery]);
-
-  // Fetch deals when component mounts
-  useEffect(() => {
-    fetchDeals();
-  }, []);
-
-  // Fetch contacts
   const fetchContacts = async () => {
     setIsLoading(true);
     try {
-      // Only pass search query if it's not empty
-      const searchQuery = localSearchQuery.trim() || undefined;
-      const response = await apiGetContacts(searchQuery);
+      const response = await apiGetContacts(localSearchQuery.trim() || undefined);
       setContacts(response.data || []);
-    } catch (err) {
-      console.error('Failed to fetch contacts:', err);
-      setContacts([]);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err) { setContacts([]); }
+    finally { setIsLoading(false); }
   };
 
+  // Fetch data based on current view
   useEffect(() => {
-    if (view === 'contacts') {
-      fetchContacts();
-    }
+    if (view === 'companies') fetchCompanies();
+    else fetchContacts();
   }, [view, localSearchQuery]);
 
-  // Listen for refresh events
+  // Fetch all contacts on mount to show count in tab (regardless of current view)
   useEffect(() => {
-    const handleRefresh = () => {
-      if (view === 'companies') {
-        fetchCompanies();
-      } else if (view === 'contacts') {
-        fetchContacts();
+    const fetchAllContacts = async () => {
+      try {
+        const response = await apiGetContacts();
+        setContacts(response.data || []);
+      } catch (err) {
+        setContacts([]);
       }
-      if (selectedCompany) {
-        fetchCompanyContacts();
-      }
-      fetchDeals(); // Refresh deals when CRM is refreshed
     };
+    fetchAllContacts();
+  }, []); // Only run on mount
 
-    window.addEventListener('refresh-crm', handleRefresh);
-    window.addEventListener('refresh-pipeline', handleRefresh); // Also refresh when deals are updated
-    return () => {
-      window.removeEventListener('refresh-crm', handleRefresh);
-      window.removeEventListener('refresh-pipeline', handleRefresh);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, selectedCompany]);
+  useEffect(() => { fetchDeals(); }, []);
 
-  // Fetch contacts for selected company
+  // Fetch contacts for selected company (filter from all contacts)
   const fetchCompanyContacts = async () => {
     if (!selectedCompany?.id) {
       setSelectedCompanyContacts([]);
       return;
     }
     try {
-      console.log('[CRM] Fetching contacts for company:', selectedCompany.id, selectedCompany.name);
-      const response = await apiGetContacts(undefined, selectedCompany.id);
-      console.log('[CRM] Contacts response:', response);
-      console.log('[CRM] Contacts data:', response.data);
-      console.log('[CRM] Contacts count:', response.data?.length || 0);
-      
-      if (response && response.data) {
-        setSelectedCompanyContacts(response.data);
-      } else {
-        console.warn('[CRM] No contacts data in response');
-        setSelectedCompanyContacts([]);
-      }
+      // Fetch all contacts and filter by companyId
+      const response = await apiGetContacts();
+      const allContacts = response.data || [];
+      const companyContacts = allContacts.filter((contact: Contact) => contact.companyId === selectedCompany.id);
+      setSelectedCompanyContacts(companyContacts);
     } catch (err) {
       console.error('[CRM] Failed to fetch company contacts:', err);
       setSelectedCompanyContacts([]);
     }
   };
 
+  // Fetch company contacts when a company is selected
   useEffect(() => {
     if (selectedCompany?.id) {
       fetchCompanyContacts();
@@ -187,319 +112,196 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     }
   }, [selectedCompany?.id]);
 
-  // Initialize edit form when company is selected
+  // Listen for refresh events from QuickCreateModal
   useEffect(() => {
-    if (selectedCompany) {
-      setEditFormData({
-        name: selectedCompany.name || '',
-        industry: selectedCompany.industry || '',
-        website: selectedCompany.website || '',
-        email: selectedCompany.email || ''
-      });
-    }
-  }, [selectedCompany]);
-
-  const handleUpdateCompany = async () => {
-    if (!selectedCompany) return;
-
-    setIsUpdating(true);
-    try {
-      await apiUpdateCompany(selectedCompany.id, editFormData);
-      // Refresh companies list
+    const handleRefresh = () => {
+      console.log('[CRM] Refresh event received, refreshing data...');
+      // Refresh current view data
       if (view === 'companies') {
         fetchCompanies();
-      }
-      // Update selected company
-      const updatedCompany = { ...selectedCompany, ...editFormData };
-      setSelectedCompany(updatedCompany);
-      setIsEditModalOpen(false);
-      showSuccess('Company updated successfully!');
-      window.dispatchEvent(new Event('refresh-crm'));
-    } catch (err: any) {
-      console.error('Failed to update company:', err);
-      showError(err.message || 'Failed to update company');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleDeleteCompany = async () => {
-    if (!selectedCompany) return;
-
-    setIsDeleting(true);
-    try {
-      await apiDeleteCompany(selectedCompany.id);
-      // Close modals
-      setIsDeleteConfirmOpen(false);
-      setSelectedCompany(null);
-      // Refresh companies list
-      if (view === 'companies') {
-        fetchCompanies();
-      }
-      // Refresh contacts if on contacts view
-      if (view === 'contacts') {
+      } else {
         fetchContacts();
       }
-      showSuccess('Company and associated contacts deleted successfully!');
-      window.dispatchEvent(new Event('refresh-crm'));
-    } catch (err: any) {
-      console.error('Failed to delete company:', err);
-      showError(err.message || 'Failed to delete company');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleDeleteContact = async () => {
-    if (!contactToDelete) return;
-
-    setIsDeletingContact(true);
-    try {
-      await apiDeleteContact(contactToDelete.id);
-      // Close modal
-      setIsContactDeleteConfirmOpen(false);
-      setContactToDelete(null);
-      // Refresh contacts list
-      if (view === 'contacts') {
-        fetchContacts();
-      }
+      // Always refresh contacts to update the count in the tab (even when on companies view)
+      fetchContacts();
       // Refresh company contacts if a company is selected
-      if (selectedCompany) {
+      if (selectedCompany?.id) {
         fetchCompanyContacts();
       }
-      showSuccess('Contact deleted successfully!');
-      window.dispatchEvent(new Event('refresh-crm'));
+      // Also refresh deals to update pipeline counts
+      fetchDeals();
+    };
+
+    window.addEventListener('refresh-crm', handleRefresh);
+    return () => window.removeEventListener('refresh-crm', handleRefresh);
+  }, [view, localSearchQuery, selectedCompany?.id]); // Include selectedCompany to refresh contacts
+
+  const handleBulkDelete = async () => {
+    setIsBulkProcessing(true);
+    const idsToDelete = view === 'companies' ? selectedCompanyIds : selectedContactIds;
+    try {
+      if (view === 'companies') {
+        await Promise.all(idsToDelete.map(id => apiDeleteCompany(id)));
+        setCompanies(prev => prev.filter(c => !idsToDelete.includes(c.id)));
+        setSelectedCompanyIds([]);
+      } else {
+        await Promise.all(idsToDelete.map(id => apiDeleteContact(id)));
+        setContacts(prev => prev.filter(c => !idsToDelete.includes(c.id)));
+        setSelectedContactIds([]);
+      }
+      showSuccess(`Deleted ${idsToDelete.length} items successfully`);
+      setShowBulkDeleteConfirm(false);
     } catch (err: any) {
-      console.error('Failed to delete contact:', err);
-      showError(err.message || 'Failed to delete contact');
+      showError('Failed to delete some items');
     } finally {
-      setIsDeletingContact(false);
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const toggleAll = () => {
+    if (view === 'companies') {
+      if (selectedCompanyIds.length === companies.length) setSelectedCompanyIds([]);
+      else setSelectedCompanyIds(companies.map(c => c.id));
+    } else {
+      if (selectedContactIds.length === contacts.length) setSelectedContactIds([]);
+      else setSelectedContactIds(contacts.map(c => c.id));
     }
   };
 
   const getCompanyDealsCount = (companyId: string) => {
-    // Count only open deals (not "Won" or "Lost")
-    return deals.filter(d => 
-      d.companyId === companyId && 
-      d.stage !== 'Won' && 
-      d.stage !== 'Lost'
-    ).length;
+    return deals.filter(d => d.companyId === companyId && d.stage !== 'Won' && d.stage !== 'Lost').length;
   };
-
-  const generateEmailFromName = (name: string, domain: string) => {
-    const formattedName = name.toLowerCase().replace(/\s+/g, '.');
-    return `${formattedName}@${domain}`;
-  };
-
-  const filteredCompanies = companies;
-  const filteredContacts = contacts;
-
-  const hasResults = view === 'companies' ? filteredCompanies.length > 0 : filteredContacts.length > 0;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 relative">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 animate-in fade-in duration-500 relative pb-24">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">CRM</h1>
           <div className="flex gap-4 mt-2">
             <button 
-              onClick={() => setView('companies')}
+              onClick={() => { setView('companies'); setSelectedContactIds([]); }}
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'companies' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
-              Companies
+              Companies ({companies.length})
             </button>
             <button 
-              onClick={() => setView('contacts')}
+              onClick={() => { setView('contacts'); setSelectedCompanyIds([]); }}
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'contacts' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
-              Contacts
+              Contacts ({contacts.length})
             </button>
           </div>
         </div>
-        <button 
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (view === 'companies') {
-              onAddCompany();
-            } else {
-              onAddContact();
-            }
-          }}
-          className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add {view === 'companies' ? 'Company' : 'Contact'}
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button 
+            onClick={toggleAll}
+            className="flex-1 sm:flex-none px-3 py-2 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 transition-all"
+          >
+            <ListChecks className="w-4 h-4" />
+            {((view === 'companies' && selectedCompanyIds.length === companies.length) || (view === 'contacts' && selectedContactIds.length === contacts.length)) && companies.length > 0 ? 'Deselect All' : 'Select All'}
+          </button>
+          <button 
+            onClick={() => view === 'companies' ? onAddCompany() : onAddContact()}
+            className="flex-1 sm:flex-none px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add {view === 'companies' ? 'Company' : 'Contact'}
+          </button>
+        </div>
       </div>
 
       <div className="relative group">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
         <input 
           type="text" 
-          placeholder={`Search ${view} by name, ${view === 'companies' ? 'industry, or website' : 'email, or role'}...`} 
+          placeholder={`Search ${view}...`} 
           value={localSearchQuery}
           onChange={(e) => setLocalSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all"
+          className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
         />
         {localSearchQuery && (
-          <button 
-            onClick={() => setLocalSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <button onClick={() => setLocalSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"><X className="w-4 h-4" /></button>
         )}
       </div>
 
-      {!hasResults && !isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white border border-dashed border-slate-300 rounded-2xl animate-in fade-in zoom-in-95 duration-300">
-          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-4">
-            <FileSearch className="w-8 h-8" />
-          </div>
-          {localSearchQuery.trim() ? (
-            <>
-              <h3 className="text-lg font-bold text-slate-900">No {view} match "{localSearchQuery}"</h3>
-              <p className="text-slate-500 text-sm mt-1">Try a different search term or add a new record.</p>
-              <button 
-                onClick={() => setLocalSearchQuery('')}
-                className="mt-6 text-indigo-600 font-bold text-sm hover:underline"
-              >
-                Clear Search
-              </button>
-            </>
-          ) : (
-            <>
-              <h3 className="text-lg font-bold text-slate-900">No {view === 'companies' ? 'Companies' : 'Contacts'} Found</h3>
-              <p className="text-slate-500 text-sm mt-1">Get started by adding your first {view === 'companies' ? 'company' : 'contact'}.</p>
-              <button 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (view === 'companies') {
-                    onAddCompany();
-                  } else {
-                    onAddContact();
-                  }
-                }}
-                className="mt-6 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Add {view === 'companies' ? 'Company' : 'Contact'}
-              </button>
-            </>
-          )}
-        </div>
-      ) : isLoading ? (
+      {isLoading ? (
         <div className="flex flex-col items-center justify-center py-20 bg-white border border-slate-200 rounded-2xl">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-4" />
-          <p className="text-slate-500 text-sm">Loading {view}...</p>
+          <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Scanning Registry...</p>
+        </div>
+      ) : (view === 'companies' ? companies : contacts).length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-white border border-dashed border-slate-300 rounded-2xl">
+          <FileSearch className="w-12 h-12 text-slate-200 mb-4" />
+          <h3 className="text-lg font-bold text-slate-900">No {view} found</h3>
+          <button onClick={() => setLocalSearchQuery('')} className="mt-4 text-indigo-600 font-bold text-sm hover:underline">Clear Search</button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {view === 'companies' ? (
-            filteredCompanies.map(company => (
-              <div 
-                key={company.id} 
-                onClick={() => setSelectedCompany(company)}
-                className="bg-white p-6 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm flex flex-col h-full active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-4 mb-6">
-                  <ImageWithFallback
-                    src={company.logo}
-                    alt={company.name}
-                    fallbackText={company.name}
-                    className="w-12 h-12 border border-slate-100 shadow-sm object-cover"
-                    isAvatar={false}
-                  />
-                  <div className="flex-1 overflow-hidden">
-                    <h3 className="font-bold text-lg text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{company.name}</h3>
-                    <p className="text-slate-500 text-sm">{company.industry}</p>
-                  </div>
-                  <button className="p-2 text-slate-300 hover:text-indigo-600 transition-colors">
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="space-y-3 mb-6 flex-1">
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Globe className="w-4 h-4 text-slate-400" />
-                    <span className="truncate">{company.website}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Calendar className="w-4 h-4 text-slate-400" />
-                    <span>Client since Oct 2023</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 bg-indigo-50/50 w-fit px-2 py-1 rounded">
-                    <Sparkles className="w-3 h-3" />
-                    @{company.website.split('/')[0]}
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNavigate('pipeline');
-                  }}
-                  className="flex items-center justify-between pt-4 border-t border-slate-100 group/link hover:bg-slate-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-xl transition-colors"
+            companies.map(company => {
+              const isSelected = selectedCompanyIds.includes(company.id);
+              return (
+                <div 
+                  key={company.id} 
+                  onClick={() => setSelectedCompany(company)}
+                  className={`bg-white p-6 rounded-2xl border transition-all cursor-pointer group shadow-sm flex flex-col h-full relative active:scale-[0.98] ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-50 bg-indigo-50/10' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'}`}
                 >
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest group-hover/link:text-indigo-600">
-                    {getCompanyDealsCount(company.id)} Open Deals
-                  </span>
-                  <div className="flex items-center gap-1 text-indigo-600 font-bold text-[10px] uppercase opacity-0 group-hover/link:opacity-100 transition-all translate-x-2 group-hover/link:translate-x-0">
-                    View Pipeline <ChevronRight className="w-3 h-3" />
+                  <div className="absolute top-4 right-4 z-10" onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCompanyIds(prev => isSelected ? prev.filter(id => id !== company.id) : [...prev, company.id]);
+                  }}>
+                    <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200 group-hover:border-indigo-300'}`}>
+                      {isSelected && <CheckSquare className="w-4 h-4 text-white" />}
+                    </div>
                   </div>
-                </button>
-              </div>
-            ))
+                  <div className="flex items-center gap-4 mb-6 pr-8">
+                    <ImageWithFallback src={company.logo} fallbackText={company.name} className="w-12 h-12 border border-slate-100 shadow-sm" isAvatar={false} />
+                    <div className="flex-1 overflow-hidden">
+                      <h3 className="font-bold text-lg text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{company.name}</h3>
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{company.industry}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3 mb-6 flex-1 text-sm text-slate-600">
+                    <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-slate-400" /><span className="truncate">{company.website}</span></div>
+                    <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400" /><span>Client since 2024</span></div>
+                  </div>
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{getCompanyDealsCount(company.id)} Pipeline Items</span>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                  </div>
+                </div>
+              );
+            })
           ) : (
-            filteredContacts.map(contact => {
+            contacts.map(contact => {
               const company = companies.find(c => c.id === contact.companyId);
+              const isSelected = selectedContactIds.includes(contact.id);
               return (
                 <div 
                   key={contact.id} 
-                  className="bg-white p-6 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all cursor-default group shadow-sm"
+                  className={`bg-white p-6 rounded-2xl border transition-all group shadow-sm relative ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-50 bg-indigo-50/10' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'}`}
                 >
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl uppercase shadow-inner">
-                      {contact.name.charAt(0)}
+                  <div className="absolute top-4 right-4 z-10" onClick={() => {
+                    setSelectedContactIds(prev => isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id]);
+                  }}>
+                    <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all cursor-pointer ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200 group-hover:border-indigo-300'}`}>
+                      {isSelected && <CheckSquare className="w-4 h-4 text-white" />}
                     </div>
+                  </div>
+                  <div className="flex items-center gap-4 mb-6 pr-8">
+                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl uppercase shadow-inner">{contact.name.charAt(0)}</div>
                     <div className="flex-1 overflow-hidden">
                       <h3 className="font-bold text-lg text-slate-900 truncate">{contact.name}</h3>
-                      <p className="text-slate-500 text-xs font-medium">{contact.role} at {company?.name}</p>
+                      <p className="text-slate-500 text-xs font-bold uppercase">{contact.role} at {company?.name || 'Partner'}</p>
                     </div>
                   </div>
-                  <div className="space-y-3 mb-6">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Mail className="w-4 h-4 text-slate-400" />
-                      <span className="truncate text-indigo-600 hover:underline cursor-pointer">{contact.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Phone className="w-4 h-4 text-slate-400" />
-                      <span>{contact.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Clock className="w-4 h-4 text-slate-400" />
-                      <span>Last contacted: {formatLastContacted(contact.lastContacted)}</span>
-                    </div>
+                  <div className="space-y-3 mb-6 text-sm text-slate-600">
+                    <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /><span className="truncate text-indigo-600">{contact.email}</span></div>
+                    <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /><span>{contact.phone}</span></div>
                   </div>
                   <div className="flex gap-2">
-                    <button className="flex-1 py-2 bg-slate-50 text-slate-600 text-[10px] font-bold rounded-lg hover:bg-indigo-50 hover:text-indigo-600 transition-colors uppercase tracking-widest">
-                      Timeline
-                    </button>
-                    <button className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
-                      <Mail className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setContactToDelete(contact);
-                        setIsContactDeleteConfirmOpen(true);
-                      }}
-                      className="px-3 py-2 border border-red-200 bg-white text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                      title="Delete contact"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <button className="flex-1 py-2.5 bg-slate-50 text-slate-600 text-[10px] font-black rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-colors uppercase tracking-widest">Open Profile</button>
+                    <button className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"><Mail className="w-4 h-4" /></button>
                   </div>
                 </div>
               );
@@ -508,376 +310,118 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         </div>
       )}
 
-      {/* Suggestion Banner */}
-      <div className="bg-indigo-900 rounded-2xl p-6 text-white flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative shadow-xl shadow-indigo-100">
-        <div className="relative z-10">
-          <h3 className="text-lg font-bold flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-300" />
-            Automatic Email Generation
-          </h3>
-          <p className="text-indigo-200 text-sm mt-1">New contacts are automatically assigned emails based on company domains.</p>
-        </div>
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="bg-indigo-800/50 px-4 py-2 rounded-xl border border-indigo-700 text-xs font-mono">
-            {generateEmailFromName("Alex Rivera", "globallogistics.com")}
+      {/* Bulk Action Bar - Optimized for Mobile */}
+      {(selectedCompanyIds.length > 0 || selectedContactIds.length > 0) && (
+        <div className="fixed bottom-6 left-4 right-4 lg:left-1/2 lg:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-slate-900 text-white rounded-[24px] shadow-2xl px-4 lg:px-6 py-3 flex flex-col sm:flex-row items-center gap-3 sm:gap-6 border border-white/10 max-w-2xl mx-auto">
+            <div className="flex items-center justify-between w-full sm:w-auto">
+              <span className="text-sm font-bold flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-indigo-400" />
+                {view === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} {view} selected
+              </span>
+              <button onClick={() => { setSelectedCompanyIds([]); setSelectedContactIds([]); }} className="sm:hidden p-2 text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="hidden sm:block h-6 w-px bg-white/10" />
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button 
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isBulkProcessing}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isBulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete Selected
+              </button>
+              <button onClick={() => { setSelectedCompanyIds([]); setSelectedContactIds([]); }} className="hidden sm:block p-2 hover:bg-white/10 rounded-xl transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
-          <ArrowRight className="w-4 h-4 text-indigo-400" />
         </div>
-        <Building2 className="absolute -right-8 -bottom-8 w-48 h-48 text-indigo-800 opacity-20" />
-      </div>
+      )}
 
-      {/* Company Detail Drawer */}
+      {/* Custom Bulk Delete Confirmation */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowBulkDeleteConfirm(false)} />
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl relative p-8 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-600 mb-6">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Delete {view}?</h3>
+            <p className="text-slate-500 text-sm leading-relaxed mb-8">
+              You are about to permanently remove <span className="font-bold text-slate-900">{view === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} items</span> from your CRM. This action will also delete all associated historical data and cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="flex-1 py-4 bg-slate-50 text-slate-600 font-bold rounded-2xl hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleBulkDelete}
+                disabled={isBulkProcessing}
+                className="flex-1 py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2"
+              >
+                {isBulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Company Detail Drawer remains same but ensuring consistency */}
       {selectedCompany && (
         <div className="fixed inset-0 z-[70] overflow-hidden pointer-events-none">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setSelectedCompany(null)} />
           <div className="absolute right-0 inset-y-0 w-full max-w-2xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
-                <img
-                  src={selectedCompany.logo}
-                  alt={selectedCompany.name}
-                  fallbackText={selectedCompany.name}
-                  className="w-12 h-12 border border-slate-200 shadow-sm object-cover"
-                  isAvatar={false}
-                />
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900">{selectedCompany.name}</h2>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-500">{selectedCompany.industry}</span>
-                    <span className="text-[10px] text-slate-300">•</span>
-                    <a href={`https://${selectedCompany.website}`} target="_blank" className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1">
-                      {selectedCompany.website} <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                </div>
+                <ImageWithFallback src={selectedCompany.logo} fallbackText={selectedCompany.name} className="w-12 h-12 border border-slate-200" isAvatar={false} />
+                <div><h2 className="text-xl font-bold text-slate-900">{selectedCompany.name}</h2><p className="text-xs text-slate-500">{selectedCompany.industry}</p></div>
               </div>
-              <button onClick={() => setSelectedCompany(null)} className="p-2 hover:bg-white rounded-full text-slate-400 shadow-sm border border-transparent hover:border-slate-200 transition-all">
-                <X className="w-5 h-5" />
-              </button>
+              <button onClick={() => setSelectedCompany(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-5 h-5" /></button>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-8 space-y-10">
-              <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Security Rating</h3>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500 w-[85%]" />
-                    </div>
-                    <span className="text-xs font-bold text-emerald-600">A+</span>
-                  </div>
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="space-y-8">
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                     <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Verified Partner</span>
+                   </div>
+                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Logistics Tier</p>
+                     <span className="text-xs font-bold text-indigo-600">Enterprise Core</span>
+                   </div>
                 </div>
                 <div className="space-y-4">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Settings2 className="w-3.5 h-3.5" /> System Status</h3>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    <span className="text-xs font-bold text-slate-700">Healthy</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Contacts ({selectedCompanyContacts.length})</h3>
-                  <button 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onAddContact();
-                    }} 
-                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" /> Add Contact
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {selectedCompanyContacts.length === 0 ? (
-                    <div className="p-6 bg-slate-50 border border-slate-100 rounded-xl text-center">
-                      <User className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-sm text-slate-500 font-medium">No contacts yet</p>
-                      <p className="text-xs text-slate-400 mt-1">Add a contact to get started</p>
-                    </div>
-                  ) : (
-                    selectedCompanyContacts.map(contact => (
-                      <div key={contact.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between group">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Contacts ({selectedCompanyContacts.length})</h3>
+                  <div className="space-y-3">
+                    {selectedCompanyContacts.length > 0 ? selectedCompanyContacts.map(contact => (
+                      <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-indigo-200 transition-colors">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-white border border-slate-200 rounded-full flex items-center justify-center text-xs font-bold text-slate-400 uppercase">{contact.name.charAt(0)}</div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-900">{contact.name}</p>
-                            <p className="text-[10px] text-slate-500 font-medium">{contact.role || 'No role'}</p>
-                          </div>
+                          <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-xs font-black text-indigo-600 uppercase">{contact.name.charAt(0)}</div>
+                          <div><p className="text-sm font-bold text-slate-900">{contact.name}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{contact.role}</p></div>
                         </div>
-                      <div className="flex gap-2">
-                        <button className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 shadow-sm transition-all"><Mail className="w-3.5 h-3.5" /></button>
-                        <button className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 shadow-sm transition-all"><Phone className="w-3.5 h-3.5" /></button>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setContactToDelete(contact);
-                            setIsContactDeleteConfirmOpen(true);
-                          }}
-                          className="p-2 bg-white border border-red-200 rounded-lg text-red-500 hover:bg-red-50 shadow-sm transition-all"
-                          title="Delete contact"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex gap-2">
+                           <button className="p-2 bg-slate-50 rounded-lg text-slate-400 hover:text-indigo-600"><Mail className="w-4 h-4" /></button>
+                        </div>
                       </div>
+                    )) : (
+                      <div className="p-12 text-center border-2 border-dashed border-slate-100 rounded-3xl text-slate-300">
+                        <User className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                        <p className="text-xs font-bold uppercase tracking-widest">No Contacts Listed</p>
                       </div>
-                    ))
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
-
-              <div className="space-y-4">
-                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Company Intelligence</h3>
-                 <div className="p-6 bg-indigo-900 rounded-2xl text-white relative overflow-hidden group">
-                    <div className="relative z-10">
-                      <p className="text-xs font-bold text-indigo-300 uppercase tracking-widest mb-1">Growth Forecast</p>
-                      <h4 className="text-lg font-bold">+240% Potential Expansion</h4>
-                      <p className="text-xs text-indigo-200 mt-2 max-w-xs">AI analysis suggests this account is expanding into Asian markets next quarter. Recommend increasing visibility services.</p>
-                      <button className="mt-4 px-4 py-2 bg-white text-indigo-900 text-[10px] font-bold rounded-lg hover:bg-indigo-50 transition-all uppercase tracking-widest">Generate Strategy</button>
-                    </div>
-                    <Sparkles className="absolute -right-4 -bottom-4 w-24 h-24 text-indigo-800 opacity-20" />
-                 </div>
-              </div>
             </div>
-
             <div className="p-6 border-t border-slate-100 bg-white flex gap-3">
-              <button 
-                onClick={() => setIsEditModalOpen(true)}
-                className="flex-1 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Update Account
-              </button>
-              <button 
-                onClick={() => setIsDeleteConfirmOpen(true)}
-                className="px-5 py-3 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Company Modal */}
-      {isEditModalOpen && selectedCompany && (
-        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsEditModalOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">Edit Company</h3>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">Update Company Details</p>
-                </div>
-                <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={(e) => { e.preventDefault(); handleUpdateCompany(); }} className="p-6 space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Company Name</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Industry</label>
-                  <input 
-                    type="text" 
-                    value={editFormData.industry}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, industry: e.target.value }))}
-                    placeholder="e.g., Shipping, Tech"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Website</label>
-                  <input 
-                    type="text" 
-                    value={editFormData.website}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, website: e.target.value }))}
-                    placeholder="example.com"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email</label>
-                  <input 
-                    type="email" 
-                    value={editFormData.email}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="company@example.com"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    disabled={isUpdating}
-                    className="flex-[2] py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isUpdating ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      'Update Company'
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {isDeleteConfirmOpen && selectedCompany && (
-        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsDeleteConfirmOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-red-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">Delete Company</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">This action cannot be undone</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600">
-                  Are you sure you want to delete <span className="font-bold text-slate-900">{selectedCompany.name}</span>?
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                  <p className="text-xs text-red-700 font-semibold mb-1">⚠️ Warning:</p>
-                  <p className="text-xs text-red-600">
-                    This will permanently delete the company and all {selectedCompanyContacts.length} contact(s) associated with it. This action cannot be undone.
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => setIsDeleteConfirmOpen(false)}
-                    disabled={isDeleting}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteCompany}
-                    disabled={isDeleting}
-                    className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isDeleting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="w-4 h-4" />
-                        Delete Company
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Contact Confirmation Modal */}
-      {isContactDeleteConfirmOpen && contactToDelete && (
-        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsContactDeleteConfirmOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-red-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">Delete Contact</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">This action cannot be undone</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsContactDeleteConfirmOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600">
-                  Are you sure you want to delete <span className="font-bold text-slate-900">{contactToDelete.name}</span>?
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                  <p className="text-xs text-red-700 font-semibold mb-1">⚠️ Warning:</p>
-                  <p className="text-xs text-red-600">
-                    This will permanently delete the contact and all associated data. This action cannot be undone.
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setIsContactDeleteConfirmOpen(false);
-                      setContactToDelete(null);
-                    }}
-                    disabled={isDeletingContact}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteContact}
-                    disabled={isDeletingContact}
-                    className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isDeletingContact ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="w-4 h-4" />
-                        Delete Contact
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+              <button onClick={() => { setSelectedCompanyIds([selectedCompany.id]); setShowBulkDeleteConfirm(true); }} className="px-5 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-2xl transition-all"><Trash2 className="w-6 h-6" /></button>
+              <button onClick={() => setIsEditModalOpen(true)} className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100">Update Profile</button>
             </div>
           </div>
         </div>

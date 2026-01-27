@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Mail, ShieldCheck, ArrowRight, Loader2, Building2, User as UserIcon, Key, AlertCircle, HelpCircle } from 'lucide-react';
+import { Mail, ShieldCheck, ArrowRight, Loader2, Building2, User as UserIcon, Key, AlertCircle } from 'lucide-react';
 import { apiRequestCode, apiVerify } from '../utils/api.ts';
 
 interface AuthProps {
@@ -23,24 +24,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiRequestCode({ email });
-      
-      // Handle responses from the simulator (returned as object with status)
-      if (res?.status === 404) {
-        throw new Error(res.message);
-      }
-      
+      await apiRequestCode({ email });
       setError(null);
       setCodeDigits(['', '', '', '', '', '']);
       setStep('verify');
     } catch (err: any) {
-      console.error('[AUTH UI] Error caught:', err);
-      // Prioritize the exact string requested if the error contains it or if it's a 404
-      if (err.message && (err.message.includes('Account not found') || err.status === 404)) {
-        setError('Account not found - contact your Administrator');
-      } else {
-        setError(err.message || "Failed to send code. Please check your internet connection.");
-      }
+      setError(err.message || "Failed to send code. Please check your internet connection.");
     } finally {
       setLoading(false);
     }
@@ -65,17 +54,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         throw new Error('Invalid response from server.');
       }
     } catch (err: any) {
-      console.error('[AUTH] Verification error:', err);
-      
-      // Check for specific error codes
-      if (err.message?.includes('User not registered') || err.message?.includes('USER_NOT_REGISTERED')) {
-        setError('Account not found - contact your Administrator');
-      } else if (err.message?.includes('Account not found')) {
-        setError('Account not found - contact your Administrator');
-      } else {
-        setError(err.message || "Invalid or expired code.");
-      }
-      
+      setError(err.message || "Invalid or expired code.");
       setCodeDigits(['', '', '', '', '', '']);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } finally {
@@ -170,14 +149,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="p-4 rounded-2xl text-xs font-bold bg-red-500/10 border border-red-500/50 text-red-400 flex items-start gap-3 animate-in slide-in-from-top-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  {error}
-                  {error.includes('Administrator') && (
-                    <p className="text-[10px] mt-1 font-medium opacity-70">New accounts must be provisioned by IT before sign-in.</p>
-                  )}
-                </div>
+              <div className="p-4 rounded-xl text-xs font-bold bg-red-500/10 border border-red-500/50 text-red-400 flex items-center gap-3 animate-in slide-in-from-top-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {error}
               </div>
             )}
 
@@ -275,16 +249,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          <div className="mt-12 pt-8 border-t border-white/5 text-center flex flex-col items-center gap-4">
+          <div className="mt-12 pt-8 border-t border-white/5 text-center">
             <div className="flex items-center justify-center gap-4">
               <Building2 className="w-5 h-5 text-slate-700" />
               <div className="w-1 h-1 bg-slate-800 rounded-full" />
               <span className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.2em]">Impact 24x7 Enterprise</span>
             </div>
-            <p className="text-[10px] text-slate-500 font-medium max-w-[200px]">
-              Access restricted to authorized personnel. 
-              <button className="text-indigo-500 ml-1 hover:underline">Help</button>
-            </p>
           </div>
         </div>
       </div>

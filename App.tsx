@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { NAV_ITEMS, MOCK_USERS } from './constants.tsx';
+import { NAV_ITEMS } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import Inbox from './components/Inbox.tsx';
 import CRM from './components/CRM.tsx';
@@ -12,13 +12,14 @@ import Automations from './components/Automations.tsx';
 import UserManagement from './components/UserManagement.tsx';
 import Settings from './components/Settings.tsx';
 import Schedule from './components/Schedule.tsx';
+import Integrations from './components/Integrations.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
-import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, LayoutGrid, Users, CheckSquare, FolderKanban } from 'lucide-react';
+import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus } from 'lucide-react';
 import { Notification, CalendarEvent } from './types.ts';
-import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead, apiCreateNotification } from './utils/api.ts';
+import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
 import { QueryProvider } from './contexts/QueryProvider.tsx';
 
@@ -30,30 +31,26 @@ const App: React.FC = () => {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   
-  // Create Modal States
   const [createModalConfig, setCreateModalConfig] = useState<{ 
     isOpen: boolean; 
     type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
-    stage?: string; // Optional stage for deals
+    stage?: string;
   }>({
     isOpen: false,
     type: 'deal'
   });
 
-  // Event Modal States
   const [eventModal, setEventModal] = useState<{ isOpen: boolean; event: CalendarEvent | null; selectedDate?: Date }>({
     isOpen: false,
     event: null
   });
 
-  // Notification States
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  // Load notifications for current user
   useEffect(() => {
     const loadNotifications = async () => {
       try {
@@ -61,39 +58,14 @@ const App: React.FC = () => {
         if (!storedUser?.id) return;
         const res = await apiGetNotifications(storedUser.id, 20);
         const data = res?.data || res || [];
-        // Format notification timestamp to readable format with AM/PM
-        const formatNotificationTime = (dateString: string | number | undefined): string => {
-          if (!dateString) return 'Just now';
-          try {
-            const date = new Date(dateString);
-            if (isNaN(date.getTime())) return 'Invalid date';
-            
-            // Format: "Jan 22, 2026 at 8:41 AM"
-            const datePart = date.toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric'
-            });
-            
-            const timePart = date.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            });
-            
-            return `${datePart} at ${timePart}`;
-          } catch (error) {
-            return 'Invalid date';
-          }
-        };
-
+        
         const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => ({
           id: n.id,
           userId: n.userId,
           type: n.type || 'system',
           title: n.title,
           message: n.message,
-          timestamp: formatNotificationTime(n.createdAt || Date.now()),
+          timestamp: 'Just now',
           read: !!n.read,
           link: n.link || undefined,
         }));
@@ -118,13 +90,11 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Handle URL query parameters for tab navigation (e.g., from OAuth redirects)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['dashboard', 'schedule', 'inbox', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'automation', 'users', 'settings'].includes(tabParam)) {
+    if (tabParam && ['dashboard', 'schedule', 'inbox', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'automation', 'users', 'settings', 'integrations'].includes(tabParam)) {
       setActiveTab(tabParam);
-      // Clean up URL by removing the tab parameter
       urlParams.delete('tab');
       const newUrl = urlParams.toString() 
         ? `${window.location.pathname}?${urlParams.toString()}`
@@ -154,9 +124,7 @@ const App: React.FC = () => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     try {
       await apiMarkNotificationAsRead(id, userId);
-    } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to mark as read', err);
-    }
+    } catch (err) {}
   };
 
   const markAllAsRead = async () => {
@@ -165,13 +133,10 @@ const App: React.FC = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     try {
       await apiMarkAllNotificationsAsRead(userId);
-    } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to mark all as read', err);
-    }
+    } catch (err) {}
   };
 
   const openCreateModal = (type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact', stage?: string) => {
-    console.log('[APP] Opening create modal:', type, stage);
     setCreateModalConfig({ isOpen: true, type, stage: stage || undefined });
   };
 
@@ -184,9 +149,7 @@ const App: React.FC = () => {
   };
 
   const handleEventSuccess = () => {
-    // Refresh schedule if on schedule tab
     if (activeTab === 'schedule') {
-      // The Schedule component will refetch on its own via useEffect
       window.dispatchEvent(new CustomEvent('refresh-schedule'));
     }
   };
@@ -194,14 +157,15 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={setActiveTab} />;
-      case 'schedule': return <Schedule currentUser={currentUser} />;
-      case 'inbox': return <Inbox currentUser={currentUser} />;
+      case 'schedule': return <Schedule currentUser={currentUser} onNavigate={setActiveTab} onNewEvent={() => openEventModal()} />;
+      case 'inbox': return <Inbox />;
       case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
       case 'automation': return <Automations />;
+      case 'integrations': return <Integrations />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       default: return <Dashboard onNavigate={setActiveTab} />;
@@ -349,19 +313,15 @@ const App: React.FC = () => {
             stage={createModalConfig.stage}
             onClose={() => setCreateModalConfig(prev => ({ ...prev, isOpen: false }))} 
             onSuccess={() => {
-              // Refresh CRM data when contact or company is created
               if (createModalConfig.type === 'contact' || createModalConfig.type === 'company') {
                 window.dispatchEvent(new Event('refresh-crm'));
               }
-              // Refresh pipeline when deal is created
               if (createModalConfig.type === 'deal') {
                 window.dispatchEvent(new Event('refresh-pipeline'));
               }
-              // Refresh projects when project is created
               if (createModalConfig.type === 'project') {
                 window.dispatchEvent(new Event('refresh-projects'));
               }
-              // Refresh tasks when task is created
               if (createModalConfig.type === 'task') {
                 window.dispatchEvent(new Event('refresh-tasks'));
               } else if (createModalConfig.type === 'invoice') {
@@ -380,7 +340,6 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* Logout Confirmation Modal */}
         {isLogoutConfirmOpen && (
           <div className="fixed inset-0 z-[90] overflow-hidden pointer-events-none">
             <div
@@ -392,9 +351,6 @@ const App: React.FC = () => {
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900">Confirm Logout</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">
-                      You will need to log in again to access ImpactFlow
-                    </p>
                   </div>
                   <button
                     onClick={() => setIsLogoutConfirmOpen(false)}
@@ -403,12 +359,10 @@ const App: React.FC = () => {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-
                 <div className="p-6 space-y-4">
                   <p className="text-sm text-slate-600">
                     Are you sure you want to logout from your ImpactFlow workspace?
                   </p>
-
                   <div className="flex gap-3 pt-2">
                     <button
                       type="button"
@@ -421,7 +375,6 @@ const App: React.FC = () => {
                       onClick={handleLogout}
                       className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2"
                     >
-                      <LogOut className="w-4 h-4" />
                       Logout
                     </button>
                   </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, ChevronRight, Loader2, Edit2, Trash2, X, AlertTriangle } from 'lucide-react';
+import { FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, ChevronRight, Loader2, Edit2, Trash2, X, AlertTriangle, CheckSquare, ListChecks } from 'lucide-react';
 import { Project, Company, User as UserType, Task } from '../types';
 import { apiGetProjects, apiGetCompanies, apiGetUsers, apiGetTasks, apiUpdateProject, apiDeleteProject } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
@@ -19,129 +19,55 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   const [users, setUsers] = useState<UserType[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [editFormData, setEditFormData] = useState<{ title: string; status: string; description: string; companyId: string; ownerId: string; assignedUserIds: string[] }>({
-    title: '',
-    status: 'Planning',
-    description: '',
-    companyId: '',
-    ownerId: '',
-    assignedUserIds: []
-  });
+  const [editFormData, setEditFormData] = useState({ title: '', status: 'Planning', description: '', companyId: '', ownerId: '', assignedUserIds: [] as string[] });
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Fetch projects, companies, and users
+  // Multi-select state
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
         const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-        
-        // Fetch projects
         const projectsResponse = await apiGetProjects(userId);
-        const fetchedProjects = projectsResponse?.data || projectsResponse || [];
-        setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
-
-        // Fetch companies
-        try {
-          const companiesResponse = await apiGetCompanies();
-          setCompanies(companiesResponse?.data || companiesResponse || []);
-        } catch (err) {
-          console.error('Failed to fetch companies:', err);
-          setCompanies([]);
-        }
-
-        // Fetch users
-        try {
-          const usersResponse = await apiGetUsers();
-          setUsers(usersResponse?.data || usersResponse || []);
-        } catch (err) {
-          console.error('Failed to fetch users:', err);
-          setUsers([]);
-        }
-
-        // Fetch tasks to calculate project progress
-        try {
-          const tasksResponse = await apiGetTasks(userId);
-          const fetchedTasks = tasksResponse?.data || tasksResponse || [];
-          setTasks(Array.isArray(fetchedTasks) ? fetchedTasks : []);
-        } catch (err) {
-          console.error('Failed to fetch tasks:', err);
-          setTasks([]);
-        }
-      } catch (err: any) {
-        console.error('[PROJECTS] Failed to fetch projects data:', err);
-        showError(err.message || 'Failed to load projects');
-        setProjects([]);
-        setCompanies([]);
-        setUsers([]);
-        setTasks([]);
-      } finally {
-        setIsLoading(false);
-      }
+        setProjects(Array.isArray(projectsResponse?.data || projectsResponse) ? (projectsResponse?.data || projectsResponse) : []);
+        try { const companiesResponse = await apiGetCompanies(); setCompanies(companiesResponse?.data || []); } catch (err) {}
+        try { const usersResponse = await apiGetUsers(); setUsers(usersResponse?.data || []); } catch (err) {}
+        try { const tasksResponse = await apiGetTasks(userId); setTasks(Array.isArray(tasksResponse?.data || tasksResponse) ? (tasksResponse?.data || tasksResponse) : []); } catch (err) {}
+      } catch (err: any) { showError(err.message || 'Failed to load projects'); }
+      finally { setIsLoading(false); }
     };
-
     fetchData();
   }, [currentUser]);
 
-  // Listen for project creation/update events and task updates
-  useEffect(() => {
-    const handleRefresh = async () => {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      try {
-        const projectsResponse = await apiGetProjects(userId);
-        const fetchedProjects = projectsResponse?.data || projectsResponse || [];
-        setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
-      } catch (err) {
-        console.error('Failed to refresh projects:', err);
-      }
-    };
-
-    const handleTaskRefresh = async () => {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      try {
-        const tasksResponse = await apiGetTasks(userId);
-        const fetchedTasks = tasksResponse?.data || tasksResponse || [];
-        setTasks(Array.isArray(fetchedTasks) ? fetchedTasks : []);
-      } catch (err) {
-        console.error('Failed to refresh tasks:', err);
-      }
-    };
-
-    window.addEventListener('refresh-projects', handleRefresh);
-    window.addEventListener('refresh-tasks', handleTaskRefresh);
-    return () => {
-      window.removeEventListener('refresh-projects', handleRefresh);
-      window.removeEventListener('refresh-tasks', handleTaskRefresh);
-    };
-  }, [currentUser]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.project-menu-container')) {
-        setOpenMenuId(null);
-      }
-    };
-    if (openMenuId) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [openMenuId]);
-
-  // Calculate project progress based on completed tasks
   const calculateProjectProgress = (projectId: string): number => {
     const projectTasks = tasks.filter(task => task.projectId === projectId);
     if (projectTasks.length === 0) return 0;
-    
     const completedTasks = projectTasks.filter(task => task.status === 'Done').length;
-    const progress = Math.round((completedTasks / projectTasks.length) * 100);
-    return progress;
+    return Math.round((completedTasks / projectTasks.length) * 100);
+  };
+
+  const toggleAll = () => {
+    if (selectedProjectIds.length === projects.length) setSelectedProjectIds([]);
+    else setSelectedProjectIds(projects.map(p => p.id));
+  };
+
+  const handleBulkDelete = async () => {
+    setIsBulkProcessing(true);
+    try {
+      await Promise.all(selectedProjectIds.map(id => apiDeleteProject(id)));
+      setProjects(prev => prev.filter(p => !selectedProjectIds.includes(p.id)));
+      showSuccess(`Successfully removed ${selectedProjectIds.length} projects`);
+      setSelectedProjectIds([]);
+      setShowBulkDeleteConfirm(false);
+    } catch (err) { showError('Some projects failed to delete'); }
+    finally { setIsBulkProcessing(false); }
   };
 
   const getStatusIcon = (status: string) => {
@@ -152,213 +78,80 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     }
   };
 
-  const handleEditClick = (project: Project, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedProject(project);
-    setEditFormData({
-      title: project.title || '',
-      status: project.status || 'Planning',
-      description: project.description || '',
-      companyId: project.companyId || '',
-      ownerId: project.ownerId || '',
-      assignedUserIds: project.assignedUserIds || []
-    });
-    setIsEditModalOpen(true);
-    setOpenMenuId(null);
-  };
-
-  const handleDeleteClick = (project: Project, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedProject(project);
-    setIsDeleteConfirmOpen(true);
-    setOpenMenuId(null);
-  };
-
-  const handleUpdateProject = async () => {
-    if (!selectedProject) return;
-
-    setIsUpdating(true);
-    try {
-      await apiUpdateProject(selectedProject.id, editFormData);
-      showSuccess('Project updated successfully!');
-      setIsEditModalOpen(false);
-      setSelectedProject(null);
-      
-      // Refresh projects
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      const projectsResponse = await apiGetProjects(userId);
-      const fetchedProjects = projectsResponse?.data || projectsResponse || [];
-      setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
-      
-      window.dispatchEvent(new Event('refresh-projects'));
-    } catch (err: any) {
-      console.error('Failed to update project:', err);
-      showError(err.message || 'Failed to update project');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleDeleteProject = async () => {
-    if (!selectedProject) return;
-
-    setIsDeleting(true);
-    try {
-      await apiDeleteProject(selectedProject.id);
-      showSuccess('Project and associated tasks deleted successfully!');
-      setIsDeleteConfirmOpen(false);
-      setSelectedProject(null);
-      
-      // Refresh projects and tasks
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      const projectsResponse = await apiGetProjects(userId);
-      const fetchedProjects = projectsResponse?.data || projectsResponse || [];
-      setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
-      
-      const tasksResponse = await apiGetTasks(userId);
-      const fetchedTasks = tasksResponse?.data || tasksResponse || [];
-      setTasks(Array.isArray(fetchedTasks) ? fetchedTasks : []);
-      
-      window.dispatchEvent(new Event('refresh-projects'));
-      window.dispatchEvent(new Event('refresh-tasks'));
-    } catch (err: any) {
-      console.error('Failed to delete project:', err);
-      showError(err.message || 'Failed to delete project');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  // Get project task count for delete confirmation
-  const getProjectTaskCount = (projectId: string) => {
-    return tasks.filter(task => task.projectId === projectId).length;
-  };
-
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-24 relative">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Project Workspace</h1>
-          <p className="text-slate-500 text-sm">Active digital transformation initiatives</p>
+          <p className="text-slate-500 text-sm font-medium">Manage initiatives and milestone progress</p>
         </div>
-        <button 
-          onClick={onCreateProject}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-md"
-        >
-          <Plus className="w-4 h-4" />
-          Create Project
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button 
+            onClick={toggleAll}
+            className="flex-1 sm:flex-none px-4 py-2 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            <ListChecks className="w-4 h-4" />
+            {selectedProjectIds.length === projects.length && projects.length > 0 ? 'Deselect All' : 'Select All'}
+          </button>
+          <button onClick={onCreateProject} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
+            <Plus className="w-4 h-4" /> 
+            Create Project
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+        <div className="flex flex-col items-center justify-center py-20 bg-white border border-slate-200 rounded-3xl">
+          <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-4" />
+          <p className="text-slate-500 text-sm font-black uppercase tracking-widest">Compiling Workspace Data...</p>
         </div>
       ) : projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white border border-dashed border-slate-300 rounded-2xl text-center">
-          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-4">
-            <FolderKanban className="w-8 h-8" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-900 mb-2">No Projects Found</h3>
-          <p className="text-slate-500 text-sm mb-6">Get started by creating your first project.</p>
-          <button 
-            onClick={onCreateProject}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Create Your First Project
-          </button>
+        <div className="flex flex-col items-center justify-center py-20 bg-white border border-dashed border-slate-300 rounded-[40px] text-center">
+          <FolderKanban className="w-16 h-16 text-slate-200 mb-6" />
+          <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace Empty</h3>
+          <p className="text-slate-500 text-sm max-w-xs mb-8">Start your first logistics transformation project to see milestones and tracking.</p>
+          <button onClick={onCreateProject} className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2"><Plus className="w-5 h-5" /> Launch Project</button>
         </div>
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map(project => {
             const company = companies.find(c => c.id === project.companyId);
-            const assignedUsers = project.assignedUserIds?.map(userId => 
-              users.find(u => u.id === userId)
-            ).filter(Boolean) || [];
-
-          return (
-            <div 
-              key={project.id} 
-                onClick={() => {
-                  // Store selected project ID in sessionStorage to filter tasks
-                  sessionStorage.setItem('selectedProjectId', project.id);
-                  onNavigate('tasks');
-                }}
-              className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group active:scale-[0.98]"
-            >
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-2 bg-indigo-50 rounded-lg group-hover:bg-indigo-100 transition-colors">
-                    <FolderKanban className="w-6 h-6 text-indigo-600" />
-                  </div>
-                    <div className="relative project-menu-container">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenMenuId(openMenuId === project.id ? null : project.id);
-                        }}
-                        className="p-1 hover:bg-slate-50 rounded"
-                      >
-                        <MoreVertical className="w-4 h-4 text-slate-400" />
-                      </button>
-                      {openMenuId === project.id && (
-                        <div className="absolute right-0 top-8 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[160px]">
-                          <button
-                            onClick={(e) => handleEditClick(project, e)}
-                            className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            Edit Project
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(project, e)}
-                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Project
-                          </button>
-                        </div>
-                      )}
+            const isSelected = selectedProjectIds.includes(project.id);
+            const progress = calculateProjectProgress(project.id);
+            return (
+              <div 
+                key={project.id} 
+                onClick={() => { sessionStorage.setItem('selectedProjectId', project.id); onNavigate('tasks'); }}
+                className={`bg-white rounded-3xl border overflow-hidden shadow-sm transition-all cursor-pointer group active:scale-[0.98] relative ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-50 bg-indigo-50/10' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'}`}
+              >
+                <div className="absolute top-5 right-5 z-10" onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedProjectIds(prev => isSelected ? prev.filter(id => id !== project.id) : [...prev, project.id]);
+                }}>
+                   <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 shadow-md shadow-indigo-200' : 'bg-white border-slate-200 group-hover:border-indigo-300'}`}>
+                      {isSelected && <CheckSquare className="w-4 h-4 text-white" />}
                     </div>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors">{project.title}</h3>
-                  <p className="text-sm text-slate-500 mb-6">{company?.name || 'No company'}</p>
-                
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold uppercase tracking-wider text-slate-400">Project Progress</span>
-                      <span className="font-bold text-slate-900">{calculateProjectProgress(project.id)}%</span>
+                <div className="p-7">
+                  <div className="flex justify-between items-start mb-6 pr-8">
+                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform"><FolderKanban className="w-6 h-6" /></div>
+                    <button onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedProject(project);
+                      setEditFormData({ title: project.title, status: project.status, description: project.description || '', companyId: project.companyId, ownerId: project.ownerId || '', assignedUserIds: project.assignedUserIds || [] });
+                      setIsEditModalOpen(true);
+                    }} className="p-2.5 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-colors"><Edit2 className="w-4.5 h-4.5" /></button>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div className="bg-indigo-600 h-full transition-all duration-500" style={{width: `${calculateProjectProgress(project.id)}%`}} />
-                    </div>
-                </div>
-              </div>
-              <div className="bg-slate-50/50 px-6 py-4 border-t border-slate-100 flex justify-between items-center group-hover:bg-indigo-50/30 transition-colors">
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(project.status)}
-                  <span className="text-xs font-bold text-slate-600">{project.status}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    {assignedUsers.length > 0 ? (
-                  <div className="flex -space-x-2">
-                        {assignedUsers.slice(0, 3).map((user, idx) => (
-                          <ImageWithFallback
-                            key={user?.id || idx}
-                            src={user?.avatar}
-                            alt={user?.name || ''}
-                            fallbackText={user?.name || user?.email || 'U'}
-                            className="w-6 h-6 border-2 border-white"
-                            isAvatar={true}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white" />
-                    )}
-                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                  <h3 className="font-bold text-lg text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors truncate">{project.title}</h3>
+                  <p className="text-sm font-medium text-slate-400 mb-8 truncate">{company?.name || 'External Project'}</p>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest"><span className="text-slate-400">Implementation Progress</span><span className="text-indigo-600">{progress}%</span></div>
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden"><div className="bg-indigo-600 h-full transition-all duration-700 ease-out" style={{width: `${progress}%`}} /></div>
                   </div>
+                </div>
+                <div className="bg-slate-50/50 px-7 py-4 border-t border-slate-100 flex justify-between items-center group-hover:bg-indigo-50/30 transition-colors">
+                  <div className="flex items-center gap-2.5">{getStatusIcon(project.status)}<span className="text-[10px] font-black uppercase text-slate-600 tracking-wider">{project.status}</span></div>
+                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
                 </div>
               </div>
             );
@@ -366,199 +159,57 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
         </div>
       )}
 
-      {/* Edit Project Modal */}
-      {isEditModalOpen && selectedProject && (
-        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsEditModalOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 sticky top-0 bg-white">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">Edit Project</h3>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">Update Project Details</p>
-                </div>
-                <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={(e) => { e.preventDefault(); handleUpdateProject(); }} className="p-6 space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Project Title</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={editFormData.title}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" 
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Company</label>
-                  <select
-                    required
-                    value={editFormData.companyId}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, companyId: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-                  >
-                    <option value="">Select Company</option>
-                    {companies.map(company => (
-                      <option key={company.id} value={company.id}>{company.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</label>
-                  <select
-                    required
-                    value={editFormData.status}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-                  >
-                    <option value="Planning">Planning</option>
-                    <option value="Active">Active</option>
-                    <option value="On Hold">On Hold</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Owner</label>
-                  <select
-                    required
-                    value={editFormData.ownerId}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, ownerId: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-                  >
-                    <option value="">Select Owner</option>
-                    {users.map(user => (
-                      <option key={user.id} value={user.id}>{user.name || user.email}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assigned Users</label>
-                  <select
-                    multiple
-                    value={editFormData.assignedUserIds}
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value);
-                      setEditFormData(prev => ({ ...prev, assignedUserIds: selected }));
-                    }}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 min-h-[100px]"
-                  >
-                    {users.map(user => (
-                      <option key={user.id} value={user.id}>{user.name || user.email}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple users</p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Description</label>
-                  <textarea 
-                    value={editFormData.description}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                    rows={4}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 resize-none" 
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    disabled={isUpdating}
-                    className="flex-[2] py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isUpdating ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      'Update Project'
-                    )}
-                  </button>
-                </div>
-              </form>
+      {/* Bulk Action Bar */}
+      {selectedProjectIds.length > 0 && (
+        <div className="fixed bottom-6 left-4 right-4 lg:left-1/2 lg:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-slate-900 text-white rounded-[24px] shadow-2xl px-4 lg:px-6 py-3 flex flex-col sm:flex-row items-center gap-3 sm:gap-6 border border-white/10 max-w-2xl mx-auto">
+            <div className="flex items-center justify-between w-full sm:w-auto">
+              <span className="text-sm font-bold flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-indigo-400" />
+                {selectedProjectIds.length} projects selected
+              </span>
+              <button onClick={() => setSelectedProjectIds([])} className="sm:hidden p-2 text-slate-400"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="hidden sm:block h-6 w-px bg-white/10" />
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button 
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isBulkProcessing}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isBulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete Selected
+              </button>
+              <button onClick={() => setSelectedProjectIds([])} className="hidden sm:block p-2 hover:bg-white/10 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {isDeleteConfirmOpen && selectedProject && (
-        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsDeleteConfirmOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-red-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">Delete Project</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">This action cannot be undone</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600">
-                  Are you sure you want to delete <span className="font-bold text-slate-900">{selectedProject.title}</span>?
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                  <p className="text-xs text-red-700 font-semibold mb-1">⚠️ Warning:</p>
-                  <p className="text-xs text-red-600">
-                    This will permanently delete the project and all {getProjectTaskCount(selectedProject.id)} associated task(s). This action cannot be undone.
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="button"
-                    onClick={() => setIsDeleteConfirmOpen(false)}
-                    disabled={isDeleting}
-                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteProject}
-                    disabled={isDeleting}
-                    className="flex-[2] py-3 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isDeleting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="w-4 h-4" />
-                        Delete Project
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+      {/* Custom Bulk Delete Confirmation */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowBulkDeleteConfirm(false)} />
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl relative p-8 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-600 mb-6">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Projects?</h3>
+            <p className="text-slate-500 text-sm leading-relaxed mb-8">
+              You are about to permanently remove <span className="font-bold text-slate-900">{selectedProjectIds.length} projects</span> and all their nested tasks. This infrastructure teardown cannot be reversed.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowBulkDeleteConfirm(false)} className="flex-1 py-4 bg-slate-50 text-slate-600 font-bold rounded-2xl hover:bg-slate-100 transition-colors">Cancel</button>
+              <button 
+                onClick={handleBulkDelete}
+                disabled={isBulkProcessing}
+                className="flex-1 py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all flex items-center justify-center gap-2"
+              >
+                {isBulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Deletion'}
+              </button>
             </div>
           </div>
-      </div>
+        </div>
       )}
     </div>
   );
