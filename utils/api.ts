@@ -1,4 +1,3 @@
-
 import { simulateApi } from './apiSimulator.ts';
 
 /**
@@ -37,9 +36,11 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      // If the server returns 404 for a new feature (feedback), we fallback to simulation
-      // to prevent breaking the UI while backend deployment is pending.
-      if (response.status === 404 && cleanEndpoint.includes('feedback')) {
+      // Fallback to simulation for 404s on all main entities to support local testing
+      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events'];
+      const isEntityEndpoint = entities.some(e => cleanEndpoint.includes(e));
+      
+      if (response.status === 404 && isEntityEndpoint) {
         console.warn(`[SYSTEM] Live endpoint ${cleanEndpoint} not found. Engaging Virtual Engine fallback.`);
         return simulateApi(cleanEndpoint, options);
       }
@@ -58,7 +59,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const isServiceUnavailable = err.status >= 500;
     const isClientError = err.status >= 400 && err.status < 500;
 
-    // We allow simulation on network errors or 5xx, or explicitly for 404s we just handled
+    // We allow simulation on network errors or 5xx
     if (isNetworkError || (isServiceUnavailable && !isClientError)) {
       console.info(`[SYSTEM] Production API unreachable. Engaging Virtual Engine fallback.`);
       return simulateApi(cleanEndpoint, options);
@@ -130,7 +131,15 @@ export const apiCreateCompany = (data: any) => apiFetch('/companies', { method: 
 export const apiUpdateCompany = (id: string, data: any) => apiFetch(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteCompany = (id: string) => apiFetch(`/companies/${id}`, { method: 'DELETE' });
 
-export const apiGetContacts = (search?: string) => apiFetch(`/contacts${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+// Fix: Support both search and companyId filtering for contacts
+export const apiGetContacts = (search?: string, companyId?: string) => {
+  const params = new URLSearchParams();
+  if (search) params.append('search', search);
+  if (companyId) params.append('companyId', companyId);
+  const query = params.toString();
+  return apiFetch(`/contacts${query ? `?${query}` : ''}`);
+};
+
 export const apiCreateContact = (data: any) => apiFetch('/contacts', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateContact = (id: string, data: any) => apiFetch(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteContact = (id: string) => apiFetch(`/contacts/${id}`, { method: 'DELETE' });
