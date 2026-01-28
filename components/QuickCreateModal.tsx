@@ -192,6 +192,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           status: 'Todo', 
           assigneeId: formData.assigneeId 
         });
+        
+        // Dispatch event to refresh tasks list
+        window.dispatchEvent(new Event('refresh-tasks'));
       } else if (type === 'invoice') {
         await apiCreateInvoice({ 
           companyId: formData.companyId, 

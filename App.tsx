@@ -24,7 +24,11 @@ import { ToastProvider } from './contexts/ToastContext.tsx';
 import { QueryProvider } from './contexts/QueryProvider.tsx';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Initialize activeTab from localStorage or default to 'dashboard'
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('activeTab');
+    return savedTab || 'dashboard';
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -91,16 +95,23 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Check URL params first (for direct links/sharing), then use localStorage (already initialized in useState)
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations'].includes(tabParam)) {
+    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations'];
+    
+    if (tabParam && validTabs.includes(tabParam)) {
+      // URL param takes priority (for direct links)
       setActiveTab(tabParam);
+      localStorage.setItem('activeTab', tabParam);
+      // Clean up URL param after reading
       urlParams.delete('tab');
       const newUrl = urlParams.toString() 
         ? `${window.location.pathname}?${urlParams.toString()}`
         : window.location.pathname;
       window.history.replaceState({}, '', newUrl);
     }
+    // If no URL param, useState initialization already handled localStorage, so we're good
   }, []);
 
   useEffect(() => {
@@ -173,6 +184,7 @@ const App: React.FC = () => {
 
   const handleTabChange = (id: string) => {
     setActiveTab(id);
+    localStorage.setItem('activeTab', id);
     setGlobalSearchQuery(''); 
     if (isMobile) setIsSidebarOpen(false);
   };

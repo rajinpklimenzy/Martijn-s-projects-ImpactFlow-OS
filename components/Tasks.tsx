@@ -38,6 +38,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     priority: ''
   });
   const [isImporting, setIsImporting] = useState(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+  const [archiveConfirmTask, setArchiveConfirmTask] = useState<Task | null>(null);
+  const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
+  
+  // Multi-select state
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isBulkDeletingTasks, setIsBulkDeletingTasks] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
@@ -58,14 +68,67 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
   useEffect(() => { fetchData(); }, [currentUser]);
 
-  const handleArchiveTask = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  useEffect(() => {
+    const handleRefresh = () => fetchData();
+    window.addEventListener('refresh-tasks', handleRefresh);
+    return () => window.removeEventListener('refresh-tasks', handleRefresh);
+  }, []);
+
+  const handleArchiveTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    setArchivingTaskId(id);
     try {
       await apiUpdateTask(id, { archived: viewMode === 'active' });
-      // FIXED: Corrected reference 'p' to 't'
       setTasks(prev => prev.map(t => t.id === id ? { ...t, archived: viewMode === 'active' } : t));
+      setArchiveConfirmTask(null);
       showSuccess(viewMode === 'active' ? 'Task archived' : 'Task restored');
-    } catch (err) { showError('Update failed'); }
+    } catch (err) { 
+      showError('Update failed'); 
+    } finally {
+      setArchivingTaskId(null);
+    }
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    setDeletingTaskId(id);
+    try {
+      await apiDeleteTask(id);
+      setTasks(prev => prev.filter(t => t.id !== id));
+      setDeleteConfirmTask(null);
+      showSuccess('Task deleted successfully');
+      fetchData();
+    } catch (err) {
+      showError('Failed to delete task');
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
+
+  // Multi-select handlers
+  const selectAllTasks = () => {
+    if (selectedTaskIds.length === filteredTasks.length) {
+      setSelectedTaskIds([]);
+    } else {
+      setSelectedTaskIds(filteredTasks.map(t => t.id));
+    }
+  };
+
+  const handleBulkDeleteTasks = async () => {
+    setIsBulkDeletingTasks(true);
+    try {
+      const targetIds = [...selectedTaskIds];
+      await Promise.all(targetIds.map(id => apiDeleteTask(id)));
+      setTasks(prev => prev.filter(t => !targetIds.includes(t.id)));
+      setSelectedTaskIds([]);
+      setBulkDeleteConfirmOpen(false);
+      showSuccess(`Successfully deleted ${targetIds.length} task${targetIds.length > 1 ? 's' : ''}`);
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete tasks');
+    } finally {
+      setIsBulkDeletingTasks(false);
+    }
   };
 
   const handleDownloadTemplate = () => {
@@ -238,6 +301,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       
       // Refresh tasks list
       fetchData();
+      // Also dispatch event for consistency
+      window.dispatchEvent(new Event('refresh-tasks'));
     } catch (err: any) {
       console.error('Import error:', err);
       showError(err.message || 'Failed to import tasks. Please check your data format.');
@@ -413,8 +478,24 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         <div>
           <h1 className="text-2xl font-bold">Tasks</h1>
           <div className="flex gap-4 mt-2">
-            <button onClick={() => setViewMode('active')} className={`text-sm font-bold pb-1 transition-all ${viewMode === 'active' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Active</button>
-            <button onClick={() => setViewMode('archived')} className={`text-sm font-bold pb-1 transition-all ${viewMode === 'archived' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Archive ({tasks.filter(t => t.archived).length})</button>
+            <button 
+              onClick={() => {
+                setViewMode('active');
+                setSelectedTaskIds([]);
+              }} 
+              className={`text-sm font-bold pb-1 transition-all ${viewMode === 'active' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}
+            >
+              Active
+            </button>
+            <button 
+              onClick={() => {
+                setViewMode('archived');
+                setSelectedTaskIds([]);
+              }} 
+              className={`text-sm font-bold pb-1 transition-all ${viewMode === 'archived' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}
+            >
+              Archive ({tasks.filter(t => t.archived).length})
+            </button>
           </div>
         </div>
         <div className="flex gap-2">
@@ -426,13 +507,37 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input type="text" placeholder="Search tasks..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100" />
+          <input 
+            type="text" 
+            placeholder="Search tasks..." 
+            value={searchQuery} 
+            onChange={e => {
+              setSearchQuery(e.target.value);
+              setSelectedTaskIds([]);
+            }} 
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100" 
+          />
         </div>
         <div className="flex bg-white p-1 border border-slate-200 rounded-xl shadow-sm">
           <button onClick={() => setDisplayMode('list')} className={`p-2 rounded-lg ${displayMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4" /></button>
           <button onClick={() => setDisplayMode('card')} className={`p-2 rounded-lg ${displayMode === 'card' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4" /></button>
         </div>
       </div>
+
+      {/* Select All Header */}
+      {!isLoading && filteredTasks.length > 0 && (
+        <div className="flex items-center gap-3 pb-2">
+          <input 
+            type="checkbox" 
+            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+            checked={filteredTasks.length > 0 && selectedTaskIds.length === filteredTasks.length}
+            onChange={selectAllTasks}
+          />
+          <span className="text-sm font-semibold text-slate-600">
+            Select All Tasks
+          </span>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
@@ -444,36 +549,93 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       ) : displayMode === 'list' ? (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
            <div className="divide-y divide-slate-50">
-             {filteredTasks.map(task => (
-               <div key={task.id} className={`flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors ${task.archived ? 'bg-slate-50/50' : ''}`}>
-                 <button onClick={(e) => toggleStatus(task.id, task.status, e)} className="text-slate-300 hover:text-indigo-600">
-                   {task.status === 'Done' ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> : <Circle className="w-6 h-6" />}
-                 </button>
-                 <div className="flex-1 overflow-hidden">
-                   <p className={`font-bold text-sm ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>
-                   <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
-                 </div>
-                 <div className="flex items-center gap-3">
-                   <button onClick={(e) => handleArchiveTask(task.id, e)} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-white rounded-lg transition-all">
-                     {task.archived ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+             {filteredTasks.map(task => {
+               const isSelected = selectedTaskIds.includes(task.id);
+               return (
+                 <div 
+                   key={task.id} 
+                   className={`flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors ${task.archived ? 'bg-slate-50/50' : ''} ${isSelected ? 'bg-indigo-50/30 border-l-4 border-indigo-400' : ''}`}
+                 >
+                   <div onClick={(e) => e.stopPropagation()}>
+                     <input 
+                       type="checkbox" 
+                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                       checked={isSelected}
+                       onChange={() => setSelectedTaskIds(prev => isSelected ? prev.filter(id => id !== task.id) : [...prev, task.id])}
+                     />
+                   </div>
+                   <button onClick={(e) => toggleStatus(task.id, task.status, e)} className="text-slate-300 hover:text-indigo-600">
+                     {task.status === 'Done' ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> : <Circle className="w-6 h-6" />}
                    </button>
-                   <button onClick={(e) => { e.stopPropagation(); apiDeleteTask(task.id).then(fetchData); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-white rounded-lg transition-all">
-                     <Trash2 className="w-4 h-4" />
-                   </button>
+                   <div className="flex-1 overflow-hidden">
+                     <p className={`font-bold text-sm ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>
+                     <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
+                   </div>
+                   <div className="flex items-center gap-3">
+                     <button 
+                       onClick={(e) => { 
+                         e.stopPropagation(); 
+                         setArchiveConfirmTask(task); 
+                       }} 
+                       className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"
+                     >
+                       {task.archived ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                     </button>
+                     <button 
+                       onClick={(e) => { 
+                         e.stopPropagation(); 
+                         setDeleteConfirmTask(task); 
+                       }} 
+                       className="p-2 text-slate-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                     >
+                       <Trash2 className="w-4 h-4" />
+                     </button>
+                   </div>
                  </div>
-               </div>
-             ))}
+               );
+             })}
            </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTasks.map(task => (
-             <div key={task.id} className="bg-white p-6 rounded-3xl border border-slate-200 relative group">
+          {filteredTasks.map(task => {
+            const isSelected = selectedTaskIds.includes(task.id);
+            return (
+             <div 
+               key={task.id} 
+               className={`bg-white p-6 rounded-3xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} relative group`}
+             >
                 <div className="flex justify-between items-start mb-4">
                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><CheckSquare className="w-4 h-4" /></div>
-                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button onClick={(e) => handleArchiveTask(task.id, e)} className="p-1.5 text-slate-400 hover:text-indigo-600"><Archive className="w-3.5 h-3.5" /></button>
-                     <button onClick={(e) => { e.stopPropagation(); apiDeleteTask(task.id).then(fetchData); }} className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                   <div className="flex items-center gap-1">
+                     <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                       <button 
+                         onClick={(e) => { 
+                           e.stopPropagation(); 
+                           setArchiveConfirmTask(task); 
+                         }} 
+                         className="p-1.5 text-slate-400 hover:text-indigo-600"
+                       >
+                         <Archive className="w-3.5 h-3.5" />
+                       </button>
+                       <button 
+                         onClick={(e) => { 
+                           e.stopPropagation(); 
+                           setDeleteConfirmTask(task); 
+                         }} 
+                         className="p-1.5 text-slate-400 hover:text-red-500"
+                       >
+                         <Trash2 className="w-3.5 h-3.5" />
+                       </button>
+                     </div>
+                     <div onClick={(e) => e.stopPropagation()} className={`${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                       <input 
+                         type="checkbox" 
+                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                         checked={isSelected}
+                         onChange={() => setSelectedTaskIds(prev => isSelected ? prev.filter(id => id !== task.id) : [...prev, task.id])}
+                       />
+                     </div>
                    </div>
                 </div>
                 <h4 className={`font-bold text-slate-900 mb-2 ${task.status === 'Done' ? 'line-through opacity-40' : ''}`}>{task.title}</h4>
@@ -483,7 +645,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${task.priority === 'High' ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}>{task.priority}</div>
                 </div>
              </div>
-          ))}
+            );
+          })}
         </div>
       )}
       
@@ -635,6 +798,208 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
              </div>
              
              <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={handleFileSelect} />
+          </div>
+        </div>
+      )}
+
+      {/* Archive Task Confirmation Modal */}
+      {archiveConfirmTask && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-indigo-50 text-indigo-600">
+                  {archiveConfirmTask.archived ? <RotateCcw className="w-6 h-6" /> : <Archive className="w-6 h-6" />}
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">{archiveConfirmTask.archived ? 'Restore Task?' : 'Archive Task?'}</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    {archiveConfirmTask.archived 
+                      ? 'This will restore the task to active status.'
+                      : 'This will move the task to archive. You can restore it later.'}
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <p className="text-sm font-bold text-slate-900 mb-1">{archiveConfirmTask.title}</p>
+                {archiveConfirmTask.description && (
+                  <p className="text-xs text-slate-500 line-clamp-2">{archiveConfirmTask.description}</p>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setArchiveConfirmTask(null)}
+                disabled={archivingTaskId === archiveConfirmTask.id}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleArchiveTask(archiveConfirmTask.id)}
+                disabled={archivingTaskId === archiveConfirmTask.id}
+                className="flex-1 py-3 bg-indigo-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {archivingTaskId === archiveConfirmTask.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {archiveConfirmTask.archived ? 'Restoring...' : 'Archiving...'}
+                  </>
+                ) : (
+                  archiveConfirmTask.archived ? 'Restore Task' : 'Archive Task'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Task Confirmation Modal */}
+      {deleteConfirmTask && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Delete Task?</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. The task will be permanently removed.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <p className="text-sm font-bold text-slate-900 mb-1">{deleteConfirmTask.title}</p>
+                {deleteConfirmTask.description && (
+                  <p className="text-xs text-slate-500 line-clamp-2">{deleteConfirmTask.description}</p>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmTask(null)}
+                disabled={deletingTaskId === deleteConfirmTask.id}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteTask(deleteConfirmTask.id)}
+                disabled={deletingTaskId === deleteConfirmTask.id}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingTaskId === deleteConfirmTask.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Task'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Action Bar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-slate-900 text-white rounded-3xl shadow-2xl px-8 py-4 flex items-center gap-8 border border-white/10 ring-4 ring-indigo-500/10">
+            <span className="text-sm font-black flex items-center gap-3">
+              <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center text-[10px]">
+                {selectedTaskIds.length}
+              </div>
+              Selected
+            </span>
+            <div className="h-8 w-px bg-white/10" />
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setBulkDeleteConfirmOpen(true);
+                }}
+                disabled={isBulkDeletingTasks}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {isBulkDeletingTasks ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                Delete
+              </button>
+              <button 
+                onClick={() => setSelectedTaskIds([])} 
+                className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {bulkDeleteConfirmOpen && selectedTaskIds.length > 0 && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. The tasks will be permanently removed.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 max-h-48 overflow-y-auto">
+                {tasks.filter(t => selectedTaskIds.includes(t.id)).slice(0, 5).map(task => (
+                  <div key={task.id} className="flex items-center gap-3 mb-2 last:mb-0">
+                    <CheckSquare className="w-4 h-4 text-indigo-500" />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-slate-900">{task.title}</p>
+                      <p className="text-[10px] text-slate-500">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
+                    </div>
+                  </div>
+                ))}
+                {selectedTaskIds.length > 5 && (
+                  <p className="text-xs text-slate-400 font-medium mt-2 text-center">
+                    + {selectedTaskIds.length - 5} more
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setBulkDeleteConfirmOpen(false)}
+                disabled={isBulkDeletingTasks}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDeleteTasks}
+                disabled={isBulkDeletingTasks}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isBulkDeletingTasks ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  `Delete ${selectedTaskIds.length} Task${selectedTaskIds.length > 1 ? 's' : ''}`
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

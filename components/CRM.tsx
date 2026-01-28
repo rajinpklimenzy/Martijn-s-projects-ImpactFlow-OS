@@ -44,6 +44,16 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   
   // Delete confirmation state
   const [deleteConfirmCompany, setDeleteConfirmCompany] = useState<Company | null>(null);
+  const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null);
+  const [isDeletingCompany, setIsDeletingCompany] = useState(false);
+  const [isDeletingContact, setIsDeletingContact] = useState(false);
+  
+  // Multi-select state
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [isBulkDeletingCompanies, setIsBulkDeletingCompanies] = useState(false);
+  const [isBulkDeletingContacts, setIsBulkDeletingContacts] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
 
   useEffect(() => {
     if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
@@ -68,6 +78,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
   useEffect(() => {
     fetchData();
+    // Clear selections when search query changes
+    setSelectedCompanyIds([]);
+    setSelectedContactIds([]);
   }, [view, localSearchQuery]);
 
   useEffect(() => {
@@ -112,6 +125,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   const handleDeleteCompany = async (id: string) => {
+    setIsDeletingCompany(true);
     try {
       await apiDeleteCompany(id);
       setCompanies(prev => prev.filter(c => c.id !== id));
@@ -123,6 +137,86 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       showSuccess('Company deleted successfully');
     } catch (err: any) {
       showError(err.message || 'Failed to delete company');
+    } finally {
+      setIsDeletingCompany(false);
+    }
+  };
+
+  const handleDeleteContact = async (id: string) => {
+    setIsDeletingContact(true);
+    try {
+      await apiDeleteContact(id);
+      setContacts(prev => prev.filter(c => c.id !== id));
+      if (selectedContact?.id === id) {
+        setSelectedContact(null);
+        setIsEditingContact(false);
+      }
+      setDeleteConfirmContact(null);
+      showSuccess('Contact deleted successfully');
+      fetchData(); // Refresh data
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete contact');
+    } finally {
+      setIsDeletingContact(false);
+    }
+  };
+
+  // Multi-select handlers
+  const selectAllCompanies = () => {
+    if (selectedCompanyIds.length === companies.length) {
+      setSelectedCompanyIds([]);
+    } else {
+      setSelectedCompanyIds(companies.map(c => c.id));
+    }
+  };
+
+  const selectAllContacts = () => {
+    if (selectedContactIds.length === contacts.length) {
+      setSelectedContactIds([]);
+    } else {
+      setSelectedContactIds(contacts.map(c => c.id));
+    }
+  };
+
+  const handleBulkDeleteCompanies = async () => {
+    setIsBulkDeletingCompanies(true);
+    try {
+      const targetIds = [...selectedCompanyIds];
+      await Promise.all(targetIds.map(id => apiDeleteCompany(id)));
+      setCompanies(prev => prev.filter(c => !targetIds.includes(c.id)));
+      if (selectedCompany && targetIds.includes(selectedCompany.id)) {
+        setSelectedCompany(null);
+        setIsEditingCompany(false);
+      }
+      setSelectedCompanyIds([]);
+      setBulkDeleteConfirmOpen(null);
+      showSuccess(`Successfully deleted ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'}`);
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete companies');
+    } finally {
+      setIsBulkDeletingCompanies(false);
+    }
+  };
+
+  const handleBulkDeleteContacts = async () => {
+    setIsBulkDeletingContacts(true);
+    try {
+      const targetIds = [...selectedContactIds];
+      await Promise.all(targetIds.map(id => apiDeleteContact(id)));
+      setContacts(prev => prev.filter(c => !targetIds.includes(c.id)));
+      if (selectedContact && targetIds.includes(selectedContact.id)) {
+        setSelectedContact(null);
+        setIsEditingContact(false);
+      }
+      setSelectedContactIds([]);
+      setBulkDeleteConfirmOpen(null);
+      showSuccess(`Successfully deleted ${targetIds.length} contact${targetIds.length > 1 ? 's' : ''}`);
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete contacts');
+    } finally {
+      setIsBulkDeletingContacts(false);
     }
   };
 
@@ -147,8 +241,26 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         <div>
           <h1 className="text-2xl font-bold">CRM</h1>
           <div className="flex gap-4 mt-2">
-            <button onClick={() => setView('companies')} className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'companies' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Companies ({companies.length})</button>
-            <button onClick={() => setView('contacts')} className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'contacts' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Contacts ({contacts.length})</button>
+            <button 
+              onClick={() => {
+                setView('companies');
+                setSelectedCompanyIds([]);
+                setSelectedContactIds([]);
+              }} 
+              className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'companies' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+              Companies ({companies.length})
+            </button>
+            <button 
+              onClick={() => {
+                setView('contacts');
+                setSelectedCompanyIds([]);
+                setSelectedContactIds([]);
+              }} 
+              className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'contacts' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+              Contacts ({contacts.length})
+            </button>
           </div>
         </div>
         <button onClick={() => view === 'companies' ? onAddCompany() : onAddContact()} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm">
@@ -161,6 +273,25 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         <input type="text" placeholder={`Search ${view}...`} value={localSearchQuery} onChange={(e) => setLocalSearchQuery(e.target.value)} className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
       </div>
 
+      {/* Select All Header */}
+      {!isLoading && (
+        <div className="flex items-center gap-3 pb-2">
+          <input 
+            type="checkbox" 
+            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+            checked={
+              view === 'companies' 
+                ? companies.length > 0 && selectedCompanyIds.length === companies.length
+                : contacts.length > 0 && selectedContactIds.length === contacts.length
+            }
+            onChange={view === 'companies' ? selectAllCompanies : selectAllContacts}
+          />
+          <span className="text-sm font-semibold text-slate-600">
+            Select All {view === 'companies' ? 'Companies' : 'Contacts'}
+          </span>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
       ) : (
@@ -168,9 +299,22 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           {view === 'companies' ? (
             companies.map(company => {
               const owner = users.find(u => u.id === company.ownerId);
+              const isSelected = selectedCompanyIds.includes(company.id);
               return (
-                <div key={company.id} onClick={() => setSelectedCompany(company)} className={`bg-white p-6 rounded-2xl border ${company.isTargetAccount ? 'border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group flex flex-col h-full relative`}>
+                <div 
+                  key={company.id} 
+                  onClick={() => setSelectedCompany(company)} 
+                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : company.isTargetAccount ? 'border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group flex flex-col h-full relative`}
+                >
                   {company.isTargetAccount && <div className="absolute -top-3 left-6 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black uppercase rounded shadow-sm flex items-center gap-1"><Target className="w-2.5 h-2.5" /> Target Account</div>}
+                  <div className="absolute top-4 right-4" onClick={(e) => e.stopPropagation()}>
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                      checked={isSelected}
+                      onChange={() => setSelectedCompanyIds(prev => isSelected ? prev.filter(id => id !== company.id) : [...prev, company.id])}
+                    />
+                  </div>
                   <div className="flex items-center gap-4 mb-6">
                     <ImageWithFallback src={company.logo} fallbackText={company.name} className="w-12 h-12 border border-slate-100" isAvatar={false} />
                     <div className="flex-1 overflow-hidden">
@@ -192,8 +336,20 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           ) : (
             contacts.map(contact => {
               const company = companies.find(c => c.id === contact.companyId);
+              const isSelected = selectedContactIds.includes(contact.id);
               return (
-                <div key={contact.id} className="bg-white p-6 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group shadow-sm">
+                <div 
+                  key={contact.id} 
+                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all group shadow-sm relative`}
+                >
+                  <div className="absolute top-4 right-4">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                      checked={isSelected}
+                      onChange={() => setSelectedContactIds(prev => isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id])}
+                    />
+                  </div>
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl uppercase shadow-inner">{contact.name.charAt(0)}</div>
                     <div className="flex-1 overflow-hidden">
@@ -213,6 +369,47 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               );
             })
           )}
+        </div>
+      )}
+
+      {/* Bulk Action Bar */}
+      {((view === 'companies' && selectedCompanyIds.length > 0) || (view === 'contacts' && selectedContactIds.length > 0)) && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-slate-900 text-white rounded-3xl shadow-2xl px-8 py-4 flex items-center gap-8 border border-white/10 ring-4 ring-indigo-500/10">
+            <span className="text-sm font-black flex items-center gap-3">
+              <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center text-[10px]">
+                {view === 'companies' ? selectedCompanyIds.length : selectedContactIds.length}
+              </div>
+              Selected
+            </span>
+            <div className="h-8 w-px bg-white/10" />
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setBulkDeleteConfirmOpen(view);
+                }}
+                disabled={view === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {(view === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts) ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                Delete
+              </button>
+              <button 
+                onClick={() => {
+                  if (view === 'companies') setSelectedCompanyIds([]);
+                  else setSelectedContactIds([]);
+                }} 
+                className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -620,7 +817,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             {/* Premium Footer */}
             <div className="p-8 border-t border-slate-100 bg-white flex gap-4">
               <button 
-                onClick={() => { if(confirm('Are you sure you want to permanently delete this contact from the enterprise registry?')) { apiDeleteContact(selectedContact.id).then(() => { setSelectedContact(null); fetchData(); }); } }} 
+                onClick={() => setDeleteConfirmContact(selectedContact)} 
                 className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-[28px] transition-all group shrink-0 active:scale-95"
               >
                 <Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
@@ -667,15 +864,180 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <div className="p-6 flex gap-3">
               <button
                 onClick={() => setDeleteConfirmCompany(null)}
-                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all"
+                disabled={isDeletingCompany}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDeleteCompany(deleteConfirmCompany.id)}
-                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg"
+                disabled={isDeletingCompany}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Delete Company
+                {isDeletingCompany ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Company'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Contact Confirmation Modal */}
+      {deleteConfirmContact && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Delete Contact?</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. The contact will be permanently removed from the enterprise registry.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 font-black text-lg border border-indigo-100">
+                    {deleteConfirmContact.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-slate-900">{deleteConfirmContact.name}</p>
+                    <p className="text-xs text-slate-500">{deleteConfirmContact.email}</p>
+                    {deleteConfirmContact.role && (
+                      <p className="text-xs text-slate-400 font-bold uppercase mt-1">{deleteConfirmContact.role}</p>
+                    )}
+                  </div>
+                </div>
+                {companies.find(c => c.id === deleteConfirmContact.companyId) && (
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
+                    <Building2 className="w-4 h-4 text-slate-400" />
+                    <p className="text-xs font-bold text-slate-600">{companies.find(c => c.id === deleteConfirmContact.companyId)?.name}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmContact(null)}
+                disabled={isDeletingContact}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteContact(deleteConfirmContact.id)}
+                disabled={isDeletingContact}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isDeletingContact ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Contact'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {bulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} {bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}{bulkDeleteConfirmOpen === 'companies' ? (selectedCompanyIds.length > 1 ? 'ies' : 'y') : (selectedContactIds.length > 1 ? 's' : '')}?
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. {bulkDeleteConfirmOpen === 'companies' 
+                      ? 'All associated contacts, deals, and projects will be affected.'
+                      : 'The contacts will be permanently removed from the enterprise registry.'}
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 max-h-48 overflow-y-auto">
+                {(bulkDeleteConfirmOpen === 'companies' 
+                  ? companies.filter(c => selectedCompanyIds.includes(c.id))
+                  : contacts.filter(c => selectedContactIds.includes(c.id))
+                ).slice(0, 5).map((item: any) => (
+                  <div key={item.id} className="flex items-center gap-3 mb-2 last:mb-0">
+                    {bulkDeleteConfirmOpen === 'companies' ? (
+                      <>
+                        <ImageWithFallback 
+                          src={item.logo} 
+                          fallbackText={item.name} 
+                          className="w-8 h-8 border border-slate-200" 
+                          isAvatar={false} 
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{item.name}</p>
+                          <p className="text-[10px] text-slate-500">{item.industry}</p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xs uppercase">
+                          {item.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{item.name}</p>
+                          <p className="text-[10px] text-slate-500">{item.email}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {(bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length) > 5 && (
+                  <p className="text-xs text-slate-400 font-medium mt-2 text-center">
+                    + {(bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length) - 5} more
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setBulkDeleteConfirmOpen(null)}
+                disabled={bulkDeleteConfirmOpen === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (bulkDeleteConfirmOpen === 'companies') {
+                    handleBulkDeleteCompanies();
+                  } else {
+                    handleBulkDeleteContacts();
+                  }
+                }}
+                disabled={bulkDeleteConfirmOpen === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {(bulkDeleteConfirmOpen === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts) ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  `Delete ${bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} ${bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}${bulkDeleteConfirmOpen === 'companies' ? (selectedCompanyIds.length > 1 ? 'ies' : 'y') : (selectedContactIds.length > 1 ? 's' : '')}`
+                )}
               </button>
             </div>
           </div>

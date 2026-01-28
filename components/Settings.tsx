@@ -36,6 +36,8 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<any | null>(null);
   const [userFormData, setUserFormData] = useState({ 
     email: '', 
     name: '', 
@@ -357,7 +359,12 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
                         }); 
                         setIsUserModalOpen(true); 
                       }} className="p-2 text-slate-400 hover:text-indigo-600"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={() => apiDeleteUser(user.id).then(fetchUsers)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      <button 
+                        onClick={() => setDeleteConfirmUser(user)}
+                        className="p-2 text-slate-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -511,6 +518,69 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
                   </>
                 ) : (
                   editingUser ? 'Update' : 'Invite'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )      }
+
+      {/* Delete User Confirmation Modal */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Delete User?</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    This action cannot be undone. The user will be permanently removed from the system.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <p className="text-sm font-bold text-slate-900 mb-1">{deleteConfirmUser.name}</p>
+                <p className="text-xs text-slate-500">{deleteConfirmUser.email}</p>
+                {deleteConfirmUser.role && (
+                  <p className="text-xs text-slate-400 font-bold uppercase mt-1">{deleteConfirmUser.role}</p>
+                )}
+              </div>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmUser(null)}
+                disabled={deletingUserId === deleteConfirmUser.id}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setDeletingUserId(deleteConfirmUser.id);
+                  try {
+                    await apiDeleteUser(deleteConfirmUser.id);
+                    await fetchUsers();
+                    setDeleteConfirmUser(null);
+                    showSuccess('User deleted successfully');
+                  } catch (err: any) {
+                    showError(err.message || 'Failed to delete user');
+                  } finally {
+                    setDeletingUserId(null);
+                  }
+                }}
+                disabled={deletingUserId === deleteConfirmUser.id}
+                className="flex-1 py-3 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingUserId === deleteConfirmUser.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete User'
                 )}
               </button>
             </div>

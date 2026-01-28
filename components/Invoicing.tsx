@@ -30,6 +30,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [isEditingBreakdown, setIsEditingBreakdown] = useState(false);
   const [breakdownItems, setBreakdownItems] = useState<InvoiceItem[]>([]);
   const [editingItem, setEditingItem] = useState<InvoiceItem | null>(null);
@@ -118,9 +119,15 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
     const targetIds = [...selectedInvoiceIds];
     if (targetIds.length === 0) return;
     
-    if (!confirm(`Are you sure you want to permanently delete these ${targetIds.length} invoices? This action is irreversible.`)) return;
+    setIsBulkDeleteConfirmOpen(true);
+  };
+
+  const executeBulkDelete = async () => {
+    const targetIds = [...selectedInvoiceIds];
+    if (targetIds.length === 0) return;
     
     setIsBulkProcessing(true);
+    setIsBulkDeleteConfirmOpen(false);
     showInfo(`Executing batch deletion for ${targetIds.length} registry entries...`);
     
     try {
@@ -571,8 +578,66 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
               <h3 className="text-2xl font-black text-slate-900 mb-2">Archive Invoice?</h3>
               <p className="text-sm text-slate-500 mb-10 leading-relaxed font-medium">This will permanently remove the billing statement from the digital registry. This action is terminal.</p>
               <div className="flex gap-4">
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="flex-1 py-4 text-sm font-black text-slate-500 bg-slate-50 rounded-2xl uppercase tracking-widest">Abort</button>
-                <button onClick={handleDeleteInvoice} className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl uppercase tracking-widest shadow-lg shadow-red-100">Terminal Delete</button>
+                <button 
+                  onClick={() => setIsDeleteConfirmOpen(false)} 
+                  disabled={isDeleting}
+                  className="flex-1 py-4 text-sm font-black text-slate-500 bg-slate-50 rounded-2xl uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Abort
+                </button>
+                <button 
+                  onClick={handleDeleteInvoice} 
+                  disabled={isDeleting}
+                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl uppercase tracking-widest shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Terminal Delete'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {isBulkDeleteConfirmOpen && selectedInvoiceIds.length > 0 && (
+        <div className="fixed inset-0 z-[80] overflow-hidden pointer-events-none">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => setIsBulkDeleteConfirmOpen(false)} />
+          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+            <div className="bg-white rounded-[36px] w-full max-w-md shadow-2xl pointer-events-auto animate-in zoom-in-95 duration-200 p-10">
+              <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Delete {selectedInvoiceIds.length} Invoice{selectedInvoiceIds.length > 1 ? 's' : ''}?</h3>
+              <p className="text-sm text-slate-500 mb-10 leading-relaxed font-medium">This will permanently remove {selectedInvoiceIds.length} invoice{selectedInvoiceIds.length > 1 ? 's' : ''} from the digital registry. This action is terminal and cannot be undone.</p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsBulkDeleteConfirmOpen(false)} 
+                  disabled={isBulkProcessing}
+                  className="flex-1 py-4 text-sm font-black text-slate-500 bg-slate-50 rounded-2xl uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Abort
+                </button>
+                <button 
+                  onClick={executeBulkDelete} 
+                  disabled={isBulkProcessing}
+                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl uppercase tracking-widest shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isBulkProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    `Delete ${selectedInvoiceIds.length} Invoice${selectedInvoiceIds.length > 1 ? 's' : ''}`
+                  )}
+                </button>
               </div>
             </div>
           </div>
