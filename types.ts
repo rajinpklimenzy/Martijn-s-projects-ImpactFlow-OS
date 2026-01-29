@@ -107,8 +107,11 @@ export interface Company {
 
 export interface Deal {
   id: string;
+  name?: string; // Alias for title
   title: string;
+  account?: string; // Alias for companyId
   companyId: string | null; // Can be null for standalone/direct deals
+  amount?: number; // Alias for value
   value: number;
   stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Order Received' | 'Processing' | 'In Transit' | 'Delivered';
   pipelineType?: 'sales' | 'operations'; // Pipeline type: 'sales' or 'operations'
@@ -122,11 +125,16 @@ export interface Deal {
 
 export interface Project {
   id: string;
+  name?: string; // Alias for title
   title: string;
+  engagement?: string; // Engagement type/name
   companyId: string | null; // Can be null for standalone/general projects
   status: 'Planning' | 'Active' | 'On Hold' | 'Completed';
   dealId?: string;
   progress: number;
+  startDate?: string; // Project start date
+  endDate?: string; // Project end date
+  projectManager?: string; // Project manager user ID
   ownerId?: string;
   description?: string;
   assignedUserIds?: string[];
@@ -177,6 +185,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   number: string;
+  client?: string; // Alias for companyId
   companyId: string;
   amount: number;
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue';
@@ -184,6 +193,8 @@ export interface Invoice {
   description?: string;
   userId?: string;
   items?: InvoiceItem[];
+  lineItems?: InvoiceItem[]; // Alias for items
+  incoterms?: string; // INCOTERMS value (EXW, FOB, CIF, DDP, etc.)
   createdAt?: string;
   updatedAt?: string;
 }

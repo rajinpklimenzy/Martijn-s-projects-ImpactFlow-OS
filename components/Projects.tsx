@@ -29,27 +29,39 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     setIsLoading(true);
     try {
       const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      console.log('[PROJECTS] Fetching projects for userId:', userId);
       const [projRes, compRes, userRes, taskRes] = await Promise.all([
         apiGetProjects(userId),
         apiGetCompanies(),
         apiGetUsers(),
         apiGetTasks(userId)
       ]);
-      setProjects(projRes.data || []);
+      const projectsData = projRes.data || [];
+      console.log('[PROJECTS] Fetched projects:', projectsData.length, projectsData);
+      setProjects(projectsData);
       setCompanies(compRes.data || []);
       setUsers(userRes.data || []);
       setTasks(taskRes.data || []);
-    } catch (err: any) { showError('Failed to load projects'); }
+    } catch (err: any) { 
+      console.error('[PROJECTS] Failed to load projects:', err);
+      showError('Failed to load projects'); 
+    }
     finally { setIsLoading(false); }
   };
 
   useEffect(() => { fetchData(); }, [currentUser]);
 
   useEffect(() => {
-    const handleRefresh = () => fetchData();
+    const handleRefresh = () => {
+      console.log('[PROJECTS] Refresh event received, fetching data...');
+      // Use a small delay to ensure backend write is complete
+      setTimeout(() => {
+        fetchData();
+      }, 300);
+    };
     window.addEventListener('refresh-projects', handleRefresh);
     return () => window.removeEventListener('refresh-projects', handleRefresh);
-  }, []);
+  }, [currentUser]); // Include currentUser to ensure fetchData has latest context
 
   const calculateProjectProgress = (projectId: string): number => {
     const projectTasks = tasks.filter(task => task.projectId === projectId);
@@ -76,7 +88,10 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     title: '',
     description: '',
     companyId: '',
-    status: 'Planning' as Project['status']
+    status: 'Planning' as Project['status'],
+    engagement: '',
+    startDate: '',
+    endDate: ''
   });
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
 
@@ -138,6 +153,22 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     }
   };
 
+  // Helper function to format date for HTML date input (YYYY-MM-DD)
+  const formatDateForInput = (dateString: string | undefined): string => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
+      // Format as YYYY-MM-DD for HTML date input
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    } catch {
+      return '';
+    }
+  };
+
   // Project detail view handlers
   const handleOpenProjectDetail = (project: Project) => {
     setSelectedProject(project);
@@ -145,7 +176,10 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
       title: project.title,
       description: project.description || '',
       companyId: project.companyId || '',
-      status: project.status
+      status: project.status,
+      engagement: project.engagement || '',
+      startDate: formatDateForInput(project.startDate),
+      endDate: formatDateForInput(project.endDate)
     });
     setIsEditingProject(false);
   };
@@ -230,7 +264,12 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     }
   };
 
-  const filteredProjects = projects.filter(p => viewMode === 'archived' ? p.archived : !p.archived);
+  // Filter projects: show archived if viewMode is 'archived', otherwise show non-archived
+  // Treat undefined/null archived as false (not archived)
+  const filteredProjects = projects.filter(p => {
+    const isArchived = p.archived === true;
+    return viewMode === 'archived' ? isArchived : !isArchived;
+  });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-24 relative">
@@ -590,13 +629,19 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                 </div>
                 <div className="flex-1">
                   {isEditingProject ? (
-                    <input
-                      type="text"
-                      value={editFormData.title}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
-                      className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-xl font-black text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100"
-                      placeholder="Project title"
-                    />
+                    <div>
+                      <input
+                        type="text"
+                        value={editFormData.title}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-xl font-black text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100"
+                        placeholder="Project name"
+                        required
+                      />
+                      <p className="text-[9px] text-slate-400 mt-1 px-1">
+                        <span className="text-red-500">*</span> Required field
+                      </p>
+                    </div>
                   ) : (
                     <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">{selectedProject.title}</h2>
                   )}
@@ -626,7 +671,10 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                           title: selectedProject.title,
                           description: selectedProject.description || '',
                           companyId: selectedProject.companyId || '',
-                          status: selectedProject.status
+                          status: selectedProject.status,
+                          engagement: selectedProject.engagement || '',
+                          startDate: formatDateForInput(selectedProject.startDate),
+                          endDate: formatDateForInput(selectedProject.endDate)
                         });
                       }}
                       disabled={isUpdatingProject}
@@ -636,7 +684,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                     </button>
                     <button
                       onClick={handleUpdateProject}
-                      disabled={isUpdatingProject || !editFormData.title.trim()}
+                      disabled={isUpdatingProject || !editFormData.title.trim() || !editFormData.engagement.trim() || !editFormData.startDate.trim() || !editFormData.endDate.trim()}
                       className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isUpdatingProject ? (
@@ -675,6 +723,65 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                   {isEditingProject ? (
                     <>
                       <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2 block">
+                          Engagement <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={editFormData.engagement}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, engagement: e.target.value }))}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-indigo-200 rounded-xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-100"
+                          placeholder="e.g., Consulting, Implementation, Support"
+                          required
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2 block">
+                            Start Date <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={editFormData.startDate}
+                            onChange={(e) => {
+                              setEditFormData(prev => ({ ...prev, startDate: e.target.value }));
+                              // Validate end date if both dates are set
+                              if (e.target.value && editFormData.endDate) {
+                                const start = new Date(e.target.value);
+                                const end = new Date(editFormData.endDate);
+                                if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start >= end) {
+                                  // Error will be shown on save
+                                }
+                              }
+                            }}
+                            className="w-full px-4 py-3 bg-slate-50 border-2 border-indigo-200 rounded-xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-100"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2 block">
+                            End Date <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={editFormData.endDate}
+                            onChange={(e) => {
+                              setEditFormData(prev => ({ ...prev, endDate: e.target.value }));
+                              // Validate end date if both dates are set
+                              if (editFormData.startDate && e.target.value) {
+                                const start = new Date(editFormData.startDate);
+                                const end = new Date(e.target.value);
+                                if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start >= end) {
+                                  // Error will be shown on save
+                                }
+                              }
+                            }}
+                            className="w-full px-4 py-3 bg-slate-50 border-2 border-indigo-200 rounded-xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-100"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2 block">Description</label>
                         <textarea
                           value={editFormData.description}
@@ -700,6 +807,30 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                     </>
                   ) : (
                     <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Name</p>
+                          <p className="text-sm font-bold text-slate-900">{selectedProject.title}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Engagement</p>
+                          <p className="text-sm font-bold text-slate-900">{selectedProject.engagement || '—'}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Start Date</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {selectedProject.startDate ? new Date(selectedProject.startDate).toLocaleDateString() : '—'}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">End Date</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {selectedProject.endDate ? new Date(selectedProject.endDate).toLocaleDateString() : '—'}
+                          </p>
+                        </div>
+                      </div>
                       {selectedProject.description && (
                         <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl">
                           <p className="text-sm text-slate-700 leading-relaxed">{selectedProject.description}</p>

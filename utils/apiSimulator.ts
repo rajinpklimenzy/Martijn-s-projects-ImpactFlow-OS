@@ -111,6 +111,14 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
     return { success: true, data: data, simulated: true };
   }
 
+  // Data Hygiene (admin) – return empty when backend not available
+  if (endpoint.includes('data-hygiene')) {
+    if (endpoint.includes('duplicate-companies')) return { success: true, data: { groups: [], totalDuplicates: 0 }, simulated: true };
+    if (endpoint.includes('duplicate-contacts')) return { success: true, data: { groups: [], totalDuplicates: 0 }, simulated: true };
+    if (endpoint.includes('incomplete-records')) return { success: true, data: { companies: [], contacts: [], deals: [], projects: [], invoices: [] }, simulated: true };
+    if (endpoint.includes('domain-mismatches')) return { success: true, data: { mismatches: [], count: 0 }, simulated: true };
+  }
+
   switch (endpoint) {
     case '/me':
     case '/auth/me':

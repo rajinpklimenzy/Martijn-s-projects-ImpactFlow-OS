@@ -150,7 +150,9 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
   // Initialize breakdown items when invoice is selected
   useEffect(() => {
     if (selectedInvoice) {
-      setBreakdownItems(selectedInvoice.items || []);
+      // Check for both 'items' and 'lineItems' (lineItems takes precedence)
+      const items = selectedInvoice.lineItems || selectedInvoice.items || [];
+      setBreakdownItems(items);
       setIsEditingBreakdown(false);
       setEditingItem(null);
       setNewItem({ description: '', quantity: 1, rate: 0 });
@@ -225,11 +227,22 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
 
     setIsUpdating(true);
     try {
-      await apiUpdateInvoice(selectedInvoice.id, { items: breakdownItems });
+      await apiUpdateInvoice(selectedInvoice.id, { 
+        items: breakdownItems,
+        lineItems: breakdownItems // Also update lineItems for consistency
+      });
       setInvoices(prev => prev.map(inv => 
-        inv.id === selectedInvoice.id ? { ...inv, items: breakdownItems } : inv
+        inv.id === selectedInvoice.id ? { 
+          ...inv, 
+          items: breakdownItems,
+          lineItems: breakdownItems 
+        } : inv
       ));
-      setSelectedInvoice({ ...selectedInvoice, items: breakdownItems });
+      setSelectedInvoice({ 
+        ...selectedInvoice, 
+        items: breakdownItems,
+        lineItems: breakdownItems 
+      });
       setIsEditingBreakdown(false);
       showSuccess('Service breakdown saved successfully!');
       window.dispatchEvent(new Event('refresh-invoices'));

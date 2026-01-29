@@ -9,6 +9,7 @@ import Tasks from './components/Tasks.tsx';
 import Invoicing from './components/Invoicing.tsx';
 import UserManagement from './components/UserManagement.tsx';
 import Settings from './components/Settings.tsx';
+import DataHygiene from './components/DataHygiene.tsx';
 import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
 import Roadmap from './components/Roadmap.tsx';
@@ -18,7 +19,7 @@ import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
 import BugReportWidget from './components/BugReportWidget.tsx';
-import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus } from 'lucide-react';
+import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, ShieldCheck } from 'lucide-react';
 import { Notification, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
@@ -233,6 +234,7 @@ const App: React.FC = () => {
       case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
+      case 'data-hygiene': return <DataHygiene currentUser={currentUser} />;
       case 'integrations': return <Integrations />;
       default: return <Dashboard onNavigate={setActiveTab} />;
     }
@@ -304,6 +306,19 @@ const App: React.FC = () => {
               <SettingsIcon className="w-5 h-5" />
               {isSidebarOpen && <span className="font-medium">Settings</span>}
             </button>
+            {currentUser?.role === 'Admin' && (
+              <button 
+                onClick={() => handleTabChange('data-hygiene')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
+                  activeTab === 'data-hygiene' 
+                    ? 'bg-indigo-50 text-indigo-700' 
+                    : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                <ShieldCheck className="w-5 h-5" />
+                {isSidebarOpen && <span className="font-medium">Data Hygiene</span>}
+              </button>
+            )}
             
             <button 
               onClick={() => setIsLogoutConfirmOpen(true)}

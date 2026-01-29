@@ -37,7 +37,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
 
     if (!response.ok) {
       // Fallback to simulation for 404s on all main entities to support local testing
-      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories'];
+      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories', 'data-hygiene'];
       const isEntityEndpoint = entities.some(e => cleanEndpoint.includes(e));
       
       if (response.status === 404 && isEntityEndpoint) {
@@ -258,6 +258,18 @@ export const apiDeleteExpense = (id: string) => apiFetch(`/expenses/${id}`, { me
 export const apiGetExpenseCategories = () => apiFetch('/expense-categories');
 export const apiCreateExpenseCategory = (data: { name: string }) => apiFetch('/expense-categories', { method: 'POST', body: JSON.stringify(data) });
 export const apiDeleteExpenseCategory = (id: string) => apiFetch(`/expense-categories/${id}`, { method: 'DELETE' });
+
+// Merge APIs
+export const apiMergeCompanies = (primaryId: string, secondaryId: string) => 
+  apiFetch('/merge/companies', { method: 'POST', body: JSON.stringify({ primaryId, secondaryId }) });
+export const apiMergeContacts = (primaryId: string, secondaryId: string) => 
+  apiFetch('/merge/contacts', { method: 'POST', body: JSON.stringify({ primaryId, secondaryId }) });
+
+// Data Hygiene APIs
+export const apiGetDuplicateCompanies = () => apiFetch('/data-hygiene/duplicate-companies');
+export const apiGetDuplicateContacts = () => apiFetch('/data-hygiene/duplicate-contacts');
+export const apiGetIncompleteRecords = () => apiFetch('/data-hygiene/incomplete-records');
+export const apiGetDomainMismatches = () => apiFetch('/data-hygiene/domain-mismatches');
 
 /**
  * EXTERNAL SYNC
