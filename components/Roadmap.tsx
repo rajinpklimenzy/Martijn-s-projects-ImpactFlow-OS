@@ -5,7 +5,7 @@ import {
   PauseCircle, XCircle, MoreVertical, Search, Filter, 
   Loader2, AlertTriangle, ChevronRight, Box, History,
   X, User, Calendar, MessageSquare, Tag, Layout, ArrowRight,
-  Trash2, Mail, Zap, Plus, Send, Archive
+  Trash2, Mail, Zap, Plus, Send, Archive, Image as ImageIcon, Video, Link as LinkIcon, ExternalLink
 } from 'lucide-react';
 import { FeedbackItem, User as UserType } from '../types';
 import { apiGetFeedback, apiCreateFeedback, apiUpdateFeedback, apiDeleteFeedback, apiGetUsers } from '../utils/api';
@@ -43,6 +43,9 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
   
   // Menu open state
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [isUpdatingContext, setIsUpdatingContext] = useState(false);
+  const [editedContext, setEditedContext] = useState('');
+  const [imagePreview, setImagePreview] = useState<{ src: string; alt: string } | null>(null);
 
   const isAdmin = currentUser?.role === 'Admin';
 
@@ -54,7 +57,31 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
         apiGetFeedback(),
         apiGetUsers()
       ]);
-      setItems(feedRes.data || []);
+      const feedbackItems = (feedRes.data || []).map((item: any) => {
+        // Ensure url field exists
+        const itemUrl = item.url || null;
+        
+        // Normalize file attachments only (no URLs in attachments array)
+        let normalizedAttachments = [];
+        if (Array.isArray(item.attachments) && item.attachments.length > 0) {
+          normalizedAttachments = item.attachments
+            .filter((att: any) => att && (att.source === 'file' || att.data)) // Only file attachments
+            .map((att: any) => ({
+              type: att.type || 'image',
+              data: att.data || '',
+              filename: att.filename || 'attachment',
+              mimeType: att.mimeType || 'image/jpeg',
+              source: 'file'
+            }));
+        }
+        
+        return {
+          ...item,
+          url: itemUrl,
+          attachments: normalizedAttachments
+        };
+      });
+      setItems(feedbackItems);
       setUsers(userRes.data || []);
     } catch (err) {
       showError('Failed to synchronize roadmap registry.');
@@ -70,6 +97,47 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
     window.addEventListener('refresh-roadmap', handleRefresh);
     return () => window.removeEventListener('refresh-roadmap', handleRefresh);
   }, [activeSection]);
+
+  // Handle ESC key to close image preview
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && imagePreview) {
+        setImagePreview(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [imagePreview]);
+
+  // Keep editable context in sync when selection changes
+  useEffect(() => {
+    if (selectedItem) {
+      setEditedContext(selectedItem.description || '');
+    } else {
+      setEditedContext('');
+    }
+  }, [selectedItem]);
+
+  const handleUpdateContext = async () => {
+    if (!selectedItem || !isAdmin) return;
+    setIsUpdatingContext(true);
+    try {
+      await apiUpdateFeedback(selectedItem.id, { description: editedContext.trim() });
+      setItems(prev =>
+        prev.map(item =>
+          item.id === selectedItem.id ? { ...item, description: editedContext.trim() } : item
+        )
+      );
+      setSelectedItem(prev =>
+        prev ? { ...prev, description: editedContext.trim() } : prev
+      );
+      showSuccess('Context updated');
+    } catch (err) {
+      showError('Failed to update context');
+    } finally {
+      setIsUpdatingContext(false);
+    }
+  };
 
   const handleStatusUpdate = async (id: string, newStatus: FeedbackItem['status']) => {
     if (!isAdmin) return;
@@ -255,31 +323,22 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
   });
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-24 relative h-full">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-32 relative h-full">
       <div className="flex flex-col gap-8">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Enterprise Roadmap</h1>
           <p className="text-slate-500 text-sm font-medium mt-1">Consolidated future trajectory, communication beta, and workflow automation</p>
         </div>
 
-        {/* Top Level Navigation Hub */}
-        <div className="flex bg-white p-1.5 rounded-[24px] border border-slate-200 shadow-sm w-fit">
-          {[
-            { id: 'registry', label: 'Trajectory Registry', icon: <Map className="w-4 h-4" /> },
-            { id: 'inbox', label: 'Shared Inbox', icon: <Mail className="w-4 h-4" />, badge: 'Soon' },
-            { id: 'automation', label: 'Smart Automations', icon: <Zap className="w-4 h-4" />, badge: 'Beta' },
-          ].map((sec) => (
-            <button
-              key={sec.id}
-              onClick={() => setActiveSection(sec.id as any)}
-              className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeSection === sec.id ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {sec.icon} {sec.label}
-              {sec.badge && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] font-black ${activeSection === sec.id ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-500'}`}>{sec.badge}</span>}
-            </button>
-          ))}
+        {/* Top Level Navigation Hub – Registry is the primary workspace */}
+        <div className="flex bg-white px-5 py-2.5 rounded-[24px] border border-slate-200 shadow-sm w-fit items-center gap-3">
+          <Map className="w-4 h-4 text-indigo-500" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">
+            Trajectory Registry
+          </p>
+          <span className="ml-2 px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-50 text-emerald-600">
+            Live
+          </span>
         </div>
       </div>
 
@@ -533,7 +592,75 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
                     </div>
 
                     <h3 className="text-lg font-black text-slate-900 mb-3 leading-tight group-hover:text-indigo-600 transition-colors">{item.title}</h3>
-                    <p className="text-sm text-slate-500 font-medium leading-relaxed mb-8 flex-1 line-clamp-3 italic">"{item.description}"</p>
+                    <p className="text-sm text-slate-500 font-medium leading-relaxed mb-4 flex-1 line-clamp-3 italic">"{item.description}"</p>
+
+                    {/* URL Attachment */}
+                    {item.url && (
+                      <div className="mb-6">
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                        >
+                          {item.url.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i) ? (
+                            <ImageIcon className="w-3 h-3" />
+                          ) : (
+                            <Video className="w-3 h-3" />
+                          )}
+                          <span className="truncate max-w-[120px]">
+                            {item.url.length > 30 ? `${item.url.substring(0, 30)}...` : item.url}
+                          </span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* File Attachments */}
+                    {item.attachments && Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                      <div className="mb-6 flex flex-wrap gap-2">
+                        {item.attachments.map((attachment: any, attIndex: number) => {
+                          // File attachments only (images/videos uploaded)
+                          if (attachment.type === 'image' && attachment.data) {
+                            return (
+                              <button
+                                key={attIndex}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setImagePreview({ src: attachment.data!, alt: attachment.filename || 'Attachment' });
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors border border-slate-200"
+                              >
+                                <ImageIcon className="w-3 h-3" />
+                                <span className="truncate max-w-[100px]">
+                                  {attachment.filename || 'Screenshot'}
+                                </span>
+                              </button>
+                            );
+                          } else if (attachment.type === 'video' && attachment.data) {
+                            return (
+                              <a
+                                key={attIndex}
+                                href={attachment.data}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors border border-slate-200"
+                              >
+                                <Video className="w-3 h-3" />
+                                <span className="truncate max-w-[100px]">
+                                  {attachment.filename || 'Video'}
+                                </span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            );
+                          }
+                          return null;
+                        })}
+                      </div>
+                    )}
 
                     <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
                        <div className="flex items-center gap-3">
@@ -574,8 +701,99 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
         </div>
       )}
 
+      {/* Feature requests currently in development */}
+      {activeSection === 'registry' && (
+        <div className="mt-10 space-y-4 pb-12">
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-indigo-500" /> Features in Development
+          </h2>
+          <p className="text-slate-500 text-sm max-w-2xl">
+            Shared Inbox and Smart Automations are confirmed feature requests and are currently{' '}
+            <span className="font-semibold text-slate-700">in development</span>. You can preview
+            their beta experiences below while the full workflows mature.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Feature Request</p>
+                    <h3 className="text-sm font-black text-slate-900">Shared Inbox</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Centralize customer conversations and feedback threads for your logistics team.
+              </p>
+              <button
+                onClick={() => setActiveSection('inbox')}
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-900 text-white hover:bg-indigo-700 transition-all flex items-center gap-2"
+              >
+                Preview Beta
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-slate-900 text-indigo-50 flex items-center justify-center">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Feature Request</p>
+                    <h3 className="text-sm font-black text-slate-900">Smart Automations</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-50 text-purple-600">
+                  Beta • In Progress
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Automate repetitive logistics workflows and notifications with configurable recipes.
+              </p>
+              <button
+                onClick={() => setActiveSection('automation')}
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-900 text-white hover:bg-indigo-700 transition-all flex items-center gap-2"
+              >
+                Preview Beta
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeSection === 'inbox' && <div className="animate-in slide-in-from-right-4 duration-500"><Inbox /></div>}
       {activeSection === 'automation' && <div className="animate-in slide-in-from-right-4 duration-500"><Automations /></div>}
+
+      {/* Image Preview Modal */}
+      {imagePreview && (
+        <div 
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
+          onClick={() => setImagePreview(null)}
+        >
+          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center">
+            <button
+              onClick={() => setImagePreview(null)}
+              className="absolute top-4 right-4 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={imagePreview.src}
+              alt={imagePreview.alt}
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Add Entry Modal */}
       {isAddModalOpen && (
@@ -727,16 +945,123 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
               <div className="space-y-4">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-indigo-500" /> Observation Context
-                </h3>
-                <div className="p-8 bg-slate-950 rounded-[40px] text-indigo-50 relative overflow-hidden group shadow-2xl">
-                  <p className="text-lg leading-relaxed italic opacity-90 z-10 relative">
-                    "{selectedItem.description}"
-                  </p>
-                  <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-indigo-500" /> Observation Context
+                  </h3>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleUpdateContext}
+                      disabled={isUpdatingContext || editedContext.trim() === (selectedItem.description || '').trim()}
+                      className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-900 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-default flex items-center gap-2"
+                    >
+                      {isUpdatingContext ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" /> Save Context
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
+                {isAdmin ? (
+                  <div className="p-4 bg-slate-950 rounded-[32px] text-indigo-50 relative shadow-2xl">
+                    <textarea
+                      rows={4}
+                      value={editedContext}
+                      onChange={e => setEditedContext(e.target.value)}
+                      className="w-full bg-transparent border-none outline-none resize-none text-sm leading-relaxed placeholder:text-slate-500"
+                      placeholder="Describe the bug, feature, or idea in more detail..."
+                    />
+                    <div className="pointer-events-none absolute top-0 right-0 w-40 h-40 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                ) : (
+                  <div className="p-8 bg-slate-950 rounded-[40px] text-indigo-50 relative overflow-hidden group shadow-2xl">
+                    <p className="text-lg leading-relaxed italic opacity-90 z-10 relative">
+                      "{selectedItem.description}"
+                    </p>
+                    <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                )}
               </div>
+
+              {/* URL Attachment Section */}
+              {selectedItem.url && (
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <LinkIcon className="w-4 h-4 text-indigo-500" /> URL Attachment
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    <a
+                      href={selectedItem.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                    >
+                      {selectedItem.url.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i) ? (
+                        <ImageIcon className="w-4 h-4" />
+                      ) : (
+                        <Video className="w-4 h-4" />
+                      )}
+                      <span className="truncate max-w-[200px]">
+                        {selectedItem.url.length > 40 ? `${selectedItem.url.substring(0, 40)}...` : selectedItem.url}
+                      </span>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* File Attachments Section */}
+              {selectedItem.attachments && selectedItem.attachments.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-indigo-500" /> File Attachments
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {selectedItem.attachments.map((attachment: any, attIndex: number) => {
+                      // File attachments only
+                      if (attachment.type === 'image' && attachment.data) {
+                        return (
+                          <button
+                            key={attIndex}
+                            type="button"
+                            onClick={() => setImagePreview({ src: attachment.data!, alt: attachment.filename || 'Attachment' })}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors border border-slate-200"
+                          >
+                            <ImageIcon className="w-4 h-4" />
+                            <span className="truncate max-w-[150px]">
+                              {attachment.filename || 'Screenshot'}
+                            </span>
+                          </button>
+                        );
+                      }
+                      if (attachment.type === 'video' && attachment.data) {
+                        return (
+                          <a
+                            key={attIndex}
+                            href={attachment.data}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors border border-slate-200"
+                          >
+                            <Video className="w-4 h-4" />
+                            <span className="truncate max-w-[150px]">
+                              {attachment.filename || 'Video'}
+                            </span>
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">

@@ -160,11 +160,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           ownerId: formData.ownerId || userId 
         });
       } else if (type === 'deal') {
+        // Always create sales pipeline deals
         await apiCreateDeal({ 
           title: formData.title, 
           companyId: formData.companyId && formData.companyId.trim() !== '' ? formData.companyId : undefined, // Allow undefined for standalone deals
           value: parseFloat(formData.value) || 0, 
           stage: formData.stage as any, 
+          pipelineType: 'sales', // Always sales pipeline
           ownerId: formData.ownerId, 
           expectedCloseDate: formData.expectedCloseDate || undefined, 
           description: formData.description || undefined 
@@ -224,9 +226,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const getTitle = () => {
     switch(type) {
       case 'deal': return 'New Opportunity';
-      case 'project': return 'Launch Project';
+      case 'project': return 'New Project';
       case 'task': return 'New Task';
-      case 'invoice': return 'Draft Invoice';
+      case 'invoice': return 'New Invoice';
       case 'company': return 'Add Company';
       case 'contact': return 'Add Contact';
       default: return 'Quick Entry';
@@ -263,7 +265,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             </div>
             <div>
               <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-1">{getTitle()}</h3>
-              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">Digital Enterprise Registry</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">Workspace Update</p>
             </div>
           </div>
           <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
@@ -310,12 +312,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Common Name/Title Field */}
             <div className="md:col-span-2 space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                {type === 'deal' || type === 'project' || type === 'task' ? 'Official Identification' : 'Full Registered Name'} <RequiredAsterisk />
+                {type === 'deal' || type === 'project' || type === 'task' ? 'Name' : 'Name'} <RequiredAsterisk />
               </label>
               <input 
                 required 
                 type="text" 
-                placeholder={type === 'deal' ? "e.g., Q4 Logistics Transformation" : "Provide identifier..."} 
+                placeholder={type === 'deal' ? "e.g., Q4 Logistics Transformation" : "Name..."} 
                 value={type === 'deal' || type === 'project' || type === 'task' ? formData.title : formData.name} 
                 onChange={(e) => {
                   const fieldName = type === 'deal' || type === 'project' || type === 'task' ? 'title' : 'name';
@@ -340,7 +342,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Entity Associations */}
             {(type === 'deal' || type === 'project' || type === 'invoice' || type === 'contact') && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Organization {type === 'invoice' && <RequiredAsterisk />}</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Organization {type === 'invoice' && <RequiredAsterisk />}</label>
                 <select 
                   required={type === 'invoice'} 
                   value={formData.companyId} 
@@ -361,7 +363,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
                   } bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22${fieldErrors.companyId ? '%23ef4444' : '%236b7280'}%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]`}
                 >
-                  <option value="">No Organization (Unassigned)</option>
+                  <option value="">No Organization</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -371,7 +373,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {type === 'contact' && (
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                  Email Address <RequiredAsterisk />
+                  Email <RequiredAsterisk />
                 </label>
                 <input 
                   required
@@ -429,7 +431,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task specific Project Link */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Project Workflow</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Project</label>
                 <select 
                   value={formData.projectId || ''} 
                   onChange={(e) => {
@@ -441,7 +443,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   }} 
                   className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
                 >
-                  <option value="">General / Standalone</option>
+                  <option value="">None</option>
                   {projects.filter((p: Project) => p.status === 'Active').map((p: Project) => (
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
@@ -452,7 +454,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Ownership/Assignment */}
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                Designated Lead / Assignee <RequiredAsterisk />
+                Assignee / Lead <RequiredAsterisk />
               </label>
               <select 
                 required 
@@ -483,7 +485,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Financial Value */}
             {(type === 'deal' || type === 'invoice') && (
               <div className="space-y-2">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Economic Value ($) <RequiredAsterisk /></label>
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Value ($) <RequiredAsterisk /></label>
                  <div className="relative">
                    <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
                    <input 
@@ -514,7 +516,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
             {/* Timeline */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Target Milestone Date</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Due Date</label>
               <div className="relative">
                 <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
@@ -529,7 +531,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task Priority */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Priority Classification</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Priority</label>
                 <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200">
                   {['Low', 'Medium', 'High'].map(p => (
                     <button
@@ -547,9 +549,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
             {/* Context/Description Area */}
             <div className="md:col-span-2 space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Strategic Description / Context</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Description</label>
               <textarea 
-                placeholder="Detail the operational scope or requirements..." 
+                placeholder="Add Context or Notes..." 
                 value={formData.description} 
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} 
                 rows={3} 
@@ -559,14 +561,14 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           </div>
 
           <div className="flex gap-6 pt-6 border-t border-slate-100">
-            <button type="button" onClick={onClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">Abort</button>
+            <button type="button" onClick={onClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">CANCEL</button>
             <button 
               type="submit" 
               disabled={isSubmitting} 
               className="flex-[2] py-5 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[24px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-4 disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              Execute Deploy
+              SAVE
             </button>
           </div>
         </form>

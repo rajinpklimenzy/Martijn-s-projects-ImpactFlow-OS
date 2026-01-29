@@ -1,17 +1,19 @@
 
 import React from 'react';
-import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check } from 'lucide-react';
+import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw } from 'lucide-react';
 import { Notification } from '../types';
 
 interface NotificationsDropdownProps {
   notifications: Notification[];
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
   onClose: () => void;
 }
 
 const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({ 
-  notifications, onMarkAsRead, onMarkAllAsRead, onClose 
+  notifications, onMarkAsRead, onMarkAllAsRead, onRefresh, isRefreshing = false, onClose 
 }) => {
   const getIcon = (type: Notification['type']) => {
     switch (type) {
@@ -40,12 +42,24 @@ const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({
           <Bell className="w-4 h-4 text-slate-500" />
           Notifications
         </h3>
-        <button 
-          onClick={onMarkAllAsRead}
-          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-wider"
-        >
-          Mark all as read
-        </button>
+        <div className="flex items-center gap-3">
+          {onRefresh && (
+            <button 
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh notifications"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+          <button 
+            onClick={onMarkAllAsRead}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-wider"
+          >
+            Mark all as read
+          </button>
+        </div>
       </div>
 
       <div className="max-h-[400px] overflow-y-auto">
@@ -55,7 +69,20 @@ const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({
               <div 
                 key={n.id} 
                 className={`p-4 flex gap-4 hover:bg-slate-50 transition-colors relative cursor-pointer group ${!n.read ? 'bg-indigo-50/10' : ''}`}
-                onClick={() => onMarkAsRead(n.id)}
+                onClick={() => {
+                  onMarkAsRead(n.id);
+                  if (n.link) {
+                    // Handle link navigation - links are in format /?tab=pipeline&deal=123
+                    if (n.link.startsWith('/?tab=')) {
+                      window.location.href = n.link;
+                    } else if (n.link.startsWith('/')) {
+                      window.location.href = n.link;
+                    } else {
+                      // Fallback: treat as relative path
+                      window.location.href = n.link;
+                    }
+                  }
+                }}
               >
                 <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${getBg(n.type)}`}>
                   {getIcon(n.type)}

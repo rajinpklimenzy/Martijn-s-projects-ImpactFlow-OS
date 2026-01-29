@@ -37,7 +37,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
 
     if (!response.ok) {
       // Fallback to simulation for 404s on all main entities to support local testing
-      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events'];
+      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories'];
       const isEntityEndpoint = entities.some(e => cleanEndpoint.includes(e));
       
       if (response.status === 404 && isEntityEndpoint) {
@@ -219,6 +219,20 @@ export const apiCreateNotification = (data: any) => apiFetch('/notifications', {
 export const apiMarkNotificationAsRead = (id: string, userId: string) => apiFetch(`/notifications/${id}/read`, { method: 'POST', body: JSON.stringify({ userId }) });
 export const apiMarkAllNotificationsAsRead = (userId: string) => apiFetch('/notifications/mark-all-read', { method: 'POST', body: JSON.stringify({ userId }) });
 
+// Notification Preferences
+export const apiGetNotificationPreferences = (userId: string) => apiFetch(`/users/${userId}/notification-preferences`);
+export const apiUpdateNotificationPreferences = (userId: string, preferences: any[]) => apiFetch(`/users/${userId}/notification-preferences`, { method: 'PUT', body: JSON.stringify({ preferences }) });
+
+/**
+ * PIPELINE MANAGEMENT
+ */
+export const apiGetAllPipelines = () => apiFetch('/pipelines');
+export const apiGetPipelineById = (id: string) => apiFetch(`/pipelines/${id}`);
+export const apiGetActivePipelineByType = (type: 'sales' | 'operations') => apiFetch(`/pipelines/active/${type}`);
+export const apiCreatePipeline = (data: { name: string; type: 'sales' | 'operations'; stages: string[] }) => apiFetch('/pipelines', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdatePipeline = (id: string, data: { name?: string; stages?: string[]; isActive?: boolean }) => apiFetch(`/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeletePipeline = (id: string) => apiFetch(`/pipelines/${id}`, { method: 'DELETE' });
+
 /**
  * FEEDBACK & ROADMAP
  */
@@ -226,6 +240,24 @@ export const apiGetFeedback = () => apiFetch('/feedback');
 export const apiCreateFeedback = (data: any) => apiFetch('/feedback', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateFeedback = (id: string, data: any) => apiFetch(`/feedback/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const apiDeleteFeedback = (id: string) => apiFetch(`/feedback/${id}`, { method: 'DELETE' });
+
+// Expense APIs
+export const apiGetExpenses = (params?: { companyId?: string; userId?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.companyId) queryParams.append('companyId', params.companyId);
+  if (params?.userId) queryParams.append('userId', params.userId);
+  const query = queryParams.toString();
+  return apiFetch(`/expenses${query ? `?${query}` : ''}`);
+};
+export const apiGetExpenseById = (id: string) => apiFetch(`/expenses/${id}`);
+export const apiCreateExpense = (data: any) => apiFetch('/expenses', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateExpense = (id: string, data: any) => apiFetch(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+export const apiDeleteExpense = (id: string) => apiFetch(`/expenses/${id}`, { method: 'DELETE' });
+
+// Expense Category APIs
+export const apiGetExpenseCategories = () => apiFetch('/expense-categories');
+export const apiCreateExpenseCategory = (data: { name: string }) => apiFetch('/expense-categories', { method: 'POST', body: JSON.stringify(data) });
+export const apiDeleteExpenseCategory = (id: string) => apiFetch(`/expense-categories/${id}`, { method: 'DELETE' });
 
 /**
  * EXTERNAL SYNC

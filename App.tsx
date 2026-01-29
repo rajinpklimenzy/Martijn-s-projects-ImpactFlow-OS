@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NAV_ITEMS } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import CRM from './components/CRM.tsx';
@@ -12,6 +12,7 @@ import Settings from './components/Settings.tsx';
 import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
 import Roadmap from './components/Roadmap.tsx';
+import Expenses from './components/Expenses.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
@@ -51,36 +52,90 @@ const App: React.FC = () => {
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isRefreshingNotifications, setIsRefreshingNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const loadNotifications = async () => {
-      try {
-        const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
-        if (!storedUser?.id) return;
-        const res = await apiGetNotifications(storedUser.id, 20);
-        const data = res?.data || res || [];
+  const loadNotifications = useCallback(async (showLoading = false) => {
+    try {
+      const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
+      if (!storedUser?.id) return;
+      
+      if (showLoading) {
+        setIsRefreshingNotifications(true);
+      }
+      
+      const res = await apiGetNotifications(storedUser.id, 20);
+      const data = res?.data || res || [];
+      
+      const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => {
+        // Format timestamp
+        let timestamp = 'Just now';
+        if (n.createdAt) {
+          const date = new Date(n.createdAt);
+          const now = new Date();
+          const diffMs = now.getTime() - date.getTime();
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+          
+          if (diffMins < 1) timestamp = 'Just now';
+          else if (diffMins < 60) timestamp = `${diffMins}m ago`;
+          else if (diffHours < 24) timestamp = `${diffHours}h ago`;
+          else if (diffDays < 7) timestamp = `${diffDays}d ago`;
+          else timestamp = date.toLocaleDateString();
+        }
         
-        const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => ({
+        return {
           id: n.id,
           userId: n.userId,
           type: n.type || 'system',
           title: n.title,
           message: n.message,
-          timestamp: 'Just now',
+          timestamp,
           read: !!n.read,
           link: n.link || undefined,
-        }));
-        setNotifications(mapped);
-      } catch (err) {
-        console.error('[NOTIFICATIONS] Failed to load notifications', err);
+        };
+      });
+      
+      setNotifications(mapped);
+    } catch (err) {
+      console.error('[NOTIFICATIONS] Failed to load notifications', err);
+    } finally {
+      if (showLoading) {
+        setIsRefreshingNotifications(false);
       }
-    };
-
-    loadNotifications();
+    }
   }, [currentUser]);
+
+  useEffect(() => {
+    loadNotifications();
+    
+    // Refresh notifications every 10 seconds for quick updates
+    const interval = setInterval(() => {
+      loadNotifications(false); // Silent refresh in background
+    }, 10000);
+    
+    // Listen for custom event to refresh notifications immediately
+    const handleNotificationRefresh = () => {
+      loadNotifications(true); // Show loading indicator
+    };
+    
+    window.addEventListener('refresh-notifications', handleNotificationRefresh);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refresh-notifications', handleNotificationRefresh);
+    };
+  }, [loadNotifications]);
+
+  // Refresh when notification dropdown opens
+  useEffect(() => {
+    if (isNotificationsOpen) {
+      loadNotifications(true);
+    }
+  }, [isNotificationsOpen, loadNotifications]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -174,6 +229,7 @@ const App: React.FC = () => {
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
+      case 'expenses': return <Expenses currentUser={currentUser} />;
       case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
@@ -282,10 +338,10 @@ const App: React.FC = () => {
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className={`relative p-2 hover:bg-slate-100 rounded-lg transition-colors ${isNotificationsOpen ? 'bg-slate-100' : ''}`}
                 >
-                  <Bell className={`w-5 h-5 ${unreadCount > 0 ? 'text-indigo-600' : 'text-slate-600'}`} />
+                  <Bell className={`w-5 h-5 transition-colors ${unreadCount > 0 ? 'text-indigo-600' : 'text-slate-600'} ${isRefreshingNotifications ? 'animate-pulse' : ''}`} />
                   {unreadCount > 0 && (
                     <span className="absolute top-1.5 right-1.5 flex h-4 w-4">
-                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-red-500 text-white text-[10px] font-bold border-2 border-white">
+                      <span className={`relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-red-500 text-white text-[10px] font-bold border-2 border-white ${isRefreshingNotifications ? 'animate-pulse' : ''}`}>
                         {unreadCount}
                       </span>
                     </span>
@@ -296,6 +352,8 @@ const App: React.FC = () => {
                     notifications={notifications}
                     onMarkAsRead={markAsRead}
                     onMarkAllAsRead={markAllAsRead}
+                    onRefresh={() => loadNotifications(true)}
+                    isRefreshing={isRefreshingNotifications}
                     onClose={() => setIsNotificationsOpen(false)}
                   />
                 )}

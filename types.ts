@@ -5,7 +5,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Manager' | 'Staff';
+  // Role model simplified: only Admin or User across the app
+  role: 'Admin' | 'User';
   avatar: string;
   active: boolean;
   jobTitle?: string;
@@ -23,6 +24,14 @@ export interface FeedbackItem {
   title: string;
   description: string;
   status: 'planned' | 'in-progress' | 'done' | 'postponed' | 'canceled';
+  url?: string; // Separate field for URL attachments
+  attachments?: Array<{
+    type: 'image' | 'video';
+    source: 'file';
+    data: string; // base64 encoded (for files only)
+    filename: string; // For file attachments
+    mimeType: string; // For file attachments
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,7 +110,8 @@ export interface Deal {
   title: string;
   companyId: string | null; // Can be null for standalone/direct deals
   value: number;
-  stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost';
+  stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Order Received' | 'Processing' | 'In Transit' | 'Delivered';
+  pipelineType?: 'sales' | 'operations'; // Pipeline type: 'sales' or 'operations'
   ownerId: string;
   expectedCloseDate: string;
   description?: string;
@@ -174,6 +184,23 @@ export interface Invoice {
   description?: string;
   userId?: string;
   items?: InvoiceItem[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Expense {
+  id: string;
+  companyId: string;
+  title: string;
+  amount: number;
+  category: string;
+  date: string; // Expense date
+  description?: string;
+  receiptUrl?: string; // URL or base64 for uploaded receipt/document
+  receiptFilename?: string;
+  receiptMimeType?: string;
+  userId: string; // User who created/uploaded the expense
+  status?: 'Pending' | 'Approved' | 'Rejected';
   createdAt?: string;
   updatedAt?: string;
 }

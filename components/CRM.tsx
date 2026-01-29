@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal } from '../types';
 import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers } from '../utils/api';
@@ -30,6 +30,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [deals, setDeals] = useState<Deal[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Company filters - using arrays for multiple selections
+  const [targetAccountFilters, setTargetAccountFilters] = useState<string[]>([]);
+  const [assignedFilters, setAssignedFilters] = useState<string[]>([]);
+  const [dealsFilters, setDealsFilters] = useState<string[]>([]);
+  const [isFilterPopupOpen, setIsFilterPopupOpen] = useState(false);
   
   // Editing state for Company
   const [isEditingCompany, setIsEditingCompany] = useState(false);
@@ -161,12 +167,77 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     }
   };
 
+  // Helper function to check if company has deals
+  const hasDeals = (companyId: string) => {
+    return deals.some(d => d.companyId === companyId);
+  };
+
+  // Filter companies based on selected filters (multiple selections allowed)
+  const filteredCompanies = companies.filter(company => {
+    // Target account filter - if filters selected, must match at least one
+    if (targetAccountFilters.length > 0) {
+      const matchesTarget = targetAccountFilters.includes('target') && company.isTargetAccount;
+      const matchesNonTarget = targetAccountFilters.includes('non-target') && !company.isTargetAccount;
+      if (!matchesTarget && !matchesNonTarget) return false;
+    }
+
+    // Assigned filter - if filters selected, must match at least one
+    if (assignedFilters.length > 0) {
+      const matchesAssigned = assignedFilters.includes('assigned') && company.ownerId;
+      const matchesUnassigned = assignedFilters.includes('unassigned') && !company.ownerId;
+      if (!matchesAssigned && !matchesUnassigned) return false;
+    }
+
+    // Deals filter - if filters selected, must match at least one
+    if (dealsFilters.length > 0) {
+      const matchesHasDeals = dealsFilters.includes('has-deals') && hasDeals(company.id);
+      const matchesNoDeals = dealsFilters.includes('no-deals') && !hasDeals(company.id);
+      if (!matchesHasDeals && !matchesNoDeals) return false;
+    }
+
+    return true;
+  });
+
+  // Check if any filters are active
+  const hasActiveFilters = targetAccountFilters.length > 0 || assignedFilters.length > 0 || dealsFilters.length > 0;
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setTargetAccountFilters([]);
+    setAssignedFilters([]);
+    setDealsFilters([]);
+  };
+
+  // Toggle filter option
+  const toggleFilter = (category: 'target' | 'assigned' | 'deals', value: string) => {
+    if (category === 'target') {
+      setTargetAccountFilters(prev => 
+        prev.includes(value) 
+          ? prev.filter(f => f !== value)
+          : [...prev, value]
+      );
+    } else if (category === 'assigned') {
+      setAssignedFilters(prev => 
+        prev.includes(value) 
+          ? prev.filter(f => f !== value)
+          : [...prev, value]
+      );
+    } else if (category === 'deals') {
+      setDealsFilters(prev => 
+        prev.includes(value) 
+          ? prev.filter(f => f !== value)
+          : [...prev, value]
+      );
+    }
+  };
+
   // Multi-select handlers
   const selectAllCompanies = () => {
-    if (selectedCompanyIds.length === companies.length) {
+    // Use filtered companies for select all
+    if (selectedCompanyIds.length === filteredCompanies.length && filteredCompanies.length > 0) {
       setSelectedCompanyIds([]);
     } else {
-      setSelectedCompanyIds(companies.map(c => c.id));
+      setSelectedCompanyIds(filteredCompanies.map(c => c.id));
     }
   };
 
@@ -249,7 +320,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               }} 
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors ${view === 'companies' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
-              Companies ({companies.length})
+              Companies ({view === 'companies' ? filteredCompanies.length : companies.length})
             </button>
             <button 
               onClick={() => {
@@ -281,7 +352,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
             checked={
               view === 'companies' 
-                ? companies.length > 0 && selectedCompanyIds.length === companies.length
+                ? filteredCompanies.length > 0 && selectedCompanyIds.length === filteredCompanies.length && filteredCompanies.every(c => selectedCompanyIds.includes(c.id))
                 : contacts.length > 0 && selectedContactIds.length === contacts.length
             }
             onChange={view === 'companies' ? selectAllCompanies : selectAllContacts}
@@ -295,9 +366,207 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       {isLoading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {view === 'companies' ? (
-            companies.map(company => {
+        <>
+          {/* Company Filters Button */}
+          {view === 'companies' && (
+            <div className="flex items-center justify-between mb-4">
+              <button
+                onClick={() => setIsFilterPopupOpen(true)}
+                className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center gap-2 ${
+                  hasActiveFilters
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300'
+                }`}
+              >
+                <Filter className="w-4 h-4" />
+                <span className="text-sm font-bold">Filters</span>
+                {hasActiveFilters && (
+                  <span className="px-2 py-0.5 bg-indigo-600 text-white text-xs font-bold rounded-full">
+                    {targetAccountFilters.length + assignedFilters.length + dealsFilters.length}
+                  </span>
+                )}
+              </button>
+              <div className="text-xs text-slate-400 font-bold">
+                Showing {filteredCompanies.length} of {companies.length} companies
+              </div>
+            </div>
+          )}
+
+          {/* Filter Popup Modal */}
+          {isFilterPopupOpen && view === 'companies' && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                      <Filter className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-xl text-slate-900">Filter Companies</h3>
+                      <p className="text-xs text-slate-400 font-medium">Select multiple filters to refine your search</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsFilterPopupOpen(false)}
+                    className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+
+                {/* Filter Options */}
+                <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
+                  {/* Target Account Filter */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <Target className="w-4 h-4" />
+                      Target Account
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={targetAccountFilters.includes('target')}
+                          onChange={() => toggleFilter('target', 'target')}
+                          className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Target className="w-4 h-4 text-amber-500" />
+                          <span className="font-bold text-slate-900">Target Account</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => c.isTargetAccount).length} companies
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={targetAccountFilters.includes('non-target')}
+                          onChange={() => toggleFilter('target', 'non-target')}
+                          className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Building2 className="w-4 h-4 text-slate-500" />
+                          <span className="font-bold text-slate-900">Standard Account</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => !c.isTargetAccount).length} companies
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Assigned Filter */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <UserCheck className="w-4 h-4" />
+                      Assignment
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={assignedFilters.includes('assigned')}
+                          onChange={() => toggleFilter('assigned', 'assigned')}
+                          className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <UserCheck className="w-4 h-4 text-green-600" />
+                          <span className="font-bold text-slate-900">Assigned</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => c.ownerId).length} companies
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={assignedFilters.includes('unassigned')}
+                          onChange={() => toggleFilter('assigned', 'unassigned')}
+                          className="w-4 h-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Circle className="w-4 h-4 text-orange-500" />
+                          <span className="font-bold text-slate-900">Unassigned</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => !c.ownerId).length} companies
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Deals Filter */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <Briefcase className="w-4 h-4" />
+                      Deals
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={dealsFilters.includes('has-deals')}
+                          onChange={() => toggleFilter('deals', 'has-deals')}
+                          className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Briefcase className="w-4 h-4 text-purple-600" />
+                          <span className="font-bold text-slate-900">Has Deals</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => hasDeals(c.id)).length} companies
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-indigo-300 cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={dealsFilters.includes('no-deals')}
+                          onChange={() => toggleFilter('deals', 'no-deals')}
+                          className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Briefcase className="w-4 h-4 text-slate-400" />
+                          <span className="font-bold text-slate-900">No Deals</span>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {companies.filter(c => !hasDeals(c.id)).length} companies
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-slate-200 flex items-center justify-between">
+                  <button
+                    onClick={clearAllFilters}
+                    disabled={!hasActiveFilters}
+                    className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                    Clear All Filters
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 font-bold">
+                      {filteredCompanies.length} of {companies.length} companies
+                    </span>
+                    <button
+                      onClick={() => setIsFilterPopupOpen(false)}
+                      className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors"
+                    >
+                      Apply Filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {view === 'companies' ? (
+              filteredCompanies.map(company => {
               const owner = users.find(u => u.id === company.ownerId);
               const isSelected = selectedCompanyIds.includes(company.id);
               return (
@@ -369,7 +638,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               );
             })
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {/* Bulk Action Bar */}
@@ -659,7 +929,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                           onChange={e => setEditContactFormData({...editContactFormData, companyId: e.target.value})} 
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
                         >
-                          <option value="">No Organization (Unassigned)</option>
+                          <option value="">No Organization</option>
                           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </div>
@@ -823,7 +1093,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
               </button>
               <button onClick={() => { setSelectedContact(null); setIsEditingContact(false); }} className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[28px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3">
-                <UserCheck className="w-5 h-5" /> Finalize Profile Audit
+                <UserCheck className="w-5 h-5" /> Save
               </button>
             </div>
           </div>

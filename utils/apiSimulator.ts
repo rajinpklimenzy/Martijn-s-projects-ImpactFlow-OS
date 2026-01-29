@@ -48,7 +48,7 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
       id: 'u-gen',
       name: 'Impact Member',
       email: body.email,
-      role: 'Staff',
+      role: 'User',
       avatar: `https://picsum.photos/seed/${body.email}/100/100`,
       active: true
     };
@@ -89,7 +89,7 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
   }
 
   // Standard CRUD persistence for other entities
-  const entities = ['deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts'];
+  const entities = ['deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'expenses', 'expense-categories'];
   const entityMatch = entities.find(e => endpoint.includes(e));
 
   if (entityMatch) {

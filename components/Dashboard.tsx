@@ -154,23 +154,27 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   };
 
   const userName = currentUser?.name?.split(' ')[0] || 'Alex';
+  const userAvatar = currentUser?.avatar || currentUser?.photoURL || '';
+  const userIdentity = currentUser?.name || currentUser?.email || 'Impact Member';
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500 pb-10">
       <div className="flex justify-between items-start">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">Welcome, {userName}</h1>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500 text-xs lg:text-sm font-medium">Logistics digitalization hub</span>
+        <div className="flex items-center gap-3">
+          <ImageWithFallback
+            src={userAvatar}
+            alt={userIdentity}
+            fallbackText={userIdentity}
+            isAvatar={true}
+            className="w-10 h-10 rounded-full border border-slate-200 shadow-sm"
+          />
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">Welcome, {userName}</h1>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 text-xs lg:text-sm font-medium">Logistics digitalization hub</span>
+            </div>
           </div>
         </div>
-        <button
-          onClick={() => onNavigate('pipeline')}
-          className="hidden sm:flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
-        >
-          <TrendingUp className="w-4 h-4" />
-          New Opportunity
-        </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6">
@@ -178,18 +182,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           { id: 'pipeline', label: 'Open Pipeline', value: formatCurrency(stats.openPipeline), icon: <TrendingUp />, color: 'text-blue-600 bg-blue-50/50' },
           { id: 'projects', label: 'Active Projects', value: stats.activeProjects.toString(), icon: <Briefcase />, color: 'text-indigo-600 bg-indigo-50/50', border: 'border-indigo-200' },
           { id: 'invoices', label: 'Unpaid Invoices', value: formatCurrency(stats.unpaidInvoices), icon: <DollarSign />, color: 'text-emerald-600 bg-emerald-50/50' },
-          { id: 'inbox', label: 'Inbox (Beta)', value: '0', icon: <Mail />, color: 'text-purple-600 bg-purple-50/50' },
+          { id: 'tasks', label: 'Tasks Due Today', value: tasksDueToday.length.toString(), icon: <CheckSquare />, color: 'text-purple-600 bg-purple-50/50' },
         ].map((stat, i) => (
           <button
             key={i}
-            onClick={() => onNavigate(stat.id)}
+            onClick={() => {
+              if (stat.id === 'tasks') {
+                onNavigate('tasks');
+              } else {
+                onNavigate(stat.id);
+              }
+            }}
             className={`bg-white p-4 lg:p-7 rounded-[24px] lg:rounded-[28px] border ${stat.border || 'border-slate-100'} shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between hover:border-indigo-300 transition-all text-left group active:scale-[0.98]`}
           >
             <div className="flex items-center justify-between mb-4 lg:mb-6">
               <div className={`p-2 rounded-lg lg:p-2.5 lg:rounded-xl ${stat.color} group-hover:scale-110 transition-transform`}>
                 {React.cloneElement(stat.icon as React.ReactElement<any>, { className: 'w-4 h-4 lg:w-5 lg:h-5' })}
               </div>
-              {stat.id !== 'inbox' && <span className="text-[9px] lg:text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">+12%</span>}
+              {stat.id !== 'tasks' && <span className="text-[9px] lg:text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">+12%</span>}
             </div>
             <div>
               <p className="text-slate-400 text-[9px] lg:text-[10px] font-black uppercase tracking-[0.1em] lg:tracking-[0.15em]">{stat.label}</p>

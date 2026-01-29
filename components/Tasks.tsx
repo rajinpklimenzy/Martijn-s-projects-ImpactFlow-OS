@@ -35,7 +35,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     title: '',
     dueDate: '',
     description: '',
-    priority: ''
+    priority: '',
+    owner: ''
   });
   const [isImporting, setIsImporting] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
@@ -54,16 +55,71 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     setIsLoading(true);
     try {
       const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      console.log('[TASKS] Fetching data (all tasks). Current userId:', userId);
+      
+      // IMPORTANT:
+      // Always fetch ALL tasks (no userId filter), so that:
+      // - Imported tasks for any owner are visible in the registry
+      // - Admins can see the full portfolio
+      // Owner-specific views can be added later via client-side filters.
       const [taskRes, projRes, userRes] = await Promise.all([
-        apiGetTasks(userId),
+        apiGetTasks(),          // <-- no userId query param; returns all tasks
         apiGetProjects(),
         apiGetUsers()
       ]);
-      setTasks(taskRes.data || []);
-      setProjects(projRes.data || []);
-      setUsers(userRes.data || []);
-    } catch (err) { showError('Failed to load tasks'); }
-    finally { setIsLoading(false); }
+      
+      console.log('[TASKS] API Responses:', {
+        tasks: taskRes,
+        tasksData: (taskRes as any)?.data,
+        tasksCount: Array.isArray((taskRes as any)?.data) ? (taskRes as any).data.length : Array.isArray(taskRes) ? taskRes.length : 'not array',
+        projects: (projRes as any)?.data?.length ?? (Array.isArray(projRes) ? projRes.length : 'unknown'),
+        users: (userRes as any)?.data?.length ?? (Array.isArray(userRes) ? userRes.length : 'unknown')
+      });
+      
+      // Handle response structure: backend returns { success: true, data: [...] }
+      // apiFetch returns the parsed JSON, so taskRes is already { success: true, data: [...] }
+      let tasksData = [];
+      if (Array.isArray(taskRes)) {
+        tasksData = taskRes;
+      } else if (taskRes?.data && Array.isArray(taskRes.data)) {
+        tasksData = taskRes.data;
+      } else if (taskRes?.success && taskRes?.data && Array.isArray(taskRes.data)) {
+        tasksData = taskRes.data;
+      }
+      
+      let projectsData = [];
+      if (Array.isArray(projRes)) {
+        projectsData = projRes;
+      } else if (projRes?.data && Array.isArray(projRes.data)) {
+        projectsData = projRes.data;
+      } else if (projRes?.success && projRes?.data && Array.isArray(projRes.data)) {
+        projectsData = projRes.data;
+      }
+      
+      let usersData = [];
+      if (Array.isArray(userRes)) {
+        usersData = userRes;
+      } else if (userRes?.data && Array.isArray(userRes.data)) {
+        usersData = userRes.data;
+      } else if (userRes?.success && userRes?.data && Array.isArray(userRes.data)) {
+        usersData = userRes.data;
+      }
+      
+      setTasks(tasksData);
+      setProjects(projectsData);
+      setUsers(usersData);
+      
+      console.log('[TASKS] State updated:', {
+        tasksCount: Array.isArray(tasksData) ? tasksData.length : 0,
+        projectsCount: Array.isArray(projectsData) ? projectsData.length : 0,
+        usersCount: Array.isArray(usersData) ? usersData.length : 0
+      });
+    } catch (err: any) {
+      console.error('[TASKS] Fetch error:', err);
+      showError(err.message || 'Failed to load tasks');
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
   useEffect(() => { fetchData(); }, [currentUser]);
@@ -134,8 +190,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const handleDownloadTemplate = () => {
     // Create Excel template using xlsx
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Title', 'Due Date (YYYY-MM-DD)', 'Priority (Low/Medium/High)', 'Description'],
-      ['Update Logistics Map', '2024-12-31', 'High', 'Audit the EMEA transit routes']
+      ['Title', 'Due Date (YYYY-MM-DD)', 'Priority (Low/Medium/High)', 'Description', 'Owner (Name or Email)'],
+      ['Update Logistics Map', '2024-12-31', 'High', 'Audit the EMEA transit routes', users.length > 0 ? users[0].name : 'John Doe']
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
@@ -144,9 +200,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   };
 
   const handleExecuteImport = async () => {
-    // Validate required mappings
-    if (!columnMapping.title || !columnMapping.dueDate) {
-      showError('Please map required fields: Title and Due Date');
+    // Validate required mappings (only title is required by backend, but dueDate is recommended)
+    if (!columnMapping.title) {
+      showError('Please map the required field: Title');
       return;
     }
 
@@ -157,6 +213,10 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
     setIsImporting(true);
     try {
+      console.log('[IMPORT] ===== STARTING IMPORT PROCESS =====');
+      console.log('[IMPORT] Column mapping:', columnMapping);
+      console.log('[IMPORT] Parsed data rows:', parsedData.length);
+      console.log('[IMPORT] Sample parsed row:', parsedData[0]);
       const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
       if (!userId) {
         showError('Please log in to import tasks');
@@ -165,12 +225,34 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       }
 
       // Transform parsed data to task format
+      console.log('[IMPORT] Starting import with:', { 
+        parsedDataRows: parsedData.length, 
+        columnMapping, 
+        usersCount: users.length,
+        currentUserId: userId 
+      });
+      
       const tasksToImport = parsedData.map((row, index) => {
+        console.log(`[IMPORT] Processing row ${index}:`, row);
+        console.log(`[IMPORT] Column mapping:`, columnMapping);
+        
         // Get values from mapped columns
         const title = String(row[columnMapping.title] || '').trim();
         const dueDateRaw = String(row[columnMapping.dueDate] || '').trim();
         const description = columnMapping.description ? String(row[columnMapping.description] || '').trim() : '';
         const priorityRaw = columnMapping.priority ? String(row[columnMapping.priority] || '').trim() : 'Medium';
+        const ownerRaw = columnMapping.owner ? String(row[columnMapping.owner] || '').trim() : '';
+        
+        console.log(`[IMPORT] Extracted values for row ${index}:`, {
+          title,
+          dueDateRaw,
+          description,
+          priorityRaw,
+          ownerRaw,
+          rowKeys: Object.keys(row),
+          mappedTitleKey: columnMapping.title,
+          mappedDueDateKey: columnMapping.dueDate
+        });
 
         // Parse and format due date
         let dueDate = '';
@@ -237,70 +319,317 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         };
         const priority = priorityMap[priorityRaw.toLowerCase()] || 'Medium';
 
-        return {
-          title,
-          dueDate,
-          description,
+        // Match owner by name or email
+        let assigneeId = userId; // Default to current user
+        if (ownerRaw && users.length > 0) {
+          const ownerLower = ownerRaw.toLowerCase().trim();
+          const matchedUser = users.find(user => 
+            user.name.toLowerCase().trim() === ownerLower || 
+            user.email.toLowerCase().trim() === ownerLower ||
+            user.name.toLowerCase().trim().includes(ownerLower) ||
+            user.email.toLowerCase().trim().includes(ownerLower)
+          );
+          if (matchedUser) {
+            assigneeId = matchedUser.id;
+            console.log(`[IMPORT] Matched owner "${ownerRaw}" to user:`, matchedUser.name, matchedUser.id);
+          } else {
+            console.warn(`[IMPORT] Could not match owner "${ownerRaw}", using current user`);
+          }
+        }
+        
+        // Ensure assigneeId is always set
+        if (!assigneeId) {
+          console.error('[IMPORT] No assigneeId available, using current user as fallback');
+          assigneeId = userId;
+        }
+
+        const taskData = {
+          title: title.trim(),
+          dueDate: dueDate || null, // Allow null/empty dueDate (backend allows it)
+          description: description.trim() || '',
           priority,
           status: 'Todo' as const,
-          assigneeId: userId, // Assign to current user by default
+          assigneeId,
           _rowIndex: index, // For debugging
           _rawDate: dueDateRaw // For debugging
         };
+        
+        // Validate required fields match backend requirements
+        if (!taskData.title || !taskData.assigneeId) {
+          console.error(`[IMPORT] Row ${index} missing required fields:`, {
+            hasTitle: !!taskData.title,
+            hasAssigneeId: !!taskData.assigneeId,
+            taskData
+          });
+        }
+        
+        // Log if assigneeId is missing
+        if (!assigneeId) {
+          console.warn(`[IMPORT] Row ${index}: No assigneeId found, using current user:`, { title, ownerRaw, userId });
+        }
+        
+        console.log(`[IMPORT] Task data for row ${index}:`, taskData);
+        return taskData;
       }).filter(task => {
-        const isValid = task.title && task.dueDate;
+        // Backend only requires title and assigneeId (dueDate is optional)
+        const isValid = task.title && task.assigneeId;
         if (!isValid) {
-          console.warn('Filtered out invalid task:', {
+          console.error('[IMPORT] Filtered out invalid task:', {
             title: task.title,
             dueDate: task.dueDate,
+            assigneeId: task.assigneeId,
             rawDate: (task as any)._rawDate,
-            rowIndex: (task as any)._rowIndex
+            rowIndex: (task as any)._rowIndex,
+            fullTask: task,
+            missingFields: {
+              title: !task.title,
+              assigneeId: !task.assigneeId
+            }
+          });
+        } else {
+          console.log('[IMPORT] Valid task:', {
+            title: task.title,
+            dueDate: task.dueDate || 'Not set',
+            assigneeId: task.assigneeId,
+            priority: task.priority,
+            status: task.status
           });
         }
         return isValid;
-      }).map(({ _rowIndex, _rawDate, ...task }) => task); // Remove debug fields
+      }).map(({ _rowIndex, _rawDate, ...task }) => {
+        // Ensure assigneeId is always present
+        if (!task.assigneeId) {
+          console.warn('[IMPORT] Task missing assigneeId, using current user:', task);
+          task.assigneeId = userId;
+        }
+        return task;
+      }); // Remove debug fields
 
+      console.log('[IMPORT] Final tasks to import:', tasksToImport);
+      console.log('[IMPORT] Tasks count:', tasksToImport.length);
+      
       if (tasksToImport.length === 0) {
         // Provide more helpful error message
         const sampleRow = parsedData[0];
         const sampleTitle = sampleRow ? String(sampleRow[columnMapping.title] || '').trim() : 'N/A';
         const sampleDate = sampleRow ? String(sampleRow[columnMapping.dueDate] || '').trim() : 'N/A';
-        console.error('Import validation failed:', {
+        console.error('[IMPORT] Validation failed - no valid tasks:', {
           totalRows: parsedData.length,
+          columnMapping,
           mappedTitle: columnMapping.title,
           mappedDueDate: columnMapping.dueDate,
+          sampleRow,
           sampleTitle,
           sampleDate,
+          sampleRowKeys: sampleRow ? Object.keys(sampleRow) : [],
           parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
         });
-        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly\n2. Due Date column is mapped correctly\n3. Date format is valid (YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"`);
+        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
         setIsImporting(false);
         return;
       }
 
       // Call bulk import API
-      const response = await apiBulkImportTasks(tasksToImport);
-      const result = response.data || response;
+      console.log('[IMPORT] ===== STARTING API CALL =====');
       
-      const successCount = result.successful || tasksToImport.length;
-      const failedCount = result.failed || 0;
+      // Remove debug fields before sending to API
+      const tasksForAPI = tasksToImport.map(({ _rowIndex, _rawDate, ...task }) => task);
+      
+      console.log('[IMPORT] Tasks to import count:', tasksForAPI.length);
+      console.log('[IMPORT] Tasks for API (cleaned):', JSON.stringify(tasksForAPI, null, 2));
+      console.log('[IMPORT] Sample task structure:', {
+        title: tasksForAPI[0]?.title,
+        dueDate: tasksForAPI[0]?.dueDate,
+        assigneeId: tasksForAPI[0]?.assigneeId,
+        priority: tasksForAPI[0]?.priority,
+        status: tasksForAPI[0]?.status,
+        description: tasksForAPI[0]?.description,
+        hasProjectId: !!tasksForAPI[0]?.projectId
+      });
+      
+      // Validate all tasks have required fields before sending
+      const invalidTasks = tasksForAPI.filter(t => !t.title || !t.assigneeId);
+      if (invalidTasks.length > 0) {
+        console.error('[IMPORT] Invalid tasks found:', invalidTasks);
+        showError(`Cannot import: ${invalidTasks.length} task(s) missing required fields (title or assigneeId)`);
+        setIsImporting(false);
+        return;
+      }
+      
+      let response: any;
+      try {
+        response = await apiBulkImportTasks(tasksForAPI);
+        console.log('[IMPORT] API call successful');
+      } catch (apiError: any) {
+        console.error('[IMPORT] API call failed:', apiError);
+        console.error('[IMPORT] Error details:', {
+          message: apiError.message,
+          status: apiError.status,
+          code: apiError.code,
+          stack: apiError.stack
+        });
+        showError(`Failed to import tasks: ${apiError.message || 'Unknown error'}`);
+        setIsImporting(false);
+        return;
+      }
+      
+      console.log('[IMPORT] Raw API Response:', JSON.stringify(response, null, 2));
+      console.log('[IMPORT] Response type:', typeof response);
+      console.log('[IMPORT] Response keys:', response ? Object.keys(response) : 'null');
+      
+      // Backend returns: { success: true, data: { successful: X, failed: Y, created: [...], ... } }
+      // apiFetch returns the parsed JSON directly, so response is: { success: true, data: {...} }
+      let importData: any = {};
+      let createdTasks: any[] = [];
+      
+      if (response) {
+        // apiFetch returns the full response object
+        // Backend structure: { success: true, data: { created: [...], successful: X, failed: Y } }
+        if (response.success && response.data) {
+          // Standard structure: { success: true, data: { created: [...], ... } }
+          importData = response.data;
+          createdTasks = importData.created || [];
+        } else if (response.data && Array.isArray(response.data.created)) {
+          // Nested structure: { data: { created: [...], ... } }
+          importData = response.data;
+          createdTasks = importData.created || [];
+        } else if (response.created && Array.isArray(response.created)) {
+          // Direct structure: { created: [...], ... }
+          importData = response;
+          createdTasks = importData.created || [];
+        } else {
+          // Fallback: try to find created array anywhere
+          console.warn('[IMPORT] Unexpected response structure, searching for created tasks...');
+          importData = response.data || response;
+          createdTasks = importData.created || importData.data?.created || [];
+        }
+        
+        console.log('[IMPORT] Extracted importData:', importData);
+        console.log('[IMPORT] Created tasks:', createdTasks);
+        console.log('[IMPORT] Created tasks count:', createdTasks.length);
+        console.log('[IMPORT] Created task IDs:', createdTasks.map((t: any) => t?.id));
+        console.log('[IMPORT] Created task details:', createdTasks.map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          assigneeId: t.assigneeId
+        })));
+      } else {
+        console.error('[IMPORT] No response received from API');
+        showError('No response received from server. Please check your connection.');
+        setIsImporting(false);
+        return;
+      }
+      
+      const successCount = importData.successful ?? (createdTasks.length ?? 0);
+      const failedCount = importData.failed ?? 0;
+      
+      console.log('[IMPORT] Import results:', { 
+        successCount, 
+        failedCount, 
+        total: tasksToImport.length,
+        createdTasks: createdTasks.length,
+        createdTaskIds: createdTasks.map((t: any) => t.id),
+        errors: importData.errors
+      });
+      
+      // Add imported tasks directly to state immediately (before refresh)
+      // This ensures tasks show up even if they have different assigneeId
+      if (createdTasks && createdTasks.length > 0) {
+        console.log('[IMPORT] ===== ADDING TASKS TO STATE =====');
+        console.log('[IMPORT] Adding imported tasks directly to state:', createdTasks);
+        console.log('[IMPORT] First created task:', createdTasks[0]);
+        
+        setTasks(prevTasks => {
+          // Merge new tasks, avoiding duplicates by ID
+          const existingIds = new Set(prevTasks.map(t => t.id));
+          const newTasks = createdTasks
+            .filter((t: any) => {
+              const hasId = t && t.id;
+              const isNew = !existingIds.has(t.id);
+              if (!hasId) {
+                console.error('[IMPORT] Task missing ID:', t);
+                return false;
+              }
+              if (!isNew) {
+                console.warn('[IMPORT] Task already exists, skipping:', t.id);
+                return false;
+              }
+              return true;
+            })
+            .map((t: any) => {
+              const mappedTask: Task = {
+                id: t.id,
+                title: t.title || '',
+                description: t.description || '',
+                dueDate: t.dueDate || '',
+                priority: (t.priority || 'Medium') as 'Low' | 'Medium' | 'High',
+                status: (t.status || 'Todo') as 'Todo' | 'In Progress' | 'Review' | 'Done',
+                assigneeId: t.assigneeId || userId,
+                projectId: t.projectId || undefined,
+                archived: t.archived || false,
+                createdAt: t.createdAt,
+                updatedAt: t.updatedAt
+              };
+              console.log('[IMPORT] Mapped task:', mappedTask);
+              return mappedTask;
+            });
+          
+          const merged = [...newTasks, ...prevTasks];
+          console.log('[IMPORT] ===== STATE UPDATE COMPLETE =====');
+          console.log('[IMPORT] Merged tasks:', { 
+            previousCount: prevTasks.length, 
+            newCount: newTasks.length, 
+            totalCount: merged.length,
+            newTaskIds: newTasks.map(t => t.id),
+            newTaskTitles: newTasks.map(t => t.title)
+          });
+          return merged;
+        });
+      } else {
+        console.error('[IMPORT] ===== NO TASKS TO ADD =====');
+        console.error('[IMPORT] No created tasks to add to state. createdTasks:', createdTasks);
+        console.error('[IMPORT] Response structure:', response);
+        console.error('[IMPORT] Import data:', importData);
+      }
       
       if (failedCount > 0) {
-        showError(`Imported ${successCount} task(s), but ${failedCount} failed. Please check the data format.`);
+        const errorDetails = importData.errors?.map((e: any) => `Row ${e.index + 1}: ${e.error}`).join('\n') || '';
+        showError(`Imported ${successCount} task(s), but ${failedCount} failed.\n${errorDetails}`);
       } else {
         showSuccess(`Successfully imported ${successCount} task(s)`);
       }
       
-      setIsImportOpen(false);
-      
-      // Reset state
+      // Reset state first
       setParsedData([]);
       setDetectedColumns([]);
-      setColumnMapping({ title: '', dueDate: '', description: '', priority: '' });
+      setColumnMapping({ title: '', dueDate: '', description: '', priority: '', owner: '' });
       if (fileInputRef.current) fileInputRef.current.value = '';
       
-      // Refresh tasks list
-      fetchData();
+      setIsImportOpen(false);
+      
+      // Refresh tasks list after a short delay to ensure database consistency
+      // Use a longer delay to ensure database has fully processed the import
+      setTimeout(async () => {
+        console.log('[IMPORT] Refreshing tasks list from server...');
+        try {
+          await fetchData();
+          console.log('[IMPORT] Tasks list refreshed from server');
+          
+          // Double-check: if tasks still not showing, try fetching all tasks (not filtered by userId)
+          const currentTasksCount = tasks.length;
+          console.log('[IMPORT] Current tasks count after refresh:', currentTasksCount);
+          
+          if (currentTasksCount === 0 && createdTasks.length > 0) {
+            console.warn('[IMPORT] Tasks not showing after refresh, fetching all tasks...');
+            // Try fetching without userId filter to see if tasks exist
+            const allTasksRes = await apiGetTasks(); // No userId = all tasks
+            console.log('[IMPORT] All tasks response:', allTasksRes);
+          }
+        } catch (refreshError) {
+          console.error('[IMPORT] Error refreshing tasks:', refreshError);
+        }
+      }, 1500);
+      
       // Also dispatch event for consistency
       window.dispatchEvent(new Event('refresh-tasks'));
     } catch (err: any) {
@@ -378,7 +707,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               title: headers.find(h => h.toLowerCase().includes('title') || h.toLowerCase().includes('name')) || '',
               dueDate: headers.find(h => h.toLowerCase().includes('due') || (h.toLowerCase().includes('date') && !h.toLowerCase().includes('created') && !h.toLowerCase().includes('updated'))) || '',
               description: headers.find(h => h.toLowerCase().includes('description') || h.toLowerCase().includes('desc')) || '',
-              priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || ''
+              priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || '',
+              owner: headers.find(h => h.toLowerCase().includes('owner') || h.toLowerCase().includes('assignee') || h.toLowerCase().includes('assigned') || h.toLowerCase().includes('user')) || ''
             };
             setColumnMapping(autoMapping);
             setImportStep('mapping');
@@ -411,6 +741,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           
           // First row is headers
           const headers = jsonData[0].map(h => String(h || '').trim()).filter(h => h);
+          console.log('[IMPORT] Detected headers:', headers);
+          console.log('[IMPORT] Raw JSON data:', jsonData);
           setDetectedColumns(headers);
           
           // Parse data rows
@@ -434,15 +766,18 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               parsedRows.push(row);
             }
           }
+          console.log('[IMPORT] Parsed rows:', parsedRows);
           setParsedData(parsedRows);
           
           // Auto-map columns based on header names
           const autoMapping: { [key: string]: string } = {
             title: headers.find(h => h.toLowerCase().includes('title') || h.toLowerCase().includes('name')) || '',
-            dueDate: headers.find(h => h.toLowerCase().includes('due') || h.toLowerCase().includes('date')) || '',
+            dueDate: headers.find(h => h.toLowerCase().includes('due') || (h.toLowerCase().includes('date') && !h.toLowerCase().includes('created') && !h.toLowerCase().includes('updated'))) || '',
             description: headers.find(h => h.toLowerCase().includes('description') || h.toLowerCase().includes('desc')) || '',
-            priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || ''
+            priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || '',
+            owner: headers.find(h => h.toLowerCase().includes('owner') || h.toLowerCase().includes('assignee') || h.toLowerCase().includes('assigned') || h.toLowerCase().includes('user')) || ''
           };
+          console.log('[IMPORT] Auto-mapping:', autoMapping);
           setColumnMapping(autoMapping);
           setImportStep('mapping');
         };
@@ -701,6 +1036,12 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                            </p>
                            <p className="text-[10px] text-slate-500 font-medium ml-3.5">Strategic context/notes.</p>
                          </div>
+                         <div className="space-y-1">
+                           <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
+                             <div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> Column: Owner
+                           </p>
+                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">Task owner name or email (optional).</p>
+                         </div>
                        </div>
                     </div>
 
@@ -738,7 +1079,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                         { label: 'Task Name (Title)', key: 'title', required: true, icon: <FileText className="w-4 h-4" /> },
                         { label: 'Due Date', key: 'dueDate', required: true, icon: <Calendar className="w-4 h-4" /> },
                         { label: 'Task Description', key: 'description', required: false, icon: <Info className="w-4 h-4" /> },
-                        { label: 'Priority Level', key: 'priority', required: false, icon: <Tag className="w-4 h-4" /> }
+                        { label: 'Priority Level', key: 'priority', required: false, icon: <Tag className="w-4 h-4" /> },
+                        { label: 'Owner (Name or Email)', key: 'owner', required: false, icon: <User className="w-4 h-4" /> }
                       ].map(prop => (
                         <div key={prop.key} className="flex flex-col sm:flex-row sm:items-center gap-4 group">
                           <div className="flex-1 flex items-center gap-3">
@@ -770,7 +1112,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                           setImportStep('upload');
                           setParsedData([]);
                           setDetectedColumns([]);
-                          setColumnMapping({ title: '', dueDate: '', description: '', priority: '' });
+                          setColumnMapping({ title: '', dueDate: '', description: '', priority: '', owner: '' });
                           if (fileInputRef.current) fileInputRef.current.value = '';
                         }} 
                         className="flex-1 py-5 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-[24px] hover:bg-slate-50 transition-all"

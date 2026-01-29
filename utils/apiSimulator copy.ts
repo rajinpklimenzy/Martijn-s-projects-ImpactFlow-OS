@@ -43,7 +43,7 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
           id: 'u-new',
           name: 'New Impact Member',
           email: body.email,
-          role: 'Staff',
+          role: 'User',
           avatar: `https://picsum.photos/seed/${body.email}/100/100`,
           active: true
         };
