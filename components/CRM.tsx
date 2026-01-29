@@ -59,6 +59,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [isBulkDeletingCompanies, setIsBulkDeletingCompanies] = useState(false);
   const [isBulkDeletingContacts, setIsBulkDeletingContacts] = useState(false);
+  const [isBulkMarkingTargetAccount, setIsBulkMarkingTargetAccount] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
 
   useEffect(() => {
@@ -288,6 +289,35 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       showError(err.message || 'Failed to delete contacts');
     } finally {
       setIsBulkDeletingContacts(false);
+    }
+  };
+
+  const handleBulkMarkAsTargetAccount = async () => {
+    if (selectedCompanyIds.length === 0) return;
+    
+    setIsBulkDeletingCompanies(true); // Reuse loading state
+    try {
+      const targetIds = [...selectedCompanyIds];
+      // Mark all selected companies as target accounts
+      await Promise.all(targetIds.map(id => apiUpdateCompany(id, { isTargetAccount: true })));
+      
+      // Update local state
+      setCompanies(prev => prev.map(c => 
+        targetIds.includes(c.id) ? { ...c, isTargetAccount: true } : c
+      ));
+      
+      // Update selected company if it's in the list
+      if (selectedCompany && targetIds.includes(selectedCompany.id)) {
+        setSelectedCompany({ ...selectedCompany, isTargetAccount: true });
+      }
+      
+      setSelectedCompanyIds([]);
+      showSuccess(`Successfully marked ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'} as target account${targetIds.length > 1 ? 's' : ''}`);
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to mark companies as target accounts');
+    } finally {
+      setIsBulkDeletingCompanies(false);
     }
   };
 
@@ -654,6 +684,23 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </span>
             <div className="h-8 w-px bg-white/10" />
             <div className="flex items-center gap-3">
+              {view === 'companies' && (
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleBulkMarkAsTargetAccount();
+                  }}
+                  disabled={isBulkMarkingTargetAccount}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isBulkMarkingTargetAccount ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Target className="w-3.5 h-3.5" />
+                  )}
+                  Mark as Target Account
+                </button>
+              )}
               <button 
                 onClick={(e) => { 
                   e.stopPropagation(); 

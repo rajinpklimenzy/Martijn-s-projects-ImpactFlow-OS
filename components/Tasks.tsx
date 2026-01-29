@@ -41,6 +41,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [archiveConfirmTask, setArchiveConfirmTask] = useState<Task | null>(null);
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   
@@ -794,10 +795,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const toggleStatus = async (id: string, current: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newStatus = current === 'Done' ? 'Todo' : 'Done';
+    setUpdatingTaskId(id);
     try {
       await apiUpdateTask(id, { status: newStatus as any });
       setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
-    } catch (err) { showError('Status update failed'); }
+      showSuccess(newStatus === 'Done' ? 'Task marked as done' : 'Task marked as todo');
+    } catch (err) { 
+      showError('Status update failed'); 
+    } finally {
+      setUpdatingTaskId(null);
+    }
   };
 
   const filteredTasks = tasks.filter(t => {
@@ -899,8 +906,18 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                        onChange={() => setSelectedTaskIds(prev => isSelected ? prev.filter(id => id !== task.id) : [...prev, task.id])}
                      />
                    </div>
-                   <button onClick={(e) => toggleStatus(task.id, task.status, e)} className="text-slate-300 hover:text-indigo-600">
-                     {task.status === 'Done' ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> : <Circle className="w-6 h-6" />}
+                   <button 
+                     onClick={(e) => toggleStatus(task.id, task.status, e)} 
+                     disabled={updatingTaskId === task.id}
+                     className="text-slate-300 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                   >
+                     {updatingTaskId === task.id ? (
+                       <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+                     ) : task.status === 'Done' ? (
+                       <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+                     ) : (
+                       <Circle className="w-6 h-6" />
+                     )}
                    </button>
                    <div className="flex-1 overflow-hidden">
                      <p className={`font-bold text-sm ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>

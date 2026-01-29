@@ -113,6 +113,7 @@ export interface Deal {
   companyId: string | null; // Can be null for standalone/direct deals
   amount?: number; // Alias for value
   value: number;
+  currency?: string; // Currency code (USD, EUR, GBP, etc.) - defaults to USD
   stage: 'Discovery' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Order Received' | 'Processing' | 'In Transit' | 'Delivered';
   pipelineType?: 'sales' | 'operations'; // Pipeline type: 'sales' or 'operations'
   ownerId: string;
@@ -188,6 +189,7 @@ export interface Invoice {
   client?: string; // Alias for companyId
   companyId: string;
   amount: number;
+  currency?: string; // Currency code (USD, EUR, GBP, etc.) - defaults to USD
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue';
   dueDate: string;
   description?: string;

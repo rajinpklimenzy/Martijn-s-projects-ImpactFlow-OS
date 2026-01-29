@@ -5,6 +5,7 @@ import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, api
 import { Company, User as UserType, Project, Contact } from '../types';
 import { extractDomain } from '../utils/validate';
 import { findDuplicateContacts, findFuzzyDuplicateContacts } from '../utils/dedup';
+import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol } from '../utils/currency';
 
 interface QuickCreateModalProps {
   type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
@@ -102,6 +103,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     assigneeId: '',
     ownerId: '',
     value: '',
+    currency: DEFAULT_CURRENCY, // Default currency
     expectedCloseDate: '',
     stage: 'Discovery',
     status: 'Planning',
@@ -129,11 +131,16 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       engagement: '', startDate: '', endDate: ''
     };
     
-    // For invoice type, initialize with one empty line item
+    // For invoice type, initialize with one empty line item and default currency
     if (initialType === 'invoice') {
       resetData.lineItems = [{ description: '', quantity: 1, rate: 0, amount: 0 }];
+      resetData.currency = DEFAULT_CURRENCY;
     } else {
       resetData.lineItems = [];
+      // For deal type, keep currency, otherwise reset to default
+      if (initialType !== 'deal') {
+        resetData.currency = DEFAULT_CURRENCY;
+      }
     }
     
     setFormData(prev => ({ ...prev, ...resetData }));
@@ -205,7 +212,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Please enter a valid email address';
     } else if (type === 'company') {
       if (!formData.name?.trim()) errors.name = 'Company Name is required';
-      if (!formData.industry?.trim()) errors.industry = 'Industry is required';
+      // Industry is now optional
       // Check region - must have a value (not empty string)
       if (!formData.region || formData.region.trim() === '') {
         errors.region = 'Region is required';
@@ -250,7 +257,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     } else if (type === 'invoice') {
       if (!formData.companyId) errors.companyId = 'Client (Organization) is required';
       if (!formData.expectedCloseDate || formData.expectedCloseDate.trim() === '') {
-        errors.expectedCloseDate = 'Due Date is required';
+        errors.expectedCloseDate = type === 'deal' ? 'Expected Close Date is required' : 'Due Date is required';
       }
       if (!formData.lineItems || formData.lineItems.length === 0) {
         errors.lineItems = 'At least one line item is required';
@@ -434,6 +441,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           title: formData.title, 
           companyId: formData.companyId.trim(), 
           value: parseFloat(formData.value), 
+          currency: formData.currency || DEFAULT_CURRENCY,
           stage: formData.stage as any, 
           pipelineType: 'sales', // Always sales pipeline
           ownerId: formData.ownerId, 
@@ -564,6 +572,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
         await apiCreateInvoice({ 
           companyId: formData.companyId, 
           amount: totalAmount, 
+          currency: formData.currency || DEFAULT_CURRENCY,
           dueDate: formData.expectedCloseDate, 
           description: formData.name || formData.description || '', // Use name field as description
           lineItems: lineItemsWithAmounts,
@@ -931,10 +940,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {type === 'company' && (
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                  Industry <RequiredAsterisk />
+                  Industry
                 </label>
                 <input 
-                  required
                   type="text" 
                   placeholder="e.g., Technology, Healthcare" 
                   value={formData.industry} 
@@ -1225,33 +1233,61 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {type === 'deal' && (
               <div className="space-y-2">
                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                   Value ($) <RequiredAsterisk />
+                   Value <RequiredAsterisk />
                  </label>
-                 <div className="relative">
-                   <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
-                   <input 
-                    required 
-                    type="number" 
-                    step="0.01"
-                    placeholder="0.00" 
-                    value={formData.value} 
-                    onChange={(e) => {
-                      setFormData(prev => ({ ...prev, value: e.target.value }));
-                      // Clear error when user starts typing
-                      if (fieldErrors.value) {
-                        setFieldErrors(prev => {
-                          const newErrors = { ...prev };
-                          delete newErrors.value;
-                          return newErrors;
-                        });
-                      }
-                    }} 
-                    className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-black transition-all ${
-                      fieldErrors.value 
-                        ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600 text-red-600' 
-                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600'
-                    }`}
-                   />
+                 <div className="flex gap-3">
+                   {/* Currency Dropdown */}
+                   <div className="relative w-32">
+                     <select
+                       value={formData.currency || DEFAULT_CURRENCY}
+                       onChange={(e) => {
+                         setFormData(prev => ({ ...prev, currency: e.target.value }));
+                       }}
+                       className="w-full px-4 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600 cursor-pointer"
+                       style={{
+                         backgroundImage: `url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20"%3E%3Cpath stroke="%236b7280" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m6 8 4 4 4-4"/%3E%3C/svg%3E')`,
+                         backgroundRepeat: 'no-repeat',
+                         backgroundPosition: 'right 12px center',
+                         backgroundSize: '16px'
+                       }}
+                     >
+                       {CURRENCIES.map(currency => (
+                         <option key={currency.code} value={currency.code}>
+                           {currency.code} ({currency.symbol})
+                         </option>
+                       ))}
+                     </select>
+                   </div>
+                   
+                   {/* Value Input */}
+                   <div className="relative flex-1">
+                     <span className="absolute left-6 top-1/2 -translate-y-1/2 text-indigo-500 font-black text-sm">
+                       {getCurrencySymbol(formData.currency)}
+                     </span>
+                     <input 
+                      required 
+                      type="number" 
+                      step="0.01"
+                      placeholder="0.00" 
+                      value={formData.value} 
+                      onChange={(e) => {
+                        setFormData(prev => ({ ...prev, value: e.target.value }));
+                        // Clear error when user starts typing
+                        if (fieldErrors.value) {
+                          setFieldErrors(prev => {
+                            const newErrors = { ...prev };
+                            delete newErrors.value;
+                            return newErrors;
+                          });
+                        }
+                      }} 
+                      className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-black transition-all ${
+                        fieldErrors.value 
+                          ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600 text-red-600' 
+                          : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600'
+                      }`}
+                     />
+                   </div>
                  </div>
                  {fieldErrors.value && (
                    <p className="text-xs text-red-600 font-bold px-1 flex items-center gap-1">
@@ -1259,6 +1295,36 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                      {fieldErrors.value}
                    </p>
                  )}
+              </div>
+            )}
+
+            {/* Invoice Currency Selection - Before Line Items */}
+            {type === 'invoice' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                  Currency
+                </label>
+                <div className="relative w-full">
+                  <select
+                    value={formData.currency || DEFAULT_CURRENCY}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, currency: e.target.value }));
+                    }}
+                    className="w-full px-4 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600 cursor-pointer"
+                    style={{
+                      backgroundImage: `url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20"%3E%3Cpath stroke="%236b7280" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m6 8 4 4 4-4"/%3E%3C/svg%3E')`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 12px center',
+                      backgroundSize: '16px'
+                    }}
+                  >
+                    {CURRENCIES.map(currency => (
+                      <option key={currency.code} value={currency.code}>
+                        {currency.code} ({currency.symbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
 
@@ -1375,7 +1441,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         </div>
                         <div>
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1 block">
-                            Rate ($) <span className="text-red-500">*</span>
+                            Rate ({getCurrencySymbol(formData.currency)}) <span className="text-red-500">*</span>
                           </label>
                           <input
                             type="number"
@@ -1423,7 +1489,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         </label>
                         <div className="px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
                           <p className="text-sm font-black text-indigo-600">
-                            ${((item.quantity || 0) * (item.rate || 0)).toFixed(2)}
+                            {getCurrencySymbol(formData.currency)}{((item.quantity || 0) * (item.rate || 0)).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -1464,12 +1530,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 {/* Total Amount - Calculated from Line Items (Read-only) */}
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                    Total Amount ($)
+                    Total Amount ({getCurrencySymbol(formData.currency)})
                   </label>
                   <div className="relative">
                     <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
                     <div className="w-full pl-12 pr-6 py-4 rounded-[20px] text-sm font-black bg-indigo-50 border-2 border-indigo-200 text-indigo-600">
-                      ${formData.lineItems.reduce((sum, item) => {
+                      {getCurrencySymbol(formData.currency)}{formData.lineItems.reduce((sum, item) => {
                         const itemAmount = item.amount || (item.rate * item.quantity) || 0;
                         return sum + itemAmount;
                       }, 0).toFixed(2)}
@@ -1697,10 +1763,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               </div>
             )}
 
-            {/* Due Date - Optional for other types */}
+            {/* Expected Close Date / Due Date - Conditional label based on type */}
             {type !== 'invoice' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Due Date</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                  {type === 'deal' ? 'Expected Close Date' : 'Due Date'}
+                </label>
                 <div className="relative">
                   <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 

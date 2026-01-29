@@ -10,11 +10,14 @@ interface NotificationsDropdownProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   onClose: () => void;
+  onViewAll?: () => void;
 }
 
 const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({ 
-  notifications, onMarkAsRead, onMarkAllAsRead, onRefresh, isRefreshing = false, onClose 
+  notifications, onMarkAsRead, onMarkAllAsRead, onRefresh, isRefreshing = false, onClose, onViewAll
 }) => {
+  // Filter to show only unread notifications
+  const unreadNotifications = notifications.filter(n => !n.read);
   const getIcon = (type: Notification['type']) => {
     switch (type) {
       case 'lead': return <UserPlus className="w-4 h-4 text-blue-500" />;
@@ -112,7 +115,15 @@ const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({
       </div>
 
       <div className="p-3 border-t border-slate-100 bg-slate-50/50 text-center">
-        <button className="text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-widest">
+        <button 
+          onClick={() => {
+            onClose();
+            if (onViewAll) {
+              onViewAll();
+            }
+          }}
+          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest transition-colors"
+        >
           View all activity
         </button>
       </div>

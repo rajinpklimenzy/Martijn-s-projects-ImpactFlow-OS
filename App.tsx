@@ -16,6 +16,7 @@ import Roadmap from './components/Roadmap.tsx';
 import Expenses from './components/Expenses.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
+import Notifications from './components/Notifications.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
 import BugReportWidget from './components/BugReportWidget.tsx';
@@ -236,6 +237,7 @@ const App: React.FC = () => {
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       case 'data-hygiene': return <DataHygiene currentUser={currentUser} />;
       case 'integrations': return <Integrations />;
+      case 'notifications': return <Notifications currentUser={currentUser} onNavigate={setActiveTab} />;
       default: return <Dashboard onNavigate={setActiveTab} />;
     }
   };
@@ -370,6 +372,10 @@ const App: React.FC = () => {
                     onRefresh={() => loadNotifications(true)}
                     isRefreshing={isRefreshingNotifications}
                     onClose={() => setIsNotificationsOpen(false)}
+                    onViewAll={() => {
+                      setActiveTab('notifications');
+                      localStorage.setItem('activeTab', 'notifications');
+                    }}
                   />
                 )}
               </div>

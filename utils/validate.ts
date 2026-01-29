@@ -106,10 +106,7 @@ export const validateCompany = (company: Partial<Company>): ValidationResult => 
     errors.push('Company domain is required (can be auto-populated from website or email)');
   }
 
-  // Industry validation
-  if (!company.industry || !company.industry.trim()) {
-    errors.push('Industry is required');
-  }
+  // Industry is now optional - no validation needed
 
   // Region validation
   if (!company.region || !company.region.trim()) {

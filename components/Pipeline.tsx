@@ -11,6 +11,7 @@ import { Deal, Company, User as UserType, Contact } from '../types';
 import { apiGetDeals, apiUpdateDeal, apiDeleteDeal, apiGetCompanies, apiGetUsers, apiCreateNotification, apiGetContacts, apiGetAllPipelines, apiGetActivePipelineByType, apiCreatePipeline, apiUpdatePipeline, apiDeletePipeline } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
+import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol, formatCurrency } from '../utils/currency';
 
 interface PipelineConfig {
   id: string;
@@ -52,6 +53,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
     title: '',
     companyId: '',
     value: '',
+    currency: DEFAULT_CURRENCY,
     stage: 'Discovery' as Deal['stage'],
     ownerId: '',
     expectedCloseDate: '',
@@ -404,7 +406,8 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
       setEditFormData({
         title: selectedDeal.title,
         companyId: selectedDeal.companyId || '',
-        value: selectedDeal.value.toString(),
+        value: selectedDeal.value ? selectedDeal.value.toString() : '',
+        currency: selectedDeal.currency || DEFAULT_CURRENCY,
         stage: selectedDeal.stage,
         ownerId: selectedDeal.ownerId,
         expectedCloseDate: selectedDeal.expectedCloseDate || '',
@@ -434,6 +437,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
         title: editFormData.title.trim(),
         companyId: editFormData.companyId && editFormData.companyId.trim() !== '' ? editFormData.companyId : null,
         value: parseFloat(editFormData.value) || 0,
+        currency: editFormData.currency || DEFAULT_CURRENCY,
         stage: editFormData.stage,
         pipelineType: 'sales', // Always sales pipeline
         ownerId: editFormData.ownerId,
@@ -501,8 +505,8 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
       events.push({
         id: 'value',
         type: 'value',
-        title: `Deal Value: $${selectedDeal.value.toLocaleString()}`,
-        description: 'Gross contract revenue for this opportunity',
+        title: `Deal Value: ${formatCurrency(selectedDeal.value, selectedDeal.currency)}`,
+        description: `Gross contract revenue for this opportunity: ${formatCurrency(selectedDeal.value, selectedDeal.currency)}`,
         date: selectedDeal.updatedAt || selectedDeal.createdAt || new Date().toISOString(),
         icon: <DollarSign className="w-4 h-4" />,
         color: 'emerald'
@@ -646,7 +650,9 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                         </div>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">{company?.name || 'Independent'}</p>
                         <div className="flex items-center justify-between">
-                          <span className="text-indigo-600 font-black text-xs">${deal.value.toLocaleString()}</span>
+                          <span className="text-indigo-600 font-black text-xs">
+                            {formatCurrency(deal.value, deal.currency)}
+                          </span>
                           <div className="flex items-center gap-2">
                              <span className="text-[9px] font-bold text-slate-400 uppercase">{deal.expectedCloseDate}</span>
                              <div className="w-6 h-6 bg-slate-50 rounded-full flex items-center justify-center text-[8px] font-black text-slate-300 border border-slate-100 uppercase">DE</div>
@@ -713,7 +719,8 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                           setEditFormData({
                             title: selectedDeal.title,
                             companyId: selectedDeal.companyId || '',
-                            value: selectedDeal.value.toString(),
+                            value: selectedDeal.value ? selectedDeal.value.toString() : '',
+                            currency: selectedDeal.currency || DEFAULT_CURRENCY,
                             stage: selectedDeal.stage,
                             ownerId: selectedDeal.ownerId,
                             expectedCloseDate: selectedDeal.expectedCloseDate || '',
@@ -785,43 +792,102 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
               {activeDetailTab === 'overview' && (
                 <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   {/* Financial Summary */}
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
-                      <div className="flex justify-between items-start mb-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Deal Value</p>
-                        <PieChart className="w-4 h-4 text-indigo-400" />
+                  {isEditingDeal ? (
+                    <div className="space-y-6">
+                      {/* Deal Value - Full Width When Editing */}
+                      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Deal Value</p>
+                          <PieChart className="w-4 h-4 text-indigo-400" />
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex gap-3 items-center">
+                            {/* Currency Dropdown */}
+                            <select
+                              value={editFormData.currency || DEFAULT_CURRENCY}
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, currency: e.target.value }))}
+                              className="px-4 py-3 text-sm font-bold bg-white border-2 border-indigo-200 rounded-xl outline-none focus:ring-4 focus:ring-indigo-100 text-indigo-600 appearance-none min-w-[140px] h-[60px]"
+                              style={{
+                                backgroundImage: `url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20"%3E%3Cpath stroke="%236366f1" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m6 8 4 4 4-4"/%3E%3C/svg%3E')`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 8px center',
+                                backgroundSize: '16px',
+                                paddingRight: '32px',
+                                height: '60px'
+                              }}
+                            >
+                              {CURRENCIES.map(currency => (
+                                <option key={currency.code} value={currency.code}>
+                                  {currency.code} ({currency.symbol})
+                                </option>
+                              ))}
+                            </select>
+                            {/* Value Input */}
+                            <div className="relative flex-1 min-w-[200px]">
+                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-600 font-black text-xl pointer-events-none z-10">
+                                {getCurrencySymbol(editFormData.currency || DEFAULT_CURRENCY)}
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editFormData.value || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, value: e.target.value }))}
+                                className="w-full pl-10 pr-4 py-3 text-2xl font-black text-indigo-600 bg-white border-2 border-indigo-200 rounded-xl outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 placeholder:text-slate-300 h-[60px]"
+                                placeholder="0"
+                                autoFocus={false}
+                                style={{ 
+                                  WebkitAppearance: 'textfield',
+                                  MozAppearance: 'textfield',
+                                  appearance: 'textfield',
+                                  color: '#4f46e5',
+                                  fontSize: '1.5rem',
+                                  fontWeight: '900',
+                                  height: '60px'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2">Gross Contract Revenue</p>
                       </div>
-                      {isEditingDeal ? (
-                        <input
-                          type="number"
-                          value={editFormData.value}
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, value: e.target.value }))}
-                          className="text-3xl font-black text-indigo-600 bg-white border-2 border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-4 focus:ring-indigo-100 w-full"
-                          placeholder="0"
-                        />
-                      ) : (
-                        <h3 className="text-3xl font-black text-indigo-600">${selectedDeal.value.toLocaleString()}</h3>
-                      )}
-                      <p className="text-[10px] font-bold text-slate-400 mt-2">Gross Contract Revenue</p>
-                    </div>
-                    <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
-                      <div className="flex justify-between items-start mb-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Expected Close</p>
-                        <Calendar className="w-4 h-4 text-indigo-400" />
-                      </div>
-                      {isEditingDeal ? (
+                      {/* Expected Close Date - New Line When Editing */}
+                      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Expected Close Date</p>
+                          <Calendar className="w-4 h-4 text-indigo-400" />
+                        </div>
                         <input
                           type="date"
                           value={editFormData.expectedCloseDate}
                           onChange={(e) => setEditFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))}
                           className="text-xl font-black text-slate-900 bg-white border-2 border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-4 focus:ring-indigo-100 w-full"
                         />
-                      ) : (
-                        <h3 className="text-2xl font-black text-slate-900">{selectedDeal.expectedCloseDate || 'Not set'}</h3>
-                      )}
-                      <p className="text-[10px] font-bold text-slate-400 mt-2">Target Implementation</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2">Target Implementation</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Deal Value</p>
+                          <PieChart className="w-4 h-4 text-indigo-400" />
+                        </div>
+                        <h3 className="text-3xl font-black text-indigo-600">
+                          {formatCurrency(selectedDeal.value, selectedDeal.currency)}
+                        </h3>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2">Gross Contract Revenue</p>
+                      </div>
+                      <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Expected Close Date</p>
+                          <Calendar className="w-4 h-4 text-indigo-400" />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-900">{selectedDeal.expectedCloseDate || 'Not set'}</h3>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2">Target Implementation</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Account & Owner Info */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
