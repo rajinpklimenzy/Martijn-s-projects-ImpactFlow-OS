@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp } from 'lucide-react';
 import { Notification } from '../types';
 import { apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
@@ -123,7 +123,12 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
     }
   };
 
-  const getIcon = (type: Notification['type']) => {
+  const getIcon = (type: Notification['type'], title?: string) => {
+    // Check if it's a pipeline notification by title
+    if (title?.toLowerCase().includes('pipeline')) {
+      return <TrendingUp className="w-5 h-5 text-purple-500" />;
+    }
+    
     switch (type) {
       case 'lead': return <UserPlus className="w-5 h-5 text-blue-500" />;
       case 'deal': return <MessageSquare className="w-5 h-5 text-indigo-500" />;
@@ -133,7 +138,12 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
     }
   };
 
-  const getBg = (type: Notification['type']) => {
+  const getBg = (type: Notification['type'], title?: string) => {
+    // Check if it's a pipeline notification by title
+    if (title?.toLowerCase().includes('pipeline')) {
+      return 'bg-purple-50';
+    }
+    
     switch (type) {
       case 'lead': return 'bg-blue-50';
       case 'deal': return 'bg-indigo-50';
@@ -223,8 +233,8 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
                   className={`p-6 flex gap-4 hover:bg-slate-50 transition-colors cursor-pointer group ${!n.read ? 'bg-indigo-50/30' : ''}`}
                   onClick={() => handleNotificationClick(n)}
                 >
-                  <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${getBg(n.type)}`}>
-                    {getIcon(n.type)}
+                  <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${getBg(n.type, n.title)}`}>
+                    {getIcon(n.type, n.title)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start gap-4 mb-1">
