@@ -5,7 +5,7 @@ import {
   Calendar, ChevronRight, X, User, Layout, Trash2, Tag, Loader2, 
   CheckSquare, FileUp, List, Grid, Download, AlertCircle, Save,
   Archive, RotateCcw, Box, FileSpreadsheet, Info, ArrowRight, Table,
-  FileText
+  FileText, Edit2, Eye
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Task, Project, User as UserType } from '../types';
@@ -44,6 +44,20 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [archiveConfirmTask, setArchiveConfirmTask] = useState<Task | null>(null);
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
+  
+  // View and Edit state
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    dueDate: '',
+    priority: 'Medium' as 'Low' | 'Medium' | 'High',
+    status: 'Todo' as 'Todo' | 'In Progress' | 'Review' | 'Done',
+    assigneeId: '',
+    projectId: ''
+  });
   
   // Multi-select state
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -130,6 +144,21 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     window.addEventListener('refresh-tasks', handleRefresh);
     return () => window.removeEventListener('refresh-tasks', handleRefresh);
   }, []);
+
+  // Initialize edit form when task is selected
+  useEffect(() => {
+    if (selectedTask && !isEditingTask) {
+      setEditFormData({
+        title: selectedTask.title,
+        description: selectedTask.description || '',
+        dueDate: selectedTask.dueDate || '',
+        priority: selectedTask.priority || 'Medium',
+        status: selectedTask.status || 'Todo',
+        assigneeId: selectedTask.assigneeId,
+        projectId: selectedTask.projectId || ''
+      });
+    }
+  }, [selectedTask, isEditingTask]);
 
   const handleArchiveTask = async (id: string) => {
     const task = tasks.find(t => t.id === id);
@@ -799,11 +828,75 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     try {
       await apiUpdateTask(id, { status: newStatus as any });
       setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
+      if (selectedTask?.id === id) {
+        setSelectedTask({ ...selectedTask, status: newStatus as any });
+      }
       showSuccess(newStatus === 'Done' ? 'Task marked as done' : 'Task marked as todo');
     } catch (err) { 
       showError('Status update failed'); 
     } finally {
       setUpdatingTaskId(null);
+    }
+  };
+
+  const handleUpdateTask = async () => {
+    if (!selectedTask) return;
+    
+    if (!editFormData.title.trim()) {
+      showError('Task title is required');
+      return;
+    }
+    
+    if (!editFormData.assigneeId) {
+      showError('Assignee is required');
+      return;
+    }
+    
+    setIsUpdatingTask(true);
+    try {
+      await apiUpdateTask(selectedTask.id, {
+        title: editFormData.title.trim(),
+        description: editFormData.description.trim() || '',
+        dueDate: editFormData.dueDate || null,
+        priority: editFormData.priority,
+        status: editFormData.status,
+        assigneeId: editFormData.assigneeId,
+        projectId: editFormData.projectId || null
+      });
+      
+      setTasks(prev => prev.map(t => 
+        t.id === selectedTask.id 
+          ? { 
+              ...t, 
+              title: editFormData.title.trim(),
+              description: editFormData.description.trim() || '',
+              dueDate: editFormData.dueDate || '',
+              priority: editFormData.priority,
+              status: editFormData.status,
+              assigneeId: editFormData.assigneeId,
+              projectId: editFormData.projectId || undefined
+            } 
+          : t
+      ));
+      
+      setSelectedTask({
+        ...selectedTask,
+        title: editFormData.title.trim(),
+        description: editFormData.description.trim() || '',
+        dueDate: editFormData.dueDate || '',
+        priority: editFormData.priority,
+        status: editFormData.status,
+        assigneeId: editFormData.assigneeId,
+        projectId: editFormData.projectId || undefined
+      });
+      
+      setIsEditingTask(false);
+      showSuccess('Task updated successfully');
+      window.dispatchEvent(new Event('refresh-tasks'));
+    } catch (err: any) {
+      showError(err.message || 'Failed to update task');
+    } finally {
+      setIsUpdatingTask(false);
     }
   };
 
@@ -896,7 +989,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                return (
                  <div 
                    key={task.id} 
-                   className={`flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors ${task.archived ? 'bg-slate-50/50' : ''} ${isSelected ? 'bg-indigo-50/30 border-l-4 border-indigo-400' : ''}`}
+                   onClick={() => setSelectedTask(task)}
+                   className={`flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors cursor-pointer ${task.archived ? 'bg-slate-50/50' : ''} ${isSelected ? 'bg-indigo-50/30 border-l-4 border-indigo-400' : ''}`}
                  >
                    <div onClick={(e) => e.stopPropagation()}>
                      <input 
@@ -924,6 +1018,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
                    </div>
                    <div className="flex items-center gap-3">
+                     <button 
+                       onClick={(e) => { 
+                         e.stopPropagation(); 
+                         setSelectedTask(task);
+                       }} 
+                       className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"
+                       title="View task"
+                     >
+                       <Eye className="w-4 h-4" />
+                     </button>
                      <button 
                        onClick={(e) => { 
                          e.stopPropagation(); 
@@ -955,12 +1059,23 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             return (
              <div 
                key={task.id} 
-               className={`bg-white p-6 rounded-3xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} relative group`}
+               onClick={() => setSelectedTask(task)}
+               className={`bg-white p-6 rounded-3xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} relative group cursor-pointer hover:shadow-lg transition-all`}
              >
                 <div className="flex justify-between items-start mb-4">
                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><CheckSquare className="w-4 h-4" /></div>
                    <div className="flex items-center gap-1">
                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                       <button 
+                         onClick={(e) => { 
+                           e.stopPropagation(); 
+                           setSelectedTask(task);
+                         }} 
+                         className="p-1.5 text-slate-400 hover:text-indigo-600"
+                         title="View task"
+                       >
+                         <Eye className="w-3.5 h-3.5" />
+                       </button>
                        <button 
                          onClick={(e) => { 
                            e.stopPropagation(); 
@@ -1357,6 +1472,297 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 ) : (
                   `Delete ${selectedTaskIds.length} Task${selectedTaskIds.length > 1 ? 's' : ''}`
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task Detail View Drawer */}
+      {selectedTask && (
+        <div className="fixed inset-0 z-[110] overflow-hidden pointer-events-none">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-in fade-in duration-300" 
+            onClick={() => {
+              setSelectedTask(null);
+              setIsEditingTask(false);
+            }} 
+          />
+          <div className="absolute right-0 inset-y-0 w-full max-w-xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
+            
+            {/* Header */}
+            <div className="p-8 border-b border-slate-100 bg-slate-50/50 relative">
+              <button 
+                onClick={() => {
+                  setSelectedTask(null);
+                  setIsEditingTask(false);
+                }} 
+                className="absolute top-6 right-6 p-2 hover:bg-white rounded-full text-slate-400 transition-all shadow-sm z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="flex items-center gap-5 mb-6">
+                <div className="w-16 h-16 rounded-[24px] flex items-center justify-center text-white shadow-xl bg-indigo-500 shadow-indigo-100">
+                  <CheckSquare className="w-8 h-8" />
+                </div>
+                <div className="flex-1">
+                  {isEditingTask ? (
+                    <input
+                      type="text"
+                      value={editFormData.title}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-xl font-black text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100"
+                      placeholder="Task title"
+                    />
+                  ) : (
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">{selectedTask.title}</h2>
+                  )}
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                      selectedTask.status === 'Done' 
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                        : selectedTask.status === 'In Progress'
+                        ? 'bg-blue-50 text-blue-600 border-blue-100'
+                        : selectedTask.status === 'Review'
+                        ? 'bg-amber-50 text-amber-600 border-amber-100'
+                        : 'bg-slate-50 text-slate-600 border-slate-100'
+                    }`}>
+                      {selectedTask.status}
+                    </span>
+                    <span className="text-slate-400 text-xs font-bold">• Task ID: #{selectedTask.id.substring(0, 8)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isEditingTask ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setIsEditingTask(false);
+                        setEditFormData({
+                          title: selectedTask.title,
+                          description: selectedTask.description || '',
+                          dueDate: selectedTask.dueDate || '',
+                          priority: selectedTask.priority || 'Medium',
+                          status: selectedTask.status || 'Todo',
+                          assigneeId: selectedTask.assigneeId,
+                          projectId: selectedTask.projectId || ''
+                        });
+                      }}
+                      disabled={isUpdatingTask}
+                      className="px-4 py-2 border border-slate-200 text-slate-400 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleUpdateTask}
+                      disabled={isUpdatingTask || !editFormData.title.trim() || !editFormData.assigneeId}
+                      className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isUpdatingTask ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          Save Changes
+                        </>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingTask(true)}
+                    className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    Edit Task
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+              {/* Task Details */}
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Assignee */}
+                  <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Assignee</p>
+                    {isEditingTask ? (
+                      <select
+                        value={editFormData.assigneeId}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, assigneeId: e.target.value }))}
+                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
+                      >
+                        <option value="">Select Assignee</option>
+                        {users.map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-3 mt-2">
+                        <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 font-black text-sm">
+                          {users.find(u => u.id === selectedTask.assigneeId)?.name?.charAt(0) || 'U'}
+                        </div>
+                        <p className="text-sm font-bold text-slate-900">
+                          {users.find(u => u.id === selectedTask.assigneeId)?.name || 'Unassigned'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Linked Project */}
+                  <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Linked Project</p>
+                    {isEditingTask ? (
+                      <select
+                        value={editFormData.projectId}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, projectId: e.target.value }))}
+                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
+                      >
+                        <option value="">None</option>
+                        {projects.filter(p => !p.archived).map(p => (
+                          <option key={p.id} value={p.id}>{p.title}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="text-sm font-bold text-slate-900 mt-2">
+                        {selectedTask.projectId ? (projects.find(p => p.id === selectedTask.projectId)?.title || 'Unknown Project') : 'None'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Due Date & Priority */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Due Date</p>
+                    {isEditingTask ? (
+                      <input
+                        type="date"
+                        value={editFormData.dueDate}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, dueDate: e.target.value }))}
+                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
+                      />
+                    ) : (
+                      <p className="text-sm font-bold text-slate-900 mt-2">
+                        {selectedTask.dueDate || 'Not set'}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Priority</p>
+                    {isEditingTask ? (
+                      <div className="flex gap-2 mt-2">
+                        {(['Low', 'Medium', 'High'] as const).map(priority => (
+                          <button
+                            key={priority}
+                            onClick={() => setEditFormData(prev => ({ ...prev, priority }))}
+                            className={`flex-1 px-3 py-2 rounded-xl text-xs font-black uppercase transition-all ${
+                              editFormData.priority === priority
+                                ? 'bg-indigo-600 text-white shadow-lg'
+                                : 'bg-white text-slate-400 border border-slate-200 hover:border-indigo-300'
+                            }`}
+                          >
+                            {priority}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={`inline-block px-3 py-1 rounded-full text-xs font-black uppercase mt-2 ${
+                        selectedTask.priority === 'High' 
+                          ? 'bg-red-50 text-red-600' 
+                          : selectedTask.priority === 'Medium'
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-slate-50 text-slate-600'
+                      }`}>
+                        {selectedTask.priority}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                  {isEditingTask ? (
+                    <select
+                      value={editFormData.status}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                      className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
+                    >
+                      <option value="Todo">Todo</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Review">Review</option>
+                      <option value="Done">Done</option>
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-3 mt-2">
+                      {selectedTask.status === 'Done' ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                      ) : selectedTask.status === 'In Progress' ? (
+                        <Clock className="w-5 h-5 text-blue-500 animate-pulse" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-slate-400" />
+                      )}
+                      <p className="text-sm font-bold text-slate-900 capitalize">
+                        {selectedTask.status}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-500" /> Description
+                  </h3>
+                  {isEditingTask ? (
+                    <textarea
+                      rows={6}
+                      value={editFormData.description}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-4 py-3 bg-white border-2 border-indigo-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 resize-none"
+                      placeholder="Add task description..."
+                    />
+                  ) : (
+                    <div className="p-6 bg-slate-950 rounded-[32px] text-indigo-50 relative overflow-hidden shadow-2xl">
+                      <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
+                        {selectedTask.description || 'No description provided.'}
+                      </p>
+                      <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-8 border-t border-slate-100 bg-white flex gap-4">
+              <button 
+                onClick={() => {
+                  setDeleteConfirmTask(selectedTask);
+                  setSelectedTask(null);
+                }} 
+                className="px-6 py-4 border border-red-200 bg-white text-red-600 hover:bg-red-50 rounded-[24px] transition-all group shrink-0 active:scale-95"
+              >
+                <Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
+              </button>
+              <button 
+                onClick={() => {
+                  setSelectedTask(null);
+                  setIsEditingTask(false);
+                }} 
+                className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3"
+              >
+                <CheckCircle2 className="w-5 h-5" /> Close
               </button>
             </div>
           </div>

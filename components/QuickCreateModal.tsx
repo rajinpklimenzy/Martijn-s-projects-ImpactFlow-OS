@@ -156,18 +156,19 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
          const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
          const userId = currentUser?.id;
          
-         const [uRes, cRes, contRes, pRes] = await Promise.all([
-           apiGetUsers(), 
-           apiGetCompanies(),
-           apiGetContacts(), // Fetch contacts for duplicate checking
-           apiGetProjects(userId, undefined, 'Active') // Only fetch Active projects
-         ]);
-         setUsers(uRes.data || []);
-         setCompanies(cRes.data || []);
-         setContacts(contRes.data || []);
-         // Filter to only show Active projects
-         const allProjects = Array.isArray(pRes) ? pRes : pRes?.data || [];
-         setProjects(allProjects.filter((p: Project) => p.status === 'Active'));
+        const [uRes, cRes, contRes, pRes] = await Promise.all([
+          apiGetUsers(), 
+          apiGetCompanies(),
+          apiGetContacts(), // Fetch contacts for duplicate checking
+          apiGetProjects(userId) // Fetch all projects (no status filter)
+        ]);
+        setUsers(uRes.data || []);
+        setCompanies(cRes.data || []);
+        setContacts(contRes.data || []);
+        // Get all projects (don't filter by status - show all projects for task linking)
+        const allProjects = Array.isArray(pRes) ? pRes : pRes?.data || [];
+        // Filter out archived projects only, show all active/planning/on-hold/completed projects
+        setProjects(allProjects.filter((p: Project) => !p.archived));
          
          if (userId) {
            setFormData(prev => ({ 
@@ -1185,7 +1186,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
                 >
                   <option value="">None</option>
-                  {projects.filter((p: Project) => p.status === 'Active').map((p: Project) => (
+                  {projects.map((p: Project) => (
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
                 </select>
