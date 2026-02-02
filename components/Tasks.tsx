@@ -73,6 +73,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [noteImagePreview, setNoteImagePreview] = useState<string>('');
   const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   
   // Mentions state
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -1334,6 +1336,38 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     }
   };
 
+  const confirmDeleteNote = async () => {
+    if (!selectedTask || !currentUser || !noteToDelete) return;
+
+    try {
+      setDeletingNoteId(noteToDelete);
+
+      const updatedNotes = selectedTask.notes?.filter(note => note.id !== noteToDelete) || [];
+
+      await apiUpdateTask(selectedTask.id, {
+        notes: updatedNotes
+      });
+
+      setSelectedTask({
+        ...selectedTask,
+        notes: updatedNotes
+      });
+
+      setTasks(prev => prev.map(t => 
+        t.id === selectedTask.id 
+          ? { ...t, notes: updatedNotes } 
+          : t
+      ));
+
+      showSuccess('Note deleted successfully');
+      setNoteToDelete(null);
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete note');
+    } finally {
+      setDeletingNoteId(null);
+    }
+  };
+
   const closeTaskDetail = () => {
     setSelectedTask(null);
     setIsEditingTask(false);
@@ -2555,50 +2589,67 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   {/* Notes List */}
                   <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
                     {selectedTask.notes && selectedTask.notes.length > 0 ? (
-                      [...selectedTask.notes].reverse().map((note) => (
-                        <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
-                                {note.userName?.charAt(0) || 'U'}
+                      [...selectedTask.notes].reverse().map((note) => {
+                        const canDelete = currentUser?.role === 'Admin' || note.userId === currentUser?.id;
+                        return (
+                          <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
+                                  {note.userName?.charAt(0) || 'U'}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-slate-900">{note.userName}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {new Date(note.createdAt).toLocaleString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-xs font-bold text-slate-900">{note.userName}</p>
-                                <p className="text-[10px] text-slate-400">
-                                  {new Date(note.createdAt).toLocaleString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                    hour12: true
-                                  })}
-                                </p>
-                              </div>
+                              {canDelete && (
+                                <button
+                                  onClick={() => setNoteToDelete(note.id)}
+                                  disabled={deletingNoteId === note.id}
+                                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group disabled:opacity-50"
+                                  title="Delete note"
+                                >
+                                  {deletingNoteId === note.id ? (
+                                    <Loader2 className="w-4 h-4 text-red-600 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-600 transition-colors" />
+                                  )}
+                                </button>
+                              )}
                             </div>
+                            {note.text && (
+                              <p className="text-sm text-slate-700 leading-relaxed pl-10">
+                                {renderNoteTextWithMentions(note.text)}
+                              </p>
+                            )}
+                            {note.imageUrl && (
+                              <div className="pl-10">
+                                <img
+                                  src={note.imageUrl}
+                                  alt={note.imageName || 'Note attachment'}
+                                  className="max-w-full max-h-64 object-contain rounded-lg border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => {
+                                    const newWindow = window.open();
+                                    if (newWindow) {
+                                      newWindow.document.write(`<img src="${note.imageUrl}" style="max-width:100%;height:auto;" />`);
+                                    }
+                                  }}
+                                />
+                              </div>
+                            )}
                           </div>
-                          {note.text && (
-                            <p className="text-sm text-slate-700 leading-relaxed pl-10">
-                              {renderNoteTextWithMentions(note.text)}
-                            </p>
-                          )}
-                          {note.imageUrl && (
-                            <div className="pl-10">
-                              <img
-                                src={note.imageUrl}
-                                alt={note.imageName || 'Note attachment'}
-                                className="max-w-full max-h-64 object-contain rounded-lg border border-slate-200 cursor-pointer hover:opacity-90 transition-opacity"
-                                onClick={() => {
-                                  const newWindow = window.open();
-                                  if (newWindow) {
-                                    newWindow.document.write(`<img src="${note.imageUrl}" style="max-width:100%;height:auto;" />`);
-                                  }
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="text-center py-8">
                         <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -2627,6 +2678,51 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3"
               >
                 <CheckCircle2 className="w-5 h-5" /> Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Note Confirmation Dialog */}
+      {noteToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600 mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-black text-slate-900 mb-2">Delete Note?</h3>
+                <p className="text-sm text-slate-600">
+                  Are you sure you want to delete this note? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setNoteToDelete(null)}
+                disabled={deletingNoteId === noteToDelete}
+                className="flex-1 px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteNote}
+                disabled={deletingNoteId === noteToDelete}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingNoteId === noteToDelete ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </>
+                )}
               </button>
             </div>
           </div>

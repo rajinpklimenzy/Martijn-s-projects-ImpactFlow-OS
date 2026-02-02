@@ -21,6 +21,10 @@ interface CRMProps {
 
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
   const { showSuccess, showError } = useToast();
+  
+  // Get current user from localStorage
+  const currentUser = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}') : null;
+  
   const [view, setView] = useState<'companies' | 'contacts'>('companies');
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
@@ -66,6 +70,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Notes state for Companies
   const [companyNoteText, setCompanyNoteText] = useState('');
   const [isAddingCompanyNote, setIsAddingCompanyNote] = useState(false);
+  const [deletingCompanyNoteId, setDeletingCompanyNoteId] = useState<string | null>(null);
+  const [companyNoteToDelete, setCompanyNoteToDelete] = useState<string | null>(null);
   const [showCompanyMentionDropdown, setShowCompanyMentionDropdown] = useState(false);
   const [companyMentionSearchQuery, setCompanyMentionSearchQuery] = useState('');
   const [companyMentionCursorPosition, setCompanyMentionCursorPosition] = useState(0);
@@ -74,6 +80,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Notes state for Contacts
   const [contactNoteText, setContactNoteText] = useState('');
   const [isAddingContactNote, setIsAddingContactNote] = useState(false);
+  const [deletingContactNoteId, setDeletingContactNoteId] = useState<string | null>(null);
+  const [contactNoteToDelete, setContactNoteToDelete] = useState<string | null>(null);
   const [showContactMentionDropdown, setShowContactMentionDropdown] = useState(false);
   const [contactMentionSearchQuery, setContactMentionSearchQuery] = useState('');
   const [contactMentionCursorPosition, setContactMentionCursorPosition] = useState(0);
@@ -349,6 +357,38 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     }
   };
 
+  const confirmDeleteCompanyNote = async () => {
+    if (!selectedCompany || !currentUser || !companyNoteToDelete) return;
+
+    try {
+      setDeletingCompanyNoteId(companyNoteToDelete);
+
+      const updatedNotes = selectedCompany.notes?.filter(note => note.id !== companyNoteToDelete) || [];
+
+      await apiUpdateCompany(selectedCompany.id, {
+        notes: updatedNotes
+      });
+
+      setSelectedCompany({
+        ...selectedCompany,
+        notes: updatedNotes
+      });
+
+      setCompanies(prev => prev.map(c => 
+        c.id === selectedCompany.id 
+          ? { ...c, notes: updatedNotes } 
+          : c
+      ));
+
+      showSuccess('Note deleted successfully');
+      setCompanyNoteToDelete(null);
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete note');
+    } finally {
+      setDeletingCompanyNoteId(null);
+    }
+  };
+
   // Contact note handlers
   const handleContactNoteTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
@@ -444,6 +484,38 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       showError(err.message || 'Failed to add note');
     } finally {
       setIsAddingContactNote(false);
+    }
+  };
+
+  const confirmDeleteContactNote = async () => {
+    if (!selectedContact || !currentUser || !contactNoteToDelete) return;
+
+    try {
+      setDeletingContactNoteId(contactNoteToDelete);
+
+      const updatedNotes = selectedContact.notes?.filter(note => note.id !== contactNoteToDelete) || [];
+
+      await apiUpdateContact(selectedContact.id, {
+        notes: updatedNotes
+      });
+
+      setSelectedContact({
+        ...selectedContact,
+        notes: updatedNotes
+      });
+
+      setContacts(prev => prev.map(c => 
+        c.id === selectedContact.id 
+          ? { ...c, notes: updatedNotes } 
+          : c
+      ));
+
+      showSuccess('Note deleted successfully');
+      setContactNoteToDelete(null);
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete note');
+    } finally {
+      setDeletingContactNoteId(null);
     }
   };
 
@@ -1241,35 +1313,52 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 {/* Notes List */}
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
                   {selectedCompany.notes && selectedCompany.notes.length > 0 ? (
-                    [...selectedCompany.notes].reverse().map((note) => (
-                      <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
-                              {note.userName?.charAt(0) || 'U'}
+                    [...selectedCompany.notes].reverse().map((note) => {
+                      const canDelete = currentUser?.role === 'Admin' || note.userId === currentUser?.id;
+                      return (
+                        <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
+                                {note.userName?.charAt(0) || 'U'}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-900">{note.userName}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {new Date(note.createdAt).toLocaleString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-xs font-bold text-slate-900">{note.userName}</p>
-                              <p className="text-[10px] text-slate-400">
-                                {new Date(note.createdAt).toLocaleString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })}
-                              </p>
-                            </div>
+                            {canDelete && (
+                              <button
+                                onClick={() => setCompanyNoteToDelete(note.id)}
+                                disabled={deletingCompanyNoteId === note.id}
+                                className="p-2 hover:bg-red-50 rounded-lg transition-colors group disabled:opacity-50"
+                                title="Delete note"
+                              >
+                                {deletingCompanyNoteId === note.id ? (
+                                  <Loader2 className="w-4 h-4 text-red-600 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-600 transition-colors" />
+                                )}
+                              </button>
+                            )}
                           </div>
+                          {note.text && (
+                            <p className="text-sm text-slate-700 leading-relaxed pl-10">
+                              {renderNoteTextWithMentions(note.text)}
+                            </p>
+                          )}
                         </div>
-                        {note.text && (
-                          <p className="text-sm text-slate-700 leading-relaxed pl-10">
-                            {renderNoteTextWithMentions(note.text)}
-                          </p>
-                        )}
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="text-center py-8">
                       <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1601,35 +1690,52 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   {/* Notes List */}
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
                     {selectedContact.notes && selectedContact.notes.length > 0 ? (
-                      [...selectedContact.notes].reverse().map((note) => (
-                        <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
-                                {note.userName?.charAt(0) || 'U'}
+                      [...selectedContact.notes].reverse().map((note) => {
+                        const canDelete = currentUser?.role === 'Admin' || note.userId === currentUser?.id;
+                        return (
+                          <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
+                                  {note.userName?.charAt(0) || 'U'}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-slate-900">{note.userName}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {new Date(note.createdAt).toLocaleString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-xs font-bold text-slate-900">{note.userName}</p>
-                                <p className="text-[10px] text-slate-400">
-                                  {new Date(note.createdAt).toLocaleString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                    hour12: true
-                                  })}
-                                </p>
-                              </div>
+                              {canDelete && (
+                                <button
+                                  onClick={() => setContactNoteToDelete(note.id)}
+                                  disabled={deletingContactNoteId === note.id}
+                                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group disabled:opacity-50"
+                                  title="Delete note"
+                                >
+                                  {deletingContactNoteId === note.id ? (
+                                    <Loader2 className="w-4 h-4 text-red-600 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-600 transition-colors" />
+                                  )}
+                                </button>
+                              )}
                             </div>
+                            {note.text && (
+                              <p className="text-sm text-slate-700 leading-relaxed pl-10">
+                                {renderNoteTextWithMentions(note.text)}
+                              </p>
+                            )}
                           </div>
-                          {note.text && (
-                            <p className="text-sm text-slate-700 leading-relaxed pl-10">
-                              {renderNoteTextWithMentions(note.text)}
-                            </p>
-                          )}
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="text-center py-12">
                         <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1892,6 +1998,96 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   </>
                 ) : (
                   `Delete ${bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} ${bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}${bulkDeleteConfirmOpen === 'companies' ? (selectedCompanyIds.length > 1 ? 'ies' : 'y') : (selectedContactIds.length > 1 ? 's' : '')}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Company Note Confirmation Dialog */}
+      {companyNoteToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600 mx-auto">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-black text-slate-900 mb-2">Delete Note?</h3>
+                <p className="text-sm text-slate-600">
+                  Are you sure you want to delete this note? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setCompanyNoteToDelete(null)}
+                disabled={deletingCompanyNoteId === companyNoteToDelete}
+                className="flex-1 px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteCompanyNote}
+                disabled={deletingCompanyNoteId === companyNoteToDelete}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingCompanyNoteId === companyNoteToDelete ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Contact Note Confirmation Dialog */}
+      {contactNoteToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600 mx-auto">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-black text-slate-900 mb-2">Delete Note?</h3>
+                <p className="text-sm text-slate-600">
+                  Are you sure you want to delete this note? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setContactNoteToDelete(null)}
+                disabled={deletingContactNoteId === contactNoteToDelete}
+                className="flex-1 px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteContactNote}
+                disabled={deletingContactNoteId === contactNoteToDelete}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingContactNoteId === contactNoteToDelete ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </>
                 )}
               </button>
             </div>
