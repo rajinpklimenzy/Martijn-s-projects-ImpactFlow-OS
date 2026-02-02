@@ -1,16 +1,18 @@
 
 import { User, Contact, Company, Deal, Project, Task, Thread, Invoice, Expense, AutomationRule, Notification, NotificationPreference, CalendarEvent } from './types.ts';
-import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt } from 'lucide-react';
+import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt, PieChart, FileSignature } from 'lucide-react';
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
-  { id: 'schedule', label: 'Daily Schedule', icon: <Calendar className="w-5 h-5" /> },
+  { id: 'schedule', label: 'Schedule', icon: <Calendar className="w-5 h-5" /> },
   { id: 'crm', label: 'CRM', icon: <Users className="w-5 h-5" /> },
   { id: 'pipeline', label: 'Deal Pipeline', icon: <Briefcase className="w-5 h-5" /> },
   { id: 'projects', label: 'Projects', icon: <FileText className="w-5 h-5" /> },
   { id: 'tasks', label: 'Tasks', icon: <CheckSquare className="w-5 h-5" /> },
   { id: 'invoices', label: 'Billing & Invoicing', icon: <DollarSign className="w-5 h-5" /> },
   { id: 'expenses', label: 'Expenses', icon: <Receipt className="w-5 h-5" /> },
+  { id: 'budget', label: 'Budget Management', icon: <PieChart className="w-5 h-5" /> },
+  { id: 'contracts', label: 'Contracts & Legal', icon: <FileSignature className="w-5 h-5" /> },
   { id: 'roadmap', label: 'Roadmap', icon: <Map className="w-5 h-5" /> },
   { id: 'integrations', label: 'Integrations', icon: <Share2 className="w-5 h-5" /> },
 ];

@@ -52,11 +52,8 @@ export interface CalendarEvent {
   };
   color?: string;
   isAllDay?: boolean;
-  recurrence?: {
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
-    interval: number;
-    endDate?: string;
-  };
+  recurringEventId?: string | null;
+  recurrence?: string[] | null; // Google Calendar recurrence rules (e.g., ["RRULE:FREQ=DAILY"])
   reminders?: {
     minutesBefore: number[];
     email: boolean;
@@ -71,6 +68,14 @@ export interface CalendarEvent {
   htmlLink?: string;
 }
 
+export interface Note {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface Contact {
   id: string;
   name: string;
@@ -80,7 +85,8 @@ export interface Contact {
   phone: string;
   lastContacted: string;
   linkedin?: string;
-  notes?: string;
+  notes?: Note[]; // Changed from string to Note array
+  legacyNotes?: string; // Keep old notes field for backward compatibility
 }
 
 export interface SocialSignal {
@@ -103,6 +109,7 @@ export interface Company {
   ownerId?: string; // Account Manager
   isTargetAccount?: boolean;
   socialSignals?: SocialSignal[];
+  notes?: Note[];
 }
 
 export interface Deal {
@@ -138,10 +145,24 @@ export interface Project {
   projectManager?: string; // Project manager user ID
   ownerId?: string;
   description?: string;
+  noteImage?: string; // Base64 or URL for uploaded note image
+  noteImageName?: string;
+  noteImageMimeType?: string;
   assignedUserIds?: string[];
   archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface TaskNote {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  imageUrl?: string; // Base64 or URL for uploaded image
+  imageName?: string;
+  imageMimeType?: string;
+  createdAt: string;
 }
 
 export interface Task {
@@ -149,10 +170,12 @@ export interface Task {
   projectId?: string; // Optional for standalone tasks
   title: string;
   description: string;
+  category?: string; // Task category for organization
   dueDate: string;
   priority: 'Low' | 'Medium' | 'High';
   status: 'Todo' | 'In Progress' | 'Review' | 'Done';
   assigneeId: string;
+  notes?: TaskNote[]; // Notes/comments with optional images
   archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -214,6 +237,70 @@ export interface Expense {
   receiptMimeType?: string;
   userId: string; // User who created/uploaded the expense
   status?: 'Pending' | 'Approved' | 'Rejected';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BudgetCategory {
+  id: string;
+  name: string;
+  budget: number; // Total budget for this category
+  department?: string; // Optional department filter
+  isDefault?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Budget {
+  id: string;
+  year: number;
+  department?: string; // Department-specific budget
+  categories: {
+    categoryId: string;
+    categoryName: string;
+    yearlyBudget: number;
+    q1Budget?: number;
+    q2Budget?: number;
+    q3Budget?: number;
+    q4Budget?: number;
+  }[];
+  totalBudget: number; // Sum of all category budgets
+  createdBy: string; // User ID
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Contract {
+  id: string;
+  title: string;
+  documentType: string; // e.g., "NDA", "Service Agreement", "Employment Contract", etc.
+  contractParty: string; // Other party in the contract
+  companyId?: string; // Link to company if applicable
+  contactId?: string; // Link to contact if applicable
+  expirationDate?: string;
+  renewalDate?: string;
+  signedDate?: string;
+  status: 'Draft' | 'Pending Signature' | 'Signed' | 'Expired' | 'Terminated';
+  // Document storage
+  fileUrl?: string; // Direct upload URL (Firebase Storage or base64)
+  fileName?: string;
+  fileMimeType?: string;
+  fileSize?: number;
+  // Google Drive integration
+  googleDriveFileId?: string;
+  googleDriveWebViewLink?: string;
+  googleDriveDownloadLink?: string;
+  isGoogleDriveLinked: boolean;
+  // E-signature
+  requiresSignature: boolean;
+  signatureStatus?: 'Not Required' | 'Pending' | 'Completed';
+  googleDocsSignatureLink?: string; // Link to Google Doc for signature
+  signedBy?: string[]; // Array of user IDs who signed
+  // Metadata
+  description?: string;
+  tags?: string[];
+  userId: string; // Creator/owner
   createdAt?: string;
   updatedAt?: string;
 }

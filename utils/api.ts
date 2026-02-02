@@ -117,6 +117,12 @@ export const apiCreateUser = (userData: any) =>
 export const apiUpdateUser = (userId: string, userData: any) =>
   apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(userData) });
 
+export const apiGetDashboardLayout = (userId: string) =>
+  apiFetch(`/users/${userId}/dashboard-layout`);
+
+export const apiUpdateDashboardLayout = (userId: string, layout: any[]) =>
+  apiFetch(`/users/${userId}/dashboard-layout`, { method: 'PUT', body: JSON.stringify({ layout }) });
+
 export const apiDeleteUser = (userId: string) =>
   apiFetch(`/users/${userId}`, { method: 'DELETE' });
 
@@ -258,6 +264,48 @@ export const apiDeleteExpense = (id: string) => apiFetch(`/expenses/${id}`, { me
 export const apiGetExpenseCategories = () => apiFetch('/expense-categories');
 export const apiCreateExpenseCategory = (data: { name: string }) => apiFetch('/expense-categories', { method: 'POST', body: JSON.stringify(data) });
 export const apiDeleteExpenseCategory = (id: string) => apiFetch(`/expense-categories/${id}`, { method: 'DELETE' });
+
+// Budget APIs
+export const apiGetBudgets = (params?: { year?: number; department?: string }) => {
+  const queryString = params ? '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : '';
+  return apiFetch(`/budgets${queryString}`);
+};
+export const apiGetBudget = (id: string) => apiFetch(`/budgets/${id}`);
+export const apiCreateBudget = (data: any) => apiFetch('/budgets', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateBudget = (id: string, data: any) => apiFetch(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteBudget = (id: string) => apiFetch(`/budgets/${id}`, { method: 'DELETE' });
+export const apiGetBudgetTracking = (params: { year: number; department?: string }) => {
+  const queryString = '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString();
+  return apiFetch(`/budgets/tracking${queryString}`);
+};
+export const apiGetDepartments = () => apiFetch('/budgets/departments');
+
+// Contract APIs
+export const apiGetContracts = (params?: { userId?: string; companyId?: string; status?: string; documentType?: string }) => {
+  const queryString = params ? '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v)).toString() : '';
+  return apiFetch(`/contracts${queryString}`);
+};
+export const apiGetContract = (id: string) => apiFetch(`/contracts/${id}`);
+export const apiCreateContract = (data: any) => apiFetch('/contracts', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateContract = (id: string, data: any) => apiFetch(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteContract = (id: string) => apiFetch(`/contracts/${id}`, { method: 'DELETE' });
+export const apiMarkContractAsSigned = (id: string, data: { signedBy: string; signedDate?: string }) => 
+  apiFetch(`/contracts/${id}/sign`, { method: 'POST', body: JSON.stringify(data) });
+
+// Contract Document Types APIs
+export const apiGetContractDocumentTypes = () => apiFetch('/contracts/document-types');
+export const apiCreateContractDocumentType = (data: { name: string }) => 
+  apiFetch('/contracts/document-types', { method: 'POST', body: JSON.stringify(data) });
+
+// Contract Google Drive APIs
+export const apiGetGoogleDriveFile = (params: { fileId: string; userId: string }) => {
+  const queryString = '?' + new URLSearchParams(Object.entries(params)).toString();
+  return apiFetch(`/contracts/google-drive/file${queryString}`);
+};
+export const apiUploadToGoogleDrive = (data: { fileName: string; fileContent: string; fileMimeType?: string; userId: string; folderId?: string }) =>
+  apiFetch('/contracts/google-drive/upload', { method: 'POST', body: JSON.stringify(data) });
+export const apiCreateGoogleDocForSignature = (data: { contractId: string; userId: string; title: string }) =>
+  apiFetch('/contracts/signature/create-doc', { method: 'POST', body: JSON.stringify(data) });
 
 // Merge APIs
 export const apiMergeCompanies = (primaryId: string, secondaryId: string) => 

@@ -30,7 +30,12 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   
-  const hours = Array.from({ length: 14 }, (_, i) => i + 8); // 8 AM to 9 PM
+  const hours = Array.from({ length: 24 }, (_, i) => i); // 12 AM to 11 PM (full day)
+
+  // Auto-detect browser timezone
+  const timezone = useMemo(() => {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }, []);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -52,6 +57,38 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
     checkConnectionStatus();
   }, [currentUser]);
 
+  // Filter out daily recurring events (like "Office", "Working Hours", etc.)
+  const filterDailyRecurringEvents = (events: CalendarEvent[]): CalendarEvent[] => {
+    return events.filter(event => {
+      // If the event has a recurringEventId, it's a recurring event instance
+      // We'll check if it's likely a daily recurring event by examining patterns
+      if (event.recurringEventId) {
+        const title = (event.title || '').toLowerCase().trim();
+        
+        // Common patterns for daily recurring "non-event" entries
+        const dailyPatterns = [
+          'office',
+          'working hours',
+          'work hours',
+          'availability',
+          'busy',
+          'out of office',
+          'lunch',
+          'break'
+        ];
+        
+        // Check if the event title matches any daily pattern
+        const isDailyPattern = dailyPatterns.some(pattern => title.includes(pattern));
+        
+        if (isDailyPattern) {
+          return false; // Filter out this event
+        }
+      }
+      
+      return true; // Keep this event
+    });
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       setIsLoadingEvents(true);
@@ -60,7 +97,9 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
         try {
           const response = await apiGetGoogleCalendarEvents(dateKey, dateKey, currentUser.id);
           const googleEvents = response.data || [];
-          setEvents(googleEvents);
+          // Filter out daily recurring events
+          const filteredEvents = filterDailyRecurringEvents(googleEvents);
+          setEvents(filteredEvents);
         } catch (err: any) {
           setEvents([]);
         }
@@ -112,10 +151,10 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
     let eventStart = new Date(event.start);
     let eventEnd = new Date(event.end);
     const timelineStart = new Date(selectedDate);
-    timelineStart.setHours(8, 0, 0, 0);
+    timelineStart.setHours(0, 0, 0, 0); // Start from midnight
     const minutesFromStart = (eventStart.getTime() - timelineStart.getTime()) / (1000 * 60);
     const durationMinutes = (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60);
-    const topPosition = minutesFromStart * (80 / 60);
+    const topPosition = minutesFromStart * (80 / 60) + 20; // Add 20px offset to match hour positions
     const height = durationMinutes * (80 / 60);
     return { top: topPosition, height: Math.max(height, 50) };
   };
@@ -141,13 +180,13 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
   const renderViewContent = () => {
     if (viewMode === 'daily') {
       return (
-        <div className="p-8 relative min-h-[1120px] bg-white">
+        <div className="p-8 pt-12 pb-12 relative min-h-[2000px] bg-white">
           {hours.map((hour) => {
-            const hourTop = (hour - 8) * 80;
+            const hourTop = hour * 80 + 20; // Add 20px offset to prevent cutting off the first hour
             return (
               <div key={hour} className="absolute left-0 right-0 group" style={{ top: `${hourTop}px` }}>
                 <span className="absolute left-4 top-0 -translate-y-1/2 text-[10px] font-black text-slate-300 w-16 text-right pr-6 uppercase tracking-widest">
-                  {hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
+                  {hour === 0 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
                 </span>
                 <div className="absolute left-24 top-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-slate-100 group-hover:bg-indigo-200 transition-colors" />
                 <div className="absolute left-24 top-0 right-8 h-px bg-slate-50" />
@@ -240,9 +279,16 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Schedule</h1>
-          <p className="text-slate-500 text-sm font-medium">
-            {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-slate-500 text-sm font-medium">
+              {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
+            <span className="text-slate-300">•</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <Clock className="w-3 h-3 text-indigo-600" />
+              <span className="text-[10px] font-bold text-indigo-600 tracking-wide">{timezone}</span>
+            </div>
+          </div>
         </div>
         
         <div className="flex items-center gap-4">
@@ -296,7 +342,14 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{viewMode} Roadmap</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Schedule</h3>
+              <span className="text-slate-300">•</span>
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg">
+                <Clock className="w-3 h-3 text-slate-500" />
+                <span className="text-[9px] font-bold text-slate-500 tracking-wide">{timezone}</span>
+              </div>
+            </div>
             <div className="flex items-center gap-3">
               {isLoadingEvents && <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />}
               <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${isGoogleConnected ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-400'}`}>

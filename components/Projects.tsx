@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, 
   ChevronRight, Loader2, Edit2, Trash2, X, AlertTriangle, CheckSquare, 
-  ListChecks, Archive, RotateCcw, Box, Save, Circle, User, Calendar, Tag
+  ListChecks, Archive, RotateCcw, Box, Save, Circle, User, Calendar, Tag,
+  FileText, Image as ImageIcon, Eye, Download
 } from 'lucide-react';
 import { Project, Company, User as UserType, Task } from '../types';
 import { apiGetProjects, apiGetCompanies, apiGetUsers, apiGetTasks, apiUpdateProject, apiDeleteProject, apiUpdateTask } from '../utils/api';
@@ -84,6 +85,8 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [viewerImageUrl, setViewerImageUrl] = useState('');
   const [editFormData, setEditFormData] = useState({
     title: '',
     description: '',
@@ -846,6 +849,70 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                           <p className="text-sm font-bold text-slate-900">{calculateProjectProgress(selectedProject.id)}%</p>
                         </div>
                       </div>
+
+                      {/* Attached File */}
+                      {selectedProject.noteImage && (
+                        <div className="space-y-2">
+                          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-indigo-500" /> Attached File
+                          </h3>
+                          {selectedProject.noteImageMimeType?.includes('pdf') ? (
+                            <div className="p-5 bg-white border-2 border-slate-200 rounded-2xl hover:border-indigo-300 transition-all group">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+                                  <FileText className="w-6 h-6" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-slate-900 truncate">{selectedProject.noteImageName || 'Document.pdf'}</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">PDF Document</p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const newWindow = window.open();
+                                    if (newWindow) {
+                                      newWindow.document.write(`
+                                        <html>
+                                          <head>
+                                            <title>${selectedProject.noteImageName || 'Document.pdf'}</title>
+                                            <style>
+                                              body { margin: 0; padding: 0; }
+                                              embed { width: 100vw; height: 100vh; }
+                                            </style>
+                                          </head>
+                                          <body>
+                                            <embed src="${selectedProject.noteImage}" type="application/pdf" width="100%" height="100%" />
+                                          </body>
+                                        </html>
+                                      `);
+                                    }
+                                  }}
+                                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2 opacity-0 group-hover:opacity-100"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  View PDF
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="relative group">
+                              <img
+                                src={selectedProject.noteImage}
+                                alt={selectedProject.noteImageName || 'Attachment'}
+                                className="w-full max-h-80 object-contain rounded-2xl border-2 border-slate-200 cursor-pointer hover:border-indigo-300 transition-all"
+                                onClick={() => {
+                                  setViewerImageUrl(selectedProject.noteImage || '');
+                                  setImageViewerOpen(true);
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 rounded-2xl transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
+                                <div className="bg-white/90 backdrop-blur-sm px-4 py-2 rounded-xl shadow-lg">
+                                  <Eye className="w-5 h-5 text-indigo-600" />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -995,6 +1062,32 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
               >
                 <CheckCircle2 className="w-5 h-5" /> Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Viewer Modal */}
+      {imageViewerOpen && (
+        <div className="fixed inset-0 z-[150] overflow-hidden">
+          <div 
+            className="absolute inset-0 bg-slate-900/95 backdrop-blur-md animate-in fade-in duration-300" 
+            onClick={() => setImageViewerOpen(false)} 
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <button
+              onClick={() => setImageViewerOpen(false)}
+              className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all z-10 backdrop-blur-sm"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="relative max-w-7xl max-h-[90vh] animate-in zoom-in-95 duration-300">
+              <img
+                src={viewerImageUrl}
+                alt="Full size"
+                className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
             </div>
           </div>
         </div>

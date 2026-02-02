@@ -14,6 +14,8 @@ import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
 import Roadmap from './components/Roadmap.tsx';
 import Expenses from './components/Expenses.tsx';
+import Budget from './components/Budget.tsx';
+import Contracts from './components/Contracts.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import Notifications from './components/Notifications.tsx';
@@ -232,6 +234,8 @@ const App: React.FC = () => {
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
       case 'expenses': return <Expenses currentUser={currentUser} />;
+      case 'budget': return <Budget currentUser={currentUser} />;
+      case 'contracts': return <Contracts currentUser={currentUser} />;
       case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;

@@ -168,6 +168,21 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
     }
   };
 
+  const handleDisconnectGoogle = async () => {
+    setIsDisconnecting(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      await apiDisconnectGoogleCalendar(userId);
+      setIsGoogleConnected(false);
+      setGoogleUserEmail(null);
+      showSuccess('Google account disconnected successfully');
+    } catch (err: any) {
+      showError('Failed to disconnect Google account');
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
   useEffect(() => {
     const loadUserData = async () => {
       let user = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
@@ -553,16 +568,218 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
           )}
 
           {activeTab === 'connections' && (
-            <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-                  <Layers className="w-10 h-10 text-slate-400" />
+            <div className="space-y-6">
+              {/* Google Integration */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-white shadow-md flex items-center justify-center">
+                      <svg className="w-8 h-8" viewBox="0 0 48 48">
+                        <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                        <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                        <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                        <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-xl font-black text-slate-900">Google Workspace</h3>
+                      <p className="text-sm text-slate-500 font-medium mt-0.5">
+                        Connect your Google account to sync Calendar, Drive, Docs, and Gmail
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="font-bold text-2xl text-slate-900 mb-2">Under Development</h3>
-                <p className="text-slate-500 text-sm max-w-md">
-                  The Connections & Sync feature is currently under development. 
-                  We're working hard to bring you seamless integration capabilities.
-                </p>
+
+                <div className="p-6">
+                  {isGoogleConnected ? (
+                    <div className="space-y-6">
+                      {/* Connection Status */}
+                      <div className="p-4 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                            <div>
+                              <p className="text-sm font-bold text-emerald-900">Connected</p>
+                              {googleUserEmail && (
+                                <p className="text-xs text-emerald-700 mt-0.5">{googleUserEmail}</p>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleDisconnectGoogle}
+                            disabled={isDisconnecting}
+                            className="px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-widest rounded-lg hover:bg-red-700 transition-all disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {isDisconnecting ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Disconnecting...
+                              </>
+                            ) : (
+                              'Disconnect'
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Services Enabled */}
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 mb-4">Connected Services</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                                <Calendar className="w-4 h-4 text-blue-600" />
+                              </div>
+                              <span className="font-bold text-slate-900">Google Calendar</span>
+                            </div>
+                            <p className="text-xs text-slate-600">Sync events and schedules</p>
+                          </div>
+
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                                <svg className="w-4 h-4 text-green-600" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4c-1.48 0-2.85.43-4.01 1.17l1.46 1.46C10.21 6.23 11.08 6 12 6c3.04 0 5.5 2.46 5.5 5.5v.5H19c1.66 0 3 1.34 3 3 0 1.13-.64 2.11-1.56 2.62l1.45 1.45C23.16 18.16 24 16.68 24 15c0-2.64-2.05-4.78-4.65-4.96zM3 5.27l2.75 2.74C2.56 8.15 0 10.77 0 14c0 3.31 2.69 6 6 6h11.73l2 2L21 20.73 4.27 4 3 5.27zM7.73 10l8 8H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h1.73z"/>
+                                </svg>
+                              </div>
+                              <span className="font-bold text-slate-900">Google Drive</span>
+                            </div>
+                            <p className="text-xs text-slate-600">Store and access documents</p>
+                          </div>
+
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                                <svg className="w-4 h-4 text-indigo-600" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                </svg>
+                              </div>
+                              <span className="font-bold text-slate-900">Google Docs</span>
+                            </div>
+                            <p className="text-xs text-slate-600">Create and sign documents</p>
+                          </div>
+
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                                <Mail className="w-4 h-4 text-red-600" />
+                              </div>
+                              <span className="font-bold text-slate-900">Gmail</span>
+                            </div>
+                            <p className="text-xs text-slate-600">Access email communications</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Permissions Info */}
+                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                        <div className="flex items-start gap-3">
+                          <Shield className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-bold text-blue-900 mb-1">Permissions Granted</p>
+                            <ul className="text-xs text-blue-800 space-y-1">
+                              <li>• View and manage calendar events</li>
+                              <li>• Create, view, and manage files in Google Drive</li>
+                              <li>• Create and edit documents in Google Docs</li>
+                              <li>• Read email messages from Gmail</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Not Connected */}
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                          <Link2 className="w-8 h-8 text-slate-400" />
+                        </div>
+                        <h4 className="text-lg font-bold text-slate-900 mb-2">Not Connected</h4>
+                        <p className="text-sm text-slate-600 max-w-md mx-auto mb-6">
+                          Connect your Google account to unlock powerful integrations with Calendar, Drive, Docs, and Gmail
+                        </p>
+                        <button
+                          onClick={handleConnectGoogle}
+                          disabled={isConnecting}
+                          className="px-6 py-3 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50 inline-flex items-center gap-2"
+                        >
+                          {isConnecting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Connecting...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-5 h-5" viewBox="0 0 48 48">
+                                <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                                <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                                <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                                <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                              </svg>
+                              Connect with Google
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Features Preview */}
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 mb-4">What You'll Get</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <Calendar className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">Calendar Sync</p>
+                              <p className="text-xs text-slate-600 mt-0.5">Sync events and manage schedules</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <svg className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4c-1.48 0-2.85.43-4.01 1.17l1.46 1.46C10.21 6.23 11.08 6 12 6c3.04 0 5.5 2.46 5.5 5.5v.5H19c1.66 0 3 1.34 3 3 0 1.13-.64 2.11-1.56 2.62l1.45 1.45C23.16 18.16 24 16.68 24 15c0-2.64-2.05-4.78-4.65-4.96zM3 5.27l2.75 2.74C2.56 8.15 0 10.77 0 14c0 3.31 2.69 6 6 6h11.73l2 2L21 20.73 4.27 4 3 5.27zM7.73 10l8 8H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h1.73z"/>
+                            </svg>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">Drive Storage</p>
+                              <p className="text-xs text-slate-600 mt-0.5">Store contracts and documents</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <svg className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                            </svg>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">Document Signing</p>
+                              <p className="text-xs text-slate-600 mt-0.5">E-signature via Google Docs</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <Mail className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">Gmail Access</p>
+                              <p className="text-xs text-slate-600 mt-0.5">View email communications</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Security Note */}
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-6">
+                <div className="flex items-start gap-4">
+                  <Shield className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-black text-amber-900 mb-2">Security & Privacy</h4>
+                    <ul className="text-xs text-amber-800 space-y-1">
+                      <li>• Your data is encrypted and securely stored</li>
+                      <li>• We only request the minimum permissions needed</li>
+                      <li>• You can disconnect at any time</li>
+                      <li>• We never share your data with third parties</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           )}

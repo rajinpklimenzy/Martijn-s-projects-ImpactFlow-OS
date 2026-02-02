@@ -26,6 +26,7 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
   
   // Category popup state
   const [isCategoryPopupOpen, setIsCategoryPopupOpen] = useState(false);
+  const [categoryPopupMode, setCategoryPopupMode] = useState<'select' | 'manage'>('select');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   
@@ -434,13 +435,25 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
           <h1 className="text-3xl font-black text-slate-900 mb-2">Expenses</h1>
           <p className="text-slate-500 text-sm">Manage company expenses and receipts</p>
         </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
-        >
-          <Plus className="w-5 h-5" />
-          Add Expense
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              setCategoryPopupMode('manage');
+              setIsCategoryPopupOpen(true);
+            }}
+            className="px-4 py-3 bg-white text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-all flex items-center gap-2 border-2 border-indigo-200"
+          >
+            <Tag className="w-4 h-4" />
+            Manage Categories
+          </button>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
+          >
+            <Plus className="w-5 h-5" />
+            Add Expense
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -908,7 +921,10 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2 block">Category *</label>
                   <button
                     type="button"
-                    onClick={() => setIsCategoryPopupOpen(true)}
+                    onClick={() => {
+                      setCategoryPopupMode('select');
+                      setIsCategoryPopupOpen(true);
+                    }}
                     className={`w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-50 text-left flex items-center justify-between ${
                       formData.category ? 'text-slate-900' : 'text-slate-400'
                     }`}
@@ -987,6 +1003,26 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
                         alt="Receipt preview"
                         className="w-full max-h-48 object-contain rounded-lg border border-slate-200"
                       />
+                    </div>
+                  )}
+                  {receiptPreview && formData.receiptFile?.type.includes('pdf') && (
+                    <div className="mt-3 p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-center gap-3">
+                      <FileText className="w-8 h-8 text-red-600 shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-red-900">{formData.receiptFile.name}</p>
+                        <p className="text-xs text-red-700 mt-0.5">PDF document ready to upload</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptPreview('');
+                          setFormData(prev => ({ ...prev, receiptFile: null }));
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="p-2 hover:bg-red-100 rounded-lg text-red-600 transition-all"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1090,11 +1126,18 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Select Category</h3>
-                <p className="text-xs text-slate-400 mt-1">Choose an expense category</p>
+                <h3 className="text-lg font-black text-slate-900">
+                  {categoryPopupMode === 'manage' ? 'Manage Categories' : 'Select Category'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {categoryPopupMode === 'manage' ? 'View and add expense categories' : 'Choose an expense category'}
+                </p>
               </div>
               <button
-                onClick={() => setIsCategoryPopupOpen(false)}
+                onClick={() => {
+                  setIsCategoryPopupOpen(false);
+                  setNewCategoryName('');
+                }}
                 className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-slate-400" />
@@ -1103,28 +1146,51 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
 
             <div className="p-6 max-h-[400px] overflow-y-auto">
               <div className="space-y-2">
-                {categories.map(category => (
-                  <button
-                    key={category.id}
-                    type="button"
-                    onClick={() => {
-                      setFormData({ ...formData, category: category.name });
-                      setIsCategoryPopupOpen(false);
-                    }}
-                    className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center justify-between ${
-                      formData.category === category.name
-                        ? 'bg-indigo-50 text-indigo-600 border-2 border-indigo-200'
-                        : 'bg-slate-50 text-slate-900 border-2 border-transparent hover:bg-slate-100'
-                    }`}
-                  >
-                    <span className="font-bold text-sm">{category.name}</span>
-                    {formData.category === category.name ? (
-                      <CheckCircle2 className="w-5 h-5 text-indigo-600" />
-                    ) : (
-                      <Circle className="w-5 h-5 text-slate-300" />
-                    )}
-                  </button>
-                ))}
+                {categories.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Tag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm text-slate-500 font-medium">No categories yet</p>
+                    <p className="text-xs text-slate-400 mt-1">Add your first category below</p>
+                  </div>
+                ) : categoryPopupMode === 'manage' ? (
+                  categories.map(category => (
+                    <div
+                      key={category.id}
+                      className="px-4 py-3 rounded-xl bg-slate-50 border-2 border-slate-100 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                          <Tag className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <span className="font-bold text-sm text-slate-900">{category.name}</span>
+                      </div>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    </div>
+                  ))
+                ) : (
+                  categories.map(category => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => {
+                        setFormData({ ...formData, category: category.name });
+                        setIsCategoryPopupOpen(false);
+                      }}
+                      className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center justify-between ${
+                        formData.category === category.name
+                          ? 'bg-indigo-50 text-indigo-600 border-2 border-indigo-200'
+                          : 'bg-slate-50 text-slate-900 border-2 border-transparent hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="font-bold text-sm">{category.name}</span>
+                      {formData.category === category.name ? (
+                        <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-slate-300" />
+                      )}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
 
@@ -1162,6 +1228,9 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
                   )}
                 </button>
               </div>
+              <p className="text-[10px] text-slate-400 font-medium">
+                Categories are shared across budgets and expenses
+              </p>
             </div>
           </div>
         </div>

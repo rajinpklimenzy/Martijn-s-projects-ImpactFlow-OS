@@ -5,10 +5,10 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send
 } from 'lucide-react';
-import { Company, Contact, Deal, User as UserType, SocialSignal } from '../types';
-import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers } from '../utils/api';
+import { Company, Contact, Deal, User as UserType, SocialSignal, Note } from '../types';
+import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers, apiCreateNotification } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 
@@ -60,7 +60,24 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [isBulkDeletingCompanies, setIsBulkDeletingCompanies] = useState(false);
   const [isBulkDeletingContacts, setIsBulkDeletingContacts] = useState(false);
   const [isBulkMarkingTargetAccount, setIsBulkMarkingTargetAccount] = useState(false);
+  const [isBulkUnmarkingTargetAccount, setIsBulkUnmarkingTargetAccount] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
+
+  // Notes state for Companies
+  const [companyNoteText, setCompanyNoteText] = useState('');
+  const [isAddingCompanyNote, setIsAddingCompanyNote] = useState(false);
+  const [showCompanyMentionDropdown, setShowCompanyMentionDropdown] = useState(false);
+  const [companyMentionSearchQuery, setCompanyMentionSearchQuery] = useState('');
+  const [companyMentionCursorPosition, setCompanyMentionCursorPosition] = useState(0);
+  const [filteredCompanyMentionUsers, setFilteredCompanyMentionUsers] = useState<UserType[]>([]);
+  
+  // Notes state for Contacts
+  const [contactNoteText, setContactNoteText] = useState('');
+  const [isAddingContactNote, setIsAddingContactNote] = useState(false);
+  const [showContactMentionDropdown, setShowContactMentionDropdown] = useState(false);
+  const [contactMentionSearchQuery, setContactMentionSearchQuery] = useState('');
+  const [contactMentionCursorPosition, setContactMentionCursorPosition] = useState(0);
+  const [filteredContactMentionUsers, setFilteredContactMentionUsers] = useState<UserType[]>([]);
 
   useEffect(() => {
     if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
@@ -165,6 +182,268 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       showError(err.message || 'Failed to delete contact');
     } finally {
       setIsDeletingContact(false);
+    }
+  };
+
+  // Close handlers with cleanup
+  const closeCompanyDrawer = () => {
+    setSelectedCompany(null);
+    setIsEditingCompany(false);
+    setCompanyNoteText('');
+    setShowCompanyMentionDropdown(false);
+  };
+
+  const closeContactDrawer = () => {
+    setSelectedContact(null);
+    setIsEditingContact(false);
+    setContactNoteText('');
+    setShowContactMentionDropdown(false);
+  };
+
+  // Extract mentioned users from text
+  const extractMentionedUsers = (text: string): string[] => {
+    const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
+    const mentions: string[] = [];
+    let match;
+    
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentionedName = match[1].trim();
+      const user = users.find(u => u.name.toLowerCase() === mentionedName.toLowerCase());
+      if (user) {
+        mentions.push(user.id);
+      }
+    }
+    
+    return [...new Set(mentions)];
+  };
+
+  // Render note text with highlighted mentions
+  const renderNoteTextWithMentions = (text: string) => {
+    const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = mentionRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      
+      const mentionedName = match[1].trim();
+      const user = users.find(u => u.name.toLowerCase() === mentionedName.toLowerCase());
+      if (user) {
+        parts.push(
+          <span key={match.index} className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">
+            @{user.name}
+          </span>
+        );
+      } else {
+        parts.push(`@${mentionedName}`);
+      }
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : text;
+  };
+
+  // Company note handlers
+  const handleCompanyNoteTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    
+    setCompanyNoteText(text);
+    setCompanyMentionCursorPosition(cursorPos);
+    
+    const textUpToCursor = text.substring(0, cursorPos);
+    const lastAtSymbol = textUpToCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      const searchQuery = textUpToCursor.substring(lastAtSymbol + 1);
+      const charBeforeAt = lastAtSymbol > 0 ? textUpToCursor[lastAtSymbol - 1] : ' ';
+      if (charBeforeAt === ' ' || charBeforeAt === '\n' || lastAtSymbol === 0) {
+        if (!searchQuery.includes(' ') && !searchQuery.includes('\n')) {
+          setCompanyMentionSearchQuery(searchQuery);
+          const filtered = users.filter(u => 
+            u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            u.email.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+          setFilteredCompanyMentionUsers(filtered.slice(0, 5));
+          setShowCompanyMentionDropdown(true);
+          return;
+        }
+      }
+    }
+    
+    setShowCompanyMentionDropdown(false);
+  };
+
+  const handleCompanyMentionSelect = (user: UserType) => {
+    const textUpToCursor = companyNoteText.substring(0, companyMentionCursorPosition);
+    const lastAtSymbol = textUpToCursor.lastIndexOf('@');
+    const textAfterCursor = companyNoteText.substring(companyMentionCursorPosition);
+    
+    const beforeMention = companyNoteText.substring(0, lastAtSymbol);
+    const newText = `${beforeMention}@${user.name} ${textAfterCursor}`;
+    
+    setCompanyNoteText(newText);
+    setShowCompanyMentionDropdown(false);
+  };
+
+  const handleAddCompanyNote = async () => {
+    if (!selectedCompany || !companyNoteText.trim()) return;
+    
+    setIsAddingCompanyNote(true);
+    try {
+      const currentUserId = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}').id : '';
+      const currentUserName = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}').name : 'Unknown User';
+      
+      const newNote: Note = {
+        id: `note_${Date.now()}`,
+        userId: currentUserId,
+        userName: currentUserName,
+        text: companyNoteText.trim(),
+        createdAt: new Date().toISOString()
+      };
+      
+      const updatedNotes = [...(selectedCompany.notes || []), newNote];
+      
+      await apiUpdateCompany(selectedCompany.id, { notes: updatedNotes });
+      
+      setSelectedCompany({ ...selectedCompany, notes: updatedNotes });
+      setCompanies(prev => prev.map(c => 
+        c.id === selectedCompany.id ? { ...c, notes: updatedNotes } : c
+      ));
+      
+      // Send notifications
+      const mentionedUserIds = extractMentionedUsers(companyNoteText);
+      for (const mentionedUserId of mentionedUserIds) {
+        try {
+          await apiCreateNotification({
+            userId: mentionedUserId,
+            type: 'mention',
+            title: 'You were mentioned in a company note',
+            message: `${currentUserName} mentioned you in ${selectedCompany.name}`,
+            relatedId: selectedCompany.id,
+            relatedType: 'company',
+            read: false
+          });
+        } catch (notifErr) {
+          console.error('Failed to send notification:', notifErr);
+        }
+      }
+      
+      setCompanyNoteText('');
+      const successMsg = mentionedUserIds.length > 0 
+        ? `Note added and ${mentionedUserIds.length} user(s) notified`
+        : 'Note added successfully';
+      showSuccess(successMsg);
+    } catch (err: any) {
+      showError(err.message || 'Failed to add note');
+    } finally {
+      setIsAddingCompanyNote(false);
+    }
+  };
+
+  // Contact note handlers
+  const handleContactNoteTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    
+    setContactNoteText(text);
+    setContactMentionCursorPosition(cursorPos);
+    
+    const textUpToCursor = text.substring(0, cursorPos);
+    const lastAtSymbol = textUpToCursor.lastIndexOf('@');
+    
+    if (lastAtSymbol !== -1) {
+      const searchQuery = textUpToCursor.substring(lastAtSymbol + 1);
+      const charBeforeAt = lastAtSymbol > 0 ? textUpToCursor[lastAtSymbol - 1] : ' ';
+      if (charBeforeAt === ' ' || charBeforeAt === '\n' || lastAtSymbol === 0) {
+        if (!searchQuery.includes(' ') && !searchQuery.includes('\n')) {
+          setContactMentionSearchQuery(searchQuery);
+          const filtered = users.filter(u => 
+            u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            u.email.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+          setFilteredContactMentionUsers(filtered.slice(0, 5));
+          setShowContactMentionDropdown(true);
+          return;
+        }
+      }
+    }
+    
+    setShowContactMentionDropdown(false);
+  };
+
+  const handleContactMentionSelect = (user: UserType) => {
+    const textUpToCursor = contactNoteText.substring(0, contactMentionCursorPosition);
+    const lastAtSymbol = textUpToCursor.lastIndexOf('@');
+    const textAfterCursor = contactNoteText.substring(contactMentionCursorPosition);
+    
+    const beforeMention = contactNoteText.substring(0, lastAtSymbol);
+    const newText = `${beforeMention}@${user.name} ${textAfterCursor}`;
+    
+    setContactNoteText(newText);
+    setShowContactMentionDropdown(false);
+  };
+
+  const handleAddContactNote = async () => {
+    if (!selectedContact || !contactNoteText.trim()) return;
+    
+    setIsAddingContactNote(true);
+    try {
+      const currentUserId = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}').id : '';
+      const currentUserName = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}').name : 'Unknown User';
+      
+      const newNote: Note = {
+        id: `note_${Date.now()}`,
+        userId: currentUserId,
+        userName: currentUserName,
+        text: contactNoteText.trim(),
+        createdAt: new Date().toISOString()
+      };
+      
+      const updatedNotes = [...(selectedContact.notes || []), newNote];
+      
+      await apiUpdateContact(selectedContact.id, { notes: updatedNotes });
+      
+      setSelectedContact({ ...selectedContact, notes: updatedNotes });
+      setContacts(prev => prev.map(c => 
+        c.id === selectedContact.id ? { ...c, notes: updatedNotes } : c
+      ));
+      
+      // Send notifications
+      const mentionedUserIds = extractMentionedUsers(contactNoteText);
+      for (const mentionedUserId of mentionedUserIds) {
+        try {
+          await apiCreateNotification({
+            userId: mentionedUserId,
+            type: 'mention',
+            title: 'You were mentioned in a contact note',
+            message: `${currentUserName} mentioned you in ${selectedContact.name}`,
+            relatedId: selectedContact.id,
+            relatedType: 'contact',
+            read: false
+          });
+        } catch (notifErr) {
+          console.error('Failed to send notification:', notifErr);
+        }
+      }
+      
+      setContactNoteText('');
+      const successMsg = mentionedUserIds.length > 0 
+        ? `Note added and ${mentionedUserIds.length} user(s) notified`
+        : 'Note added successfully';
+      showSuccess(successMsg);
+    } catch (err: any) {
+      showError(err.message || 'Failed to add note');
+    } finally {
+      setIsAddingContactNote(false);
     }
   };
 
@@ -295,7 +574,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const handleBulkMarkAsTargetAccount = async () => {
     if (selectedCompanyIds.length === 0) return;
     
-    setIsBulkDeletingCompanies(true); // Reuse loading state
+    setIsBulkMarkingTargetAccount(true);
     try {
       const targetIds = [...selectedCompanyIds];
       // Mark all selected companies as target accounts
@@ -317,7 +596,36 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     } catch (err: any) {
       showError(err.message || 'Failed to mark companies as target accounts');
     } finally {
-      setIsBulkDeletingCompanies(false);
+      setIsBulkMarkingTargetAccount(false);
+    }
+  };
+
+  const handleBulkUnmarkAsTargetAccount = async () => {
+    if (selectedCompanyIds.length === 0) return;
+    
+    setIsBulkUnmarkingTargetAccount(true);
+    try {
+      const targetIds = [...selectedCompanyIds];
+      // Unmark all selected companies as target accounts
+      await Promise.all(targetIds.map(id => apiUpdateCompany(id, { isTargetAccount: false })));
+      
+      // Update local state
+      setCompanies(prev => prev.map(c => 
+        targetIds.includes(c.id) ? { ...c, isTargetAccount: false } : c
+      ));
+      
+      // Update selected company if it's in the list
+      if (selectedCompany && targetIds.includes(selectedCompany.id)) {
+        setSelectedCompany({ ...selectedCompany, isTargetAccount: false });
+      }
+      
+      setSelectedCompanyIds([]);
+      showSuccess(`Successfully unmarked ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'} as target account${targetIds.length > 1 ? 's' : ''}`);
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to unmark companies as target accounts');
+    } finally {
+      setIsBulkUnmarkingTargetAccount(false);
     }
   };
 
@@ -685,21 +993,38 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <div className="h-8 w-px bg-white/10" />
             <div className="flex items-center gap-3">
               {view === 'companies' && (
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleBulkMarkAsTargetAccount();
-                  }}
-                  disabled={isBulkMarkingTargetAccount}
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
-                >
-                  {isBulkMarkingTargetAccount ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Target className="w-3.5 h-3.5" />
-                  )}
-                  Mark as Target Account
-                </button>
+                <>
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleBulkMarkAsTargetAccount();
+                    }}
+                    disabled={isBulkMarkingTargetAccount || isBulkUnmarkingTargetAccount}
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isBulkMarkingTargetAccount ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Target className="w-3.5 h-3.5" />
+                    )}
+                    Mark as Target Account
+                  </button>
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleBulkUnmarkAsTargetAccount();
+                    }}
+                    disabled={isBulkMarkingTargetAccount || isBulkUnmarkingTargetAccount}
+                    className="px-5 py-2 bg-slate-600 hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isBulkUnmarkingTargetAccount ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Circle className="w-3.5 h-3.5" />
+                    )}
+                    Unmark Target Account
+                  </button>
+                </>
               )}
               <button 
                 onClick={(e) => { 
@@ -733,7 +1058,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       {/* Company Detail Drawer */}
       {selectedCompany && (
         <div className="fixed inset-0 z-[70] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={() => { setSelectedCompany(null); setIsEditingCompany(false); }} />
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm pointer-events-auto animate-in fade-in duration-300" onClick={closeCompanyDrawer} />
           <div className="absolute right-0 inset-y-0 w-full max-w-2xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
@@ -755,7 +1080,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     <button onClick={() => setDeleteConfirmCompany(selectedCompany)} className="p-2 hover:bg-red-50 rounded-xl text-red-500 transition-all" title="Delete Company"><Trash2 className="w-5 h-5" /></button>
                   </>
                 )}
-                <button onClick={() => { setSelectedCompany(null); setIsEditingCompany(false); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-5 h-5" /></button>
+                <button onClick={closeCompanyDrawer} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-5 h-5" /></button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-8 space-y-10">
@@ -841,6 +1166,119 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   ))}
                 </div>
               </div>
+
+              {/* Notes Section */}
+              <div className="space-y-4 pt-4 border-t border-slate-200">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-500" /> 
+                  Notes & Comments
+                  {selectedCompany.notes && selectedCompany.notes.length > 0 && (
+                    <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full text-[10px]">
+                      {selectedCompany.notes.length}
+                    </span>
+                  )}
+                </h3>
+
+                {/* Add New Note */}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <textarea
+                      rows={3}
+                      value={companyNoteText}
+                      onChange={handleCompanyNoteTextChange}
+                      onBlur={() => setTimeout(() => setShowCompanyMentionDropdown(false), 200)}
+                      className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
+                      placeholder="Add a note or comment... (Use @ to mention users)"
+                    />
+                    
+                    {/* Mention Dropdown */}
+                    {showCompanyMentionDropdown && filteredCompanyMentionUsers.length > 0 && (
+                      <div className="absolute bottom-full mb-2 left-0 w-full max-w-sm bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+                        <div className="p-2">
+                          <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            <AtSign className="w-3 h-3" />
+                            Mention User
+                          </div>
+                          {filteredCompanyMentionUsers.map(user => (
+                            <button
+                              key={user.id}
+                              onClick={() => handleCompanyMentionSelect(user)}
+                              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left"
+                            >
+                              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                {user.name.charAt(0)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
+                                <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleAddCompanyNote}
+                    disabled={isAddingCompanyNote || !companyNoteText.trim()}
+                    className="w-full px-6 py-3 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isAddingCompanyNote ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Send
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Notes List */}
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {selectedCompany.notes && selectedCompany.notes.length > 0 ? (
+                    [...selectedCompany.notes].reverse().map((note) => (
+                      <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
+                              {note.userName?.charAt(0) || 'U'}
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-900">{note.userName}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {new Date(note.createdAt).toLocaleString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        {note.text && (
+                          <p className="text-sm text-slate-700 leading-relaxed pl-10">
+                            {renderNoteTextWithMentions(note.text)}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-sm text-slate-400 font-medium">No notes yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Add your first note above</p>
+                    </div>
+                  )}
+                </div>
+              </div>
               
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Contacts</h3>
@@ -864,12 +1302,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       {/* Sophisticated Contact Profile Drawer */}
       {selectedContact && (
         <div className="fixed inset-0 z-[75] overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-in fade-in duration-300" onClick={() => { setSelectedContact(null); setIsEditingContact(false); }} />
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-in fade-in duration-300" onClick={closeContactDrawer} />
           <div className="absolute right-0 inset-y-0 w-full max-w-xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             
             {/* Business Card Header */}
             <div className="p-8 border-b border-slate-100 bg-slate-50/50 relative">
-              <button onClick={() => { setSelectedContact(null); setIsEditingContact(false); }} className="absolute top-6 right-6 p-2 hover:bg-white rounded-full text-slate-400 transition-all shadow-sm z-10"><X className="w-5 h-5" /></button>
+              <button onClick={closeContactDrawer} className="absolute top-6 right-6 p-2 hover:bg-white rounded-full text-slate-400 transition-all shadow-sm z-10"><X className="w-5 h-5" /></button>
               
               <div className="flex items-center gap-6">
                 <div className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-indigo-100 ring-4 ring-indigo-50 shrink-0">
@@ -1078,28 +1516,128 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
               {activeContactTab === 'notes' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Internal Collaboration Insights</h3>
-                    {isEditingContact && <span className="text-[10px] font-black text-indigo-500 uppercase flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" /> Edit Mode Active</span>}
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-indigo-500" /> 
+                    Strategic Context & Notes
+                    {selectedContact.notes && selectedContact.notes.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full text-[10px]">
+                        {selectedContact.notes.length}
+                      </span>
+                    )}
+                  </h3>
+
+                  {/* Add New Note */}
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <textarea
+                        rows={4}
+                        value={contactNoteText}
+                        onChange={handleContactNoteTextChange}
+                        onBlur={() => setTimeout(() => setShowContactMentionDropdown(false), 200)}
+                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
+                        placeholder="Add strategic context, decision-making patterns, or meeting insights... (Use @ to mention users)"
+                      />
+                      
+                      {/* Mention Dropdown */}
+                      {showContactMentionDropdown && filteredContactMentionUsers.length > 0 && (
+                        <div className="absolute bottom-full mb-2 left-0 w-full max-w-sm bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                              <AtSign className="w-3 h-3" />
+                              Mention User
+                            </div>
+                            {filteredContactMentionUsers.map(user => (
+                              <button
+                                key={user.id}
+                                onClick={() => handleContactMentionSelect(user)}
+                                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left"
+                              >
+                                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                  {user.name.charAt(0)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
+                                  <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={handleAddContactNote}
+                      disabled={isAddingContactNote || !contactNoteText.trim()}
+                      className="w-full px-6 py-3 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isAddingContactNote ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Send
+                        </>
+                      )}
+                    </button>
                   </div>
-                  {isEditingContact ? (
-                    <textarea 
-                      value={editContactFormData.notes} 
-                      onChange={e => setEditContactFormData({...editContactFormData, notes: e.target.value})} 
-                      placeholder="Add strategic context, decision-making patterns, or meeting insights about this contact..." 
-                      className="w-full p-8 bg-slate-50 border border-slate-200 rounded-[40px] text-sm text-slate-700 min-h-[300px] outline-none focus:ring-8 focus:ring-indigo-50 transition-all font-medium leading-relaxed resize-none"
-                    />
-                  ) : (
-                    <div className="p-10 bg-slate-950 rounded-[48px] text-indigo-50 relative overflow-hidden group shadow-2xl">
-                      <p className="text-base leading-relaxed italic opacity-90 z-10 relative">
-                        {selectedContact.notes || "No operational intelligence is currently archived for this stakeholder. Team registry update is pending for Q4 sync."}
-                      </p>
-                      <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
-                      <div className="absolute bottom-4 right-8 z-10">
-                         <MessageSquare className="w-10 h-10 text-white/5" />
+
+                  {/* Legacy Notes Display (if exists) */}
+                  {selectedContact.legacyNotes && (
+                    <div className="p-6 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Info className="w-4 h-4 text-amber-600" />
+                        <p className="text-xs font-bold text-amber-900 uppercase tracking-wider">Legacy Notes</p>
                       </div>
+                      <p className="text-sm text-amber-800 leading-relaxed italic">
+                        {selectedContact.legacyNotes}
+                      </p>
                     </div>
                   )}
+
+                  {/* Notes List */}
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                    {selectedContact.notes && selectedContact.notes.length > 0 ? (
+                      [...selectedContact.notes].reverse().map((note) => (
+                        <div key={note.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
+                                {note.userName?.charAt(0) || 'U'}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-900">{note.userName}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {new Date(note.createdAt).toLocaleString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          {note.text && (
+                            <p className="text-sm text-slate-700 leading-relaxed pl-10">
+                              {renderNoteTextWithMentions(note.text)}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-12">
+                        <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-sm text-slate-400 font-medium">No notes yet</p>
+                        <p className="text-xs text-slate-400 mt-1">Add strategic insights above</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

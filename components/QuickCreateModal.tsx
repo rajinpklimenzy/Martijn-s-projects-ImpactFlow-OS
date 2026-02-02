@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar, Search, ChevronDown, Merge } from 'lucide-react';
+import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar, Search, ChevronDown, Merge, Upload as UploadIcon, Image as ImageIcon } from 'lucide-react';
 import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiCreateInvoice, apiCreateNotification, apiGetContacts, apiMergeContacts, apiUpdateContact } from '../utils/api';
 import { Company, User as UserType, Project, Contact } from '../types';
 import { extractDomain } from '../utils/validate';
@@ -92,6 +92,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     newContact: any;
   } | null>(null);
   const [isMerging, setIsMerging] = useState(false);
+  const [noteImagePreview, setNoteImagePreview] = useState<string>('');
+  const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
+  const noteImageInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
     title: '',
@@ -147,6 +150,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     setError(null);
     setFieldErrors({});
     setStep('form');
+    setNoteImagePreview('');
+    setNoteImageFile(null);
+    if (noteImageInputRef.current) noteImageInputRef.current.value = '';
   }, [initialType, initialStage]);
 
 
@@ -203,6 +209,77 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const filteredRegions = REGIONS.filter(region =>
     region.toLowerCase().includes(regionSearch.toLowerCase())
   );
+
+  const compressNoteImage = (file: File, maxWidth: number = 1200, maxHeight: number = 1200, quality: number = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } else {
+            reject(new Error('Canvas context not available'));
+          }
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleNoteImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image size must be less than 10MB');
+      return;
+    }
+
+    try {
+      const compressed = await compressNoteImage(file, 1200, 1200, 0.8);
+      setNoteImagePreview(compressed);
+      setNoteImageFile(file);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to process image');
+    }
+  };
+
+  const handleClose = () => {
+    setNoteImagePreview('');
+    setNoteImageFile(null);
+    if (noteImageInputRef.current) noteImageInputRef.current.value = '';
+    onClose();
+  };
 
   const validateForm = (): boolean => {
     const errors: { [key: string]: string } = {};
@@ -480,7 +557,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           ownerId: formData.ownerId 
         });
         
-        const projectPayload = {
+        const projectPayload: any = {
           title: formData.title.trim(), 
           engagement: formData.engagement.trim(),
           startDate: formData.startDate,
@@ -492,6 +569,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           progress: 0, 
           description: formData.description || undefined
         };
+
+        // Add note image if present
+        if (noteImagePreview && noteImageFile) {
+          projectPayload.noteImage = noteImagePreview;
+          projectPayload.noteImageName = noteImageFile.name;
+          projectPayload.noteImageMimeType = noteImageFile.type;
+        }
         
         console.debug('[QUICK-CREATE] Project payload:', projectPayload);
         
@@ -499,7 +583,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       } else if (type === 'task') {
         console.debug('[QUICK-CREATE] Attempting Task Creation...', { title: formData.title, assigneeId: formData.assigneeId });
 
-        await apiCreateTask({ 
+        const taskPayload: any = { 
           title: formData.title, 
           projectId: formData.projectId || undefined, 
           description: formData.description || undefined, 
@@ -507,7 +591,29 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           priority: formData.priority as any, 
           status: 'Todo', 
           assigneeId: formData.assigneeId 
-        });
+        };
+
+        // Add note with image if present
+        if (noteImagePreview || formData.description) {
+          const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
+          const note: any = {
+            id: `note_${Date.now()}`,
+            userId: userId || currentUser.id,
+            userName: currentUser.name || 'Unknown User',
+            text: formData.description || '',
+            createdAt: new Date().toISOString()
+          };
+
+          if (noteImagePreview && noteImageFile) {
+            note.imageUrl = noteImagePreview;
+            note.imageName = noteImageFile.name;
+            note.imageMimeType = noteImageFile.type;
+          }
+
+          taskPayload.notes = [note];
+        }
+
+        await apiCreateTask(taskPayload);
         
         // Dispatch event to refresh tasks list
         window.dispatchEvent(new Event('refresh-tasks'));
@@ -588,6 +694,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
       console.debug('[QUICK-CREATE] Registry success. Finalizing UI update.');
       setStep('success');
+      
+      // Clear image state
+      setNoteImagePreview('');
+      setNoteImageFile(null);
+      if (noteImageInputRef.current) noteImageInputRef.current.value = '';
       
       // Dispatch refresh event before calling onSuccess to ensure list updates
       if (type === 'project') {
@@ -770,7 +881,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">Workspace Update</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
+          <button onClick={handleClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[75vh] overflow-y-auto custom-scrollbar">
@@ -1802,7 +1913,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             )}
 
             {/* Context/Description Area */}
-            <div className="md:col-span-2 space-y-2">
+            <div className="md:col-span-2 space-y-3">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Description</label>
               <textarea 
                 placeholder="Add Context or Notes..." 
@@ -1811,11 +1922,59 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 rows={3} 
                 className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[32px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 resize-none font-medium placeholder:text-slate-300" 
               />
+
+              {/* Image Upload */}
+              <label className="cursor-pointer group block">
+                <div className="flex items-center gap-3 px-5 py-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[24px] hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all">
+                    {noteImagePreview ? (
+                      <ImageIcon className="w-5 h-5" />
+                    ) : (
+                      <UploadIcon className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-black text-slate-900">
+                      {noteImagePreview ? (noteImageFile?.name || 'Image attached') : 'Attach Image to Note'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, GIF (Max 10MB)</p>
+                  </div>
+                </div>
+                <input
+                  ref={noteImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleNoteImageSelect}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Image Preview */}
+              {noteImagePreview && (
+                <div className="relative">
+                  <img
+                    src={noteImagePreview}
+                    alt="Note attachment preview"
+                    className="w-full max-h-64 object-contain rounded-[24px] border-2 border-slate-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNoteImagePreview('');
+                      setNoteImageFile(null);
+                      if (noteImageInputRef.current) noteImageInputRef.current.value = '';
+                    }}
+                    className="absolute top-3 right-3 p-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all shadow-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="flex gap-6 pt-6 border-t border-slate-100">
-            <button type="button" onClick={onClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">CANCEL</button>
+            <button type="button" onClick={handleClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">CANCEL</button>
             <button 
               type="submit" 
               disabled={isSubmitting} 
