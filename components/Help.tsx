@@ -14,13 +14,17 @@ const Help: React.FC<HelpProps> = ({ onBack }) => {
       </div>
 
       <div className="w-full max-w-3xl mx-auto z-10 flex flex-col gap-6 animate-in fade-in duration-300">
-        <button
-          onClick={onBack}
+        <a
+          href="/"
+          onClick={(e) => {
+            e.preventDefault();
+            onBack();
+          }}
           className="self-start flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm font-medium"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to login
-        </button>
+        </a>
 
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 lg:p-10 shadow-2xl space-y-8">
           <div className="text-center border-b border-white/10 pb-8">
@@ -117,12 +121,16 @@ const Help: React.FC<HelpProps> = ({ onBack }) => {
             <p className="text-[10px] text-slate-500 mb-4">
               © Impact 24x7 Enterprise. Access restricted to authorized personnel.
             </p>
-            <button
-              onClick={onBack}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-colors"
+            <a
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                onBack();
+              }}
+              className="inline-block px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-colors"
             >
               Back to login
-            </button>
+            </a>
           </div>
         </div>
       </div>

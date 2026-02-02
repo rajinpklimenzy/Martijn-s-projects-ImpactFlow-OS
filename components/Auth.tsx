@@ -1,47 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mail, ShieldCheck, ArrowRight, Loader2, Building2, User as UserIcon, Key, AlertCircle, HelpCircle } from 'lucide-react';
 import { apiRequestCode, apiVerify } from '../utils/api.ts';
-import Help from './Help.tsx';
-import PrivacyPolicy from './PrivacyPolicy.tsx';
 
 interface AuthProps {
   onLogin: (data: any) => void;
 }
 
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
-  const [currentPage, setCurrentPage] = useState<'login' | 'help' | 'privacy'>('login');
   const [step, setStep] = useState<'initial' | 'verify'>('initial');
   const [email, setEmail] = useState('');
   const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  // Handle URL hash changes for direct links
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === '#help') {
-        setCurrentPage('help');
-      } else if (hash === '#privacy-policy' || hash === '#privacy') {
-        setCurrentPage('privacy');
-      } else {
-        setCurrentPage('login');
-      }
-    };
-
-    // Check initial hash
-    handleHashChange();
-
-    // Listen for hash changes
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
-  const handleBackToLogin = () => {
-    window.location.hash = '';
-    setCurrentPage('login');
-  };
 
   const handleSendCode = async () => {
     if (!email || !email.includes('@')) {
@@ -182,14 +153,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     else handleVerifyCode();
   };
 
-  if (currentPage === 'help') {
-    return <Help onBack={handleBackToLogin} />;
-  }
-
-  if (currentPage === 'privacy') {
-    return <PrivacyPolicy onBack={handleBackToLogin} />;
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
@@ -322,11 +285,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <p>Access restricted to authorized personnel.</p>
               <div className="flex items-center justify-center gap-2 flex-wrap">
                 <a
-                  href="#help"
+                  href="/help"
                   onClick={(e) => {
                     e.preventDefault();
-                    window.location.hash = '#help';
-                    setCurrentPage('help');
+                    window.history.pushState({}, '', '/help');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
                   }}
                   className="text-indigo-500 hover:underline"
                 >
@@ -334,11 +297,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 </a>
                 <span className="text-slate-600">•</span>
                 <a
-                  href="#privacy-policy"
+                  href="/privacy-policy"
                   onClick={(e) => {
                     e.preventDefault();
-                    window.location.hash = '#privacy-policy';
-                    setCurrentPage('privacy');
+                    window.history.pushState({}, '', '/privacy-policy');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
                   }}
                   className="text-indigo-500 hover:underline"
                 >

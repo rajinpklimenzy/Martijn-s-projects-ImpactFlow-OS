@@ -22,6 +22,8 @@ import Notifications from './components/Notifications.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
 import BugReportWidget from './components/BugReportWidget.tsx';
+import Help from './components/Help.tsx';
+import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, ShieldCheck } from 'lucide-react';
 import { Notification, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
@@ -29,6 +31,9 @@ import { ToastProvider } from './contexts/ToastContext.tsx';
 import { QueryProvider } from './contexts/QueryProvider.tsx';
 
 const App: React.FC = () => {
+  // Check for public routes that don't require authentication
+  const [publicRoute, setPublicRoute] = useState<string | null>(null);
+  
   // Initialize activeTab from localStorage or default to 'dashboard'
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('activeTab');
@@ -223,6 +228,60 @@ const App: React.FC = () => {
       window.dispatchEvent(new CustomEvent('refresh-schedule'));
     }
   };
+
+  // Check for public routes that don't require authentication
+  useEffect(() => {
+    const pathname = window.location.pathname;
+    if (pathname === '/privacy-policy' || pathname === '/privacy') {
+      setPublicRoute('privacy');
+    } else if (pathname === '/help') {
+      setPublicRoute('help');
+    } else {
+      setPublicRoute(null);
+    }
+  }, []);
+
+  // Handle browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathname = window.location.pathname;
+      if (pathname === '/privacy-policy' || pathname === '/privacy') {
+        setPublicRoute('privacy');
+      } else if (pathname === '/help') {
+        setPublicRoute('help');
+      } else {
+        setPublicRoute(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Render public pages without authentication (after all hooks)
+  if (publicRoute === 'privacy') {
+    return (
+      <PrivacyPolicy 
+        onBack={() => {
+          window.history.pushState({}, '', '/');
+          setPublicRoute(null);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }} 
+      />
+    );
+  }
+
+  if (publicRoute === 'help') {
+    return (
+      <Help 
+        onBack={() => {
+          window.history.pushState({}, '', '/');
+          setPublicRoute(null);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }} 
+      />
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {
