@@ -31,9 +31,6 @@ import { ToastProvider } from './contexts/ToastContext.tsx';
 import { QueryProvider } from './contexts/QueryProvider.tsx';
 
 const App: React.FC = () => {
-  // Check for public routes that don't require authentication
-  const [publicRoute, setPublicRoute] = useState<string | null>(null);
-  
   // Initialize activeTab from localStorage or default to 'dashboard'
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('activeTab');
@@ -230,6 +227,17 @@ const App: React.FC = () => {
   };
 
   // Check for public routes that don't require authentication
+  // Check immediately on mount, not just in useEffect
+  const initialPathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const [publicRoute, setPublicRoute] = useState<string | null>(() => {
+    if (initialPathname === '/privacy-policy' || initialPathname === '/privacy') {
+      return 'privacy';
+    } else if (initialPathname === '/help') {
+      return 'help';
+    }
+    return null;
+  });
+
   useEffect(() => {
     const pathname = window.location.pathname;
     if (pathname === '/privacy-policy' || pathname === '/privacy') {

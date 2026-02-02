@@ -8,8 +8,52 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      fs: {
+        strict: false,
+      },
     },
-    plugins: [react()],
+    preview: {
+      port: 3000,
+    },
+    plugins: [
+      react(),
+      {
+        name: 'spa-fallback',
+        configureServer(server) {
+          // Add middleware AFTER Vite's internal middleware is set up
+          return () => {
+            server.middlewares.use((req, res, next) => {
+              const url = req.url?.split('?')[0] || '';
+              
+              // CRITICAL: Let Vite handle ALL its internal requests first
+              // These patterns match Vite's internal requests
+              if (url.startsWith('/@vite') ||
+                  url.startsWith('/@react-refresh') ||
+                  url.startsWith('/@id/') ||
+                  url.startsWith('/node_modules/.vite/') ||
+                  url.startsWith('/src/') ||
+                  url.startsWith('/@fs/') ||
+                  url.match(/\.(js|mjs|ts|tsx|jsx|css|json|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webp)$/)) {
+                return next();
+              }
+              
+              // Skip API routes
+              if (url.startsWith('/api')) {
+                return next();
+              }
+              
+              // Only handle actual page routes (no file extension, not Vite internal)
+              if (url !== '/index.html' && url !== '/' && !url.includes('.')) {
+                // Rewrite to index.html for SPA routing
+                req.url = '/index.html';
+              }
+              
+              next();
+            });
+          };
+        },
+      },
+    ],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -19,6 +63,14 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
-    }
+    },
+    build: {
+      // Ensure proper SPA routing in production build
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+        },
+      },
+    },
   };
 });

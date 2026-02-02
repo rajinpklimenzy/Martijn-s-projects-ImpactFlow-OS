@@ -166,12 +166,65 @@ apiRouter.get('/me', async (req, res) => {
 
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
-app.use(express.static('.') as any);
+
+// Determine the static directory (dist for production, current dir for dev)
+const isProduction = process.env.NODE_ENV === 'production';
+const staticDir = isProduction ? path.resolve(process.cwd(), 'dist') : process.cwd();
+const indexPath = path.resolve(staticDir, 'index.html');
+
+console.log(`[SERVER] Static directory: ${staticDir}`);
+console.log(`[SERVER] Index file: ${indexPath}`);
+
+// Serve static files (only actual files, not routes)
+// This will serve files like .js, .css, .png, etc. but won't serve index.html automatically
+const staticMiddleware = express.static(staticDir, { 
+  index: false, // Don't serve index.html automatically
+  dotfiles: 'ignore'
+});
+
+app.use((req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  // Try to serve static file first
+  staticMiddleware(req, res, () => {
+    // If static file not found, continue to SPA handler
+    next();
+  });
+});
 
 // Catch-all handler for SPA routing (must be last)
-app.get(/^(?!\/api).*/, (req, res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({ message: 'API Route Not Found' });
-  res.sendFile(path.resolve('index.html'));
+// Serve index.html for all routes that don't match API routes or actual files
+app.get('*', (req, res) => {
+  // Skip API routes
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ message: 'API Route Not Found' });
+  }
+  
+  // Skip requests for actual files (with extensions) - these should have been served by static middleware
+  if (req.path.match(/\.(js|mjs|css|ts|tsx|jsx|json|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|webp|map)$/)) {
+    return res.status(404).send('File not found');
+  }
+  
+  // Skip Vite dev server specific paths (only relevant in dev)
+  if (!isProduction && (
+    req.path.startsWith('/@') || 
+    req.path.startsWith('/node_modules') ||
+    req.path.startsWith('/src')
+  )) {
+    return res.status(404).send('Not found');
+  }
+  
+  // Serve index.html for all SPA routes (/privacy-policy, /help, /, etc.)
+  console.log(`[SERVER] Serving index.html for route: ${req.path}`);
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('[SERVER] Error serving index.html:', err);
+      console.error('[SERVER] Attempted path:', indexPath);
+      res.status(500).send('Error loading application');
+    }
+  });
 });
 
 const PORT = process.env.PORT || 8080;

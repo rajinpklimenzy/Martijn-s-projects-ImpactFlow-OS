@@ -162,6 +162,22 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
       <div className="w-full max-w-md z-10 animate-in fade-in zoom-in-95 duration-500">
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 lg:p-10 shadow-2xl">
+          {/* Privacy Policy Link - Prominent for Google Verification */}
+          <div className="mb-6 text-center">
+            <a
+              href="/privacy-policy"
+              onClick={(e) => {
+                e.preventDefault();
+                window.history.pushState({}, '', '/privacy-policy');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }}
+              className="text-xs text-slate-400 hover:text-indigo-400 underline transition-colors"
+              title="Privacy Policy"
+            >
+              Privacy Policy
+            </a>
+          </div>
+          
           <div className="flex flex-col items-center mb-10">
             <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-xl shadow-indigo-900/40 mb-6">I</div>
             <h1 className="text-2xl font-bold text-white tracking-tight">ImpactFlow OS</h1>
@@ -281,9 +297,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <div className="w-1 h-1 bg-slate-800 rounded-full" />
               <span className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.2em]">Impact 24x7 Enterprise</span>
             </div>
-            <div className="text-[10px] text-slate-500 font-medium max-w-[250px] space-y-1">
+            <div className="text-[10px] text-slate-500 font-medium max-w-[300px] space-y-2">
               <p>Access restricted to authorized personnel.</p>
-              <div className="flex items-center justify-center gap-2 flex-wrap">
+              <div className="flex items-center justify-center gap-3 flex-wrap pt-2">
                 <a
                   href="/help"
                   onClick={(e) => {
@@ -291,7 +307,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     window.history.pushState({}, '', '/help');
                     window.dispatchEvent(new PopStateEvent('popstate'));
                   }}
-                  className="text-indigo-500 hover:underline"
+                  className="text-indigo-400 hover:text-indigo-300 underline font-semibold transition-colors"
+                  title="Help & Support"
                 >
                   Help
                 </a>
@@ -303,7 +320,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     window.history.pushState({}, '', '/privacy-policy');
                     window.dispatchEvent(new PopStateEvent('popstate'));
                   }}
-                  className="text-indigo-500 hover:underline"
+                  className="text-indigo-400 hover:text-indigo-300 underline font-semibold transition-colors"
+                  title="Privacy Policy"
                 >
                   Privacy Policy
                 </a>
