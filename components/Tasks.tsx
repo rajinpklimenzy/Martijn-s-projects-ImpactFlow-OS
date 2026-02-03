@@ -6,11 +6,11 @@ import {
   CheckSquare, FileUp, List, Grid, Download, AlertCircle, Save,
   Archive, RotateCcw, Box, FileSpreadsheet, Info, ArrowRight, Table,
   FileText, Edit2, Eye, MessageSquare, Upload as UploadIcon, Image as ImageIcon,
-  ArrowUpDown, ArrowUp, ChevronDown, AtSign, Bell, History, Send
+  ArrowUpDown, ArrowUp, ChevronDown, AtSign, Bell, History, Send, FolderKanban
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Task, Project, User as UserType, TaskNote } from '../types';
-import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiCreateTask, apiBulkImportTasks, apiCreateNotification } from '../utils/api';
+import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiGetTaskCategories, apiCreateTask, apiBulkImportTasks, apiCreateNotification } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 
@@ -26,7 +26,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
+  const [viewMode, setViewMode] = useState<'active' | 'archived' | 'week'>('active');
   const [displayMode, setDisplayMode] = useState<'list' | 'card'>('list');
   const [sortBy, setSortBy] = useState<'dueDate' | 'priority' | 'category' | 'owner' | 'none'>('none');
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -67,6 +67,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [isBulkDeletingTasks, setIsBulkDeletingTasks] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [bulkProjectModalOpen, setBulkProjectModalOpen] = useState(false);
+  const [isBulkAssigningProject, setIsBulkAssigningProject] = useState(false);
+  const [bulkAssignProjectId, setBulkAssignProjectId] = useState('');
   
   // Notes state
   const [newNoteText, setNewNoteText] = useState('');
@@ -84,10 +87,71 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   
   // Activity log state
   const [showActivityLog, setShowActivityLog] = useState(false);
+
+  // Task categories for edit dropdown (select + create new)
+  const [taskCategories, setTaskCategories] = useState<string[]>([]);
+  const [editCategoryIsNew, setEditCategoryIsNew] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const noteImageInputRef = useRef<HTMLInputElement>(null);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Date helpers: use local date only so timezone never shifts the calendar day
+  const dateToLocalYYYYMMDD = (d: Date): string => {
+    const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+    return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+  const formatDueDateDisplay = (ymd: string): string => {
+    if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Week view helpers: Monday to Sunday
+  const getMondayOfWeek = (date: Date): Date => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
+    return new Date(d.setDate(diff));
+  };
+  const getWeekRange = (monday: Date): { start: Date; end: Date } => {
+    const start = new Date(monday);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6); // Sunday
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  };
+  const getThisWeek = (): { start: Date; end: Date } => {
+    return getWeekRange(getMondayOfWeek(new Date()));
+  };
+  const getNextWeek = (): { start: Date; end: Date } => {
+    const thisMonday = getMondayOfWeek(new Date());
+    const nextMonday = new Date(thisMonday);
+    nextMonday.setDate(thisMonday.getDate() + 7);
+    return getWeekRange(nextMonday);
+  };
+  const getTaskWeek = (dueDate: string | null | undefined): 'thisWeek' | 'nextWeek' | 'future' | 'ongoing' => {
+    if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return 'ongoing';
+    const [y, m, d] = dueDate.split('-').map(Number);
+    const taskDate = new Date(y, m - 1, d);
+    taskDate.setHours(0, 0, 0, 0);
+    const thisWeek = getThisWeek();
+    const nextWeek = getNextWeek();
+    if (taskDate >= thisWeek.start && taskDate <= thisWeek.end) return 'thisWeek';
+    if (taskDate >= nextWeek.start && taskDate <= nextWeek.end) return 'nextWeek';
+    if (taskDate > nextWeek.end) return 'future';
+    return 'ongoing'; // Past dates or invalid
+  };
+
+  /** Returns Monday of the week (YYYY-MM-DD) for the given due date, or null for ongoing. */
+  const getWeekKey = (dueDate: string | null | undefined): string | null => {
+    if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return null;
+    const [y, m, d] = dueDate.split('-').map(Number);
+    const taskDate = new Date(y, m - 1, d);
+    const monday = getMondayOfWeek(taskDate);
+    return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -184,6 +248,36 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     }
   }, [selectedTask, isEditingTask]);
 
+  // Fetch task categories when task detail panel is open (for edit dropdown)
+  useEffect(() => {
+    if (!selectedTask) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiGetTaskCategories();
+        const list = Array.isArray((res as any)?.data) ? (res as any).data : [];
+        if (!cancelled) setTaskCategories(list);
+      } catch {
+        if (!cancelled) setTaskCategories([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedTask?.id]);
+
+  // Sync editCategoryIsNew: reset when not editing; when category is in list show dropdown, else show create-new
+  useEffect(() => {
+    if (!isEditingTask) {
+      setEditCategoryIsNew(false);
+      return;
+    }
+    if (editFormData.category && taskCategories.includes(editFormData.category)) {
+      setEditCategoryIsNew(false);
+    } else if (editFormData.category && !taskCategories.includes(editFormData.category)) {
+      setEditCategoryIsNew(true);
+    }
+    // when category is '' leave editCategoryIsNew unchanged (user may have selected "+ Create new")
+  }, [isEditingTask, editFormData.category, taskCategories]);
+
   const handleArchiveTask = async (id: string) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
@@ -241,6 +335,44 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     }
   };
 
+  const handleBulkAssignProject = async () => {
+    if (!bulkAssignProjectId) {
+      showError('Please select a project');
+      return;
+    }
+    setIsBulkAssigningProject(true);
+    try {
+      const targetIds = [...selectedTaskIds];
+      await Promise.all(
+        targetIds.map(id =>
+          apiUpdateTask(id, {
+            projectId: bulkAssignProjectId === '__none__' ? null : bulkAssignProjectId
+          })
+        )
+      );
+      setTasks(prev =>
+        prev.map(t =>
+          targetIds.includes(t.id)
+            ? { ...t, projectId: bulkAssignProjectId === '__none__' ? null : bulkAssignProjectId }
+            : t
+        )
+      );
+      setSelectedTaskIds([]);
+      setBulkProjectModalOpen(false);
+      setBulkAssignProjectId('');
+      showSuccess(
+        `Assigned ${targetIds.length} task${targetIds.length > 1 ? 's' : ''} to ${
+          bulkAssignProjectId === '__none__' ? 'No project' : projects.find(p => p.id === bulkAssignProjectId)?.title || 'project'
+        }`
+      );
+      fetchData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to assign project');
+    } finally {
+      setIsBulkAssigningProject(false);
+    }
+  };
+
   const handleDownloadTemplate = () => {
     // Create Excel template using xlsx with future date
     const futureDate = new Date();
@@ -248,7 +380,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     const futureDateStr = futureDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
     
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Title', 'Task Category', 'Due Date (YYYY-MM-DD)', 'Priority (Low/Medium/High)', 'Description', 'Owner (Name or Email)'],
+      ['Title', 'Task Category', 'Due Date', 'Priority (Low/Medium/High)', 'Description', 'Owner (Name or Email)'],
       ['Update Logistics Map', 'Operations', futureDateStr, 'High', 'Audit the EMEA transit routes', 'rpk@wx.agency']
     ]);
     const wb = XLSX.utils.book_new();
@@ -316,7 +448,10 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
         // Parse and format due date
         let dueDate = '';
-        if (dueDateRaw) {
+        // "Ongoing" means no due date – keep empty
+        if (dueDateRaw && dueDateRaw.toLowerCase().trim() === 'ongoing') {
+          dueDate = '';
+        } else if (dueDateRaw) {
           // Handle Excel date serial numbers (e.g., 45658)
           if (/^\d+$/.test(dueDateRaw) && parseFloat(dueDateRaw) > 25569) {
             // Excel serial date (days since 1900-01-01)
@@ -324,15 +459,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             const days = parseFloat(dueDateRaw) - 2; // Excel counts from 1900-01-01, but has a bug with 1900 being a leap year
             const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
             if (!isNaN(date.getTime())) {
-              dueDate = date.toISOString().split('T')[0];
+              dueDate = dateToLocalYYYYMMDD(date);
             }
           } else {
             // Try various date formats
             let parsedDate: Date | null = null;
             
-            // YYYY-MM-DD format
+            // YYYY-MM-DD format – keep as-is to avoid UTC interpretation
             if (/^\d{4}-\d{2}-\d{2}$/.test(dueDateRaw)) {
-              parsedDate = new Date(dueDateRaw);
+              dueDate = dueDateRaw;
+              parsedDate = new Date(0); // skip further parsing
             }
             // DD/MM/YYYY or DD/MM/YY format
             else if (dueDateRaw.includes('/')) {
@@ -357,13 +493,22 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 parsedDate = new Date(year, month, day);
               }
             }
+            // "February 15, 2026" / "Feb 15, 2026" – month name, day, year
+            else if (!parsedDate || isNaN(parsedDate.getTime())) {
+              const longDateMatch = dueDateRaw.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})$/);
+              if (longDateMatch) {
+                const [, monthStr, dayStr, yearStr] = longDateMatch;
+                const d = new Date(`${monthStr.trim()} ${dayStr}, ${yearStr}`);
+                if (!isNaN(d.getTime())) parsedDate = d;
+              }
+            }
             // Try direct Date parse as fallback
             if (!parsedDate || isNaN(parsedDate.getTime())) {
               parsedDate = new Date(dueDateRaw);
             }
             
-            if (parsedDate && !isNaN(parsedDate.getTime())) {
-              dueDate = parsedDate.toISOString().split('T')[0];
+            if (parsedDate && !isNaN(parsedDate.getTime()) && !dueDate) {
+              dueDate = dateToLocalYYYYMMDD(parsedDate);
             }
           }
         }
@@ -485,7 +630,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           sampleRowKeys: sampleRow ? Object.keys(sampleRow) : [],
           parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
         });
-        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
+        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (YYYY-MM-DD, February 15 2026, DD/MM/YYYY, or "Ongoing" for no date)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
         setIsImporting(false);
         return;
       }
@@ -1380,8 +1525,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   };
 
   let filteredTasks = tasks.filter(t => {
-    const archiveMatch = viewMode === 'archived' ? t.archived : !t.archived;
-    if (!archiveMatch) return false;
+    if (viewMode === 'archived') {
+      if (!t.archived) return false;
+    } else if (viewMode === 'week') {
+      if (t.archived) return false; // Week view only shows active tasks
+    } else {
+      if (t.archived) return false; // Active view
+    }
     if (!searchQuery.trim()) return true;
     return t.title.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -1393,7 +1543,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       if (!a.dueDate && !b.dueDate) return 0;
       if (!a.dueDate) return 1;
       if (!b.dueDate) return -1;
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      return (a.dueDate || '').localeCompare(b.dueDate || '');
     });
   } else if (sortBy === 'priority') {
     const priorityOrder = { High: 1, Medium: 2, Low: 3 };
@@ -1484,6 +1634,20 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         <div className="flex bg-white p-1 border border-slate-200 rounded-xl shadow-sm">
           <button onClick={() => setDisplayMode('list')} className={`p-2 rounded-lg ${displayMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4" /></button>
           <button onClick={() => setDisplayMode('card')} className={`p-2 rounded-lg ${displayMode === 'card' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4" /></button>
+          <button 
+            onClick={() => {
+              if (viewMode === 'week') {
+                setViewMode('active');
+              } else {
+                setViewMode('week');
+              }
+              setSelectedTaskIds([]);
+            }} 
+            className={`p-2 rounded-lg ${viewMode === 'week' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}
+            title="Week View"
+          >
+            <Calendar className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -1507,7 +1671,218 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       ) : filteredTasks.length === 0 ? (
         <div className="py-20 bg-white rounded-3xl border border-dashed border-slate-200 text-center">
           <Box className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">No {viewMode} tasks found</p>
+          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">No {viewMode === 'week' ? 'tasks' : viewMode} tasks found</p>
+        </div>
+      ) : viewMode === 'week' ? (
+        <div className="space-y-8">
+          {(() => {
+            const ongoingTasks = filteredTasks.filter(t => !getWeekKey(t.dueDate));
+            const tasksWithDueDate = filteredTasks.filter(t => getWeekKey(t.dueDate));
+            const weekKeyToTasks: Record<string, Task[]> = {};
+            tasksWithDueDate.forEach(t => {
+              const key = getWeekKey(t.dueDate)!;
+              if (!weekKeyToTasks[key]) weekKeyToTasks[key] = [];
+              weekKeyToTasks[key].push(t);
+            });
+            const sortedWeekKeys = Object.keys(weekKeyToTasks).sort();
+            const thisWeekMondayStr = (() => {
+              const m = getMondayOfWeek(new Date());
+              return `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-${String(m.getDate()).padStart(2, '0')}`;
+            })();
+            const nextWeekMondayStr = (() => {
+              const thisMon = getMondayOfWeek(new Date());
+              const nextMon = new Date(thisMon);
+              nextMon.setDate(thisMon.getDate() + 7);
+              return `${nextMon.getFullYear()}-${String(nextMon.getMonth() + 1).padStart(2, '0')}-${String(nextMon.getDate()).padStart(2, '0')}`;
+            })();
+            const formatWeekRange = (start: Date, end: Date) => {
+              const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              return `${startStr} - ${endStr}`;
+            };
+            const getWeekLabel = (weekKey: string) => {
+              if (weekKey === thisWeekMondayStr) return 'This Week';
+              if (weekKey === nextWeekMondayStr) return 'Next Week';
+              const [y, m, d] = weekKey.split('-').map(Number);
+              const monday = new Date(y, m - 1, d);
+              const { start, end } = getWeekRange(monday);
+              return `Week of ${formatWeekRange(start, end)}`;
+            };
+            const getWeekRangeForKey = (weekKey: string) => {
+              const [y, m, d] = weekKey.split('-').map(Number);
+              return getWeekRange(new Date(y, m - 1, d));
+            };
+            // Sort tasks within each week by due date
+            sortedWeekKeys.forEach(key => {
+              weekKeyToTasks[key].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+            });
+            const renderTaskList = (taskList: Task[]) => {
+              if (taskList.length === 0) return null;
+              return displayMode === 'list' ? (
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="divide-y divide-slate-50">
+                    {taskList.map(task => {
+                      const isSelected = selectedTaskIds.includes(task.id);
+                      return (
+                        <div 
+                          key={task.id} 
+                          onClick={() => setSelectedTask(task)}
+                          className={`flex items-center gap-4 p-5 hover:bg-slate-50 transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/30 border-l-4 border-indigo-400' : ''}`}
+                        >
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <input 
+                              type="checkbox" 
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                              checked={isSelected}
+                              onChange={() => setSelectedTaskIds(prev => isSelected ? prev.filter(id => id !== task.id) : [...prev, task.id])}
+                            />
+                          </div>
+                          <button 
+                            onClick={(e) => toggleStatus(task.id, task.status, e)} 
+                            disabled={updatingTaskId === task.id}
+                            className="text-slate-300 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                          >
+                            {updatingTaskId === task.id ? (
+                              <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+                            ) : task.status === 'Done' ? (
+                              <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+                            ) : (
+                              <Circle className="w-6 h-6" />
+                            )}
+                          </button>
+                          <div className="flex-1 overflow-hidden">
+                            <p className={`font-bold text-sm ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              {task.category && (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <Tag className="w-3 h-3 text-indigo-400" />
+                                    <span className="text-[10px] text-indigo-600 font-bold uppercase">{task.category}</span>
+                                  </div>
+                                  <span className="text-slate-300">•</span>
+                                </>
+                              )}
+                              <p className="text-[10px] text-slate-400 font-bold uppercase">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
+                              <span className="text-slate-300">•</span>
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                  {task.dueDate ? formatDueDateDisplay(task.dueDate) : 'Ongoing'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              task.priority === 'High' ? 'bg-red-50 text-red-600' : 
+                              task.priority === 'Medium' ? 'bg-amber-50 text-amber-600' : 
+                              'bg-slate-50 text-slate-600'
+                            }`}>
+                              {task.priority}
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 rounded-full">
+                              <User className="w-3 h-3 text-slate-400" />
+                              <span className="text-[10px] font-bold text-slate-600">{users.find(u => u.id === task.assigneeId)?.name || 'Unassigned'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={(e) => { e.stopPropagation(); setSelectedTask(task); }} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><Eye className="w-4 h-4" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setArchiveConfirmTask(task); }} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><Archive className="w-4 h-4" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmTask(task); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {taskList.map(task => {
+                    const isSelected = selectedTaskIds.includes(task.id);
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => setSelectedTask(task)}
+                        className={`bg-white p-6 rounded-3xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} relative group cursor-pointer hover:shadow-lg transition-all`}
+                      >
+                        <div className="absolute top-4 left-4" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            className={`${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer`}
+                            checked={isSelected}
+                            onChange={() => setSelectedTaskIds(prev => isSelected ? prev.filter(id => id !== task.id) : [...prev, task.id])}
+                          />
+                        </div>
+                        <div className="mt-6">
+                          <p className={`font-bold text-sm mb-3 ${task.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-900'}`}>{task.title}</p>
+                          <div className="space-y-2 mb-4">
+                            {task.category && (
+                              <div className="flex items-center gap-2">
+                                <Tag className="w-3 h-3 text-indigo-400" />
+                                <span className="text-[10px] text-indigo-600 font-bold uppercase">{task.category}</span>
+                              </div>
+                            )}
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                          {task.dueDate ? (
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[10px] font-black text-slate-400 uppercase">
+                                {formatDueDateDisplay(task.dueDate)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-black text-slate-400 uppercase">Ongoing</span>
+                          )}
+                          <div className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
+                            task.priority === 'High' ? 'bg-red-50 text-red-600' : 
+                            task.priority === 'Medium' ? 'bg-amber-50 text-amber-600' : 
+                            'bg-slate-50 text-slate-600'
+                          }`}>
+                            {task.priority}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            };
+            return (
+              <>
+                {sortedWeekKeys.map(weekKey => {
+                  const taskList = weekKeyToTasks[weekKey];
+                  if (!taskList || taskList.length === 0) return null;
+                  const range = getWeekRangeForKey(weekKey);
+                  const label = getWeekLabel(weekKey);
+                  const isThisOrNext = label === 'This Week' || label === 'Next Week';
+                  return (
+                    <div key={weekKey}>
+                      <div className="flex items-center gap-3 mb-4 flex-wrap">
+                        <h2 className="text-lg font-black text-slate-900">{label}</h2>
+                        <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-black">
+                          {formatWeekRange(range.start, range.end)}
+                        </span>
+                        <span className="text-sm text-slate-400 font-bold">({taskList.length})</span>
+                      </div>
+                      {renderTaskList(taskList)}
+                    </div>
+                  );
+                })}
+                {ongoingTasks.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <h2 className="text-lg font-black text-slate-900">Ongoing</h2>
+                      <span className="text-sm text-slate-400 font-bold">({ongoingTasks.length} tasks)</span>
+                    </div>
+                    {renderTaskList(ongoingTasks)}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       ) : displayMode === 'list' ? (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -1554,17 +1929,17 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                         </>
                       )}
                       <p className="text-[10px] text-slate-400 font-bold uppercase">{projects.find(p => p.id === task.projectId)?.title || 'General'}</p>
-                      {task.dueDate && (
-                        <>
-                          <span className="text-slate-300">•</span>
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] text-slate-400 font-bold">
-                              {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </span>
-                          </div>
-                        </>
-                      )}
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3 h-3 text-slate-400" />
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            {task.dueDate
+                              ? formatDueDateDisplay(task.dueDate)
+                              : 'Ongoing'}
+                          </span>
+                        </div>
+                      </>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -1713,11 +2088,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                    <div className="flex items-center gap-1.5">
                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
                      <span className="text-[10px] font-black text-slate-400 uppercase">
-                       {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                       {formatDueDateDisplay(task.dueDate)}
                      </span>
                    </div>
                  ) : (
-                   <span className="text-[10px] font-black text-slate-300 uppercase">No due date</span>
+                   <span className="text-[10px] font-black text-slate-400 uppercase">Ongoing</span>
                  )}
                  <div className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
                    task.priority === 'High' ? 'bg-red-50 text-red-600' : 
@@ -1770,13 +2145,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                            <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
                              <div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> Column: Task Category
                            </p>
-                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">Organizational category (optional).</p>
+                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">Organizational category (optional). New categories from the file are added automatically.</p>
                          </div>
                          <div className="space-y-1">
                            <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> Column: Due Date *
                            </p>
-                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">Format as YYYY-MM-DD.</p>
+                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">e.g. YYYY-MM-DD or February 15, 2026. Use &quot;Ongoing&quot; for no date.</p>
                          </div>
                          <div className="space-y-1">
                            <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
@@ -2016,6 +2391,18 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               <button 
                 onClick={(e) => { 
                   e.stopPropagation(); 
+                  setBulkProjectModalOpen(true);
+                  setBulkAssignProjectId('');
+                }}
+                disabled={isBulkAssigningProject}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                <FolderKanban className="w-3.5 h-3.5" />
+                Assign to project
+              </button>
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
                   setBulkDeleteConfirmOpen(true);
                 }}
                 disabled={isBulkDeletingTasks}
@@ -2033,6 +2420,64 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-colors"
               >
                 <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Assign to Project Modal */}
+      {bulkProjectModalOpen && selectedTaskIds.length > 0 && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-indigo-50 text-indigo-600">
+                  <FolderKanban className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Assign to project
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    Change the linked project for {selectedTaskIds.length} selected task{selectedTaskIds.length > 1 ? 's' : ''}.
+                  </p>
+                </div>
+              </div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Project</label>
+              <select
+                value={bulkAssignProjectId}
+                onChange={(e) => setBulkAssignProjectId(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%226b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat"
+              >
+                <option value="">Select project...</option>
+                <option value="__none__">None (General)</option>
+                {projects.filter(p => !p.archived).map(p => (
+                  <option key={p.id} value={p.id}>{p.title}</option>
+                ))}
+              </select>
+            </div>
+            <div className="p-6 flex gap-3">
+              <button
+                onClick={() => { setBulkProjectModalOpen(false); setBulkAssignProjectId(''); }}
+                disabled={isBulkAssigningProject}
+                className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkAssignProject}
+                disabled={isBulkAssigningProject || !bulkAssignProjectId}
+                className="flex-1 py-3 bg-indigo-600 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isBulkAssigningProject ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  `Assign ${selectedTaskIds.length} task${selectedTaskIds.length > 1 ? 's' : ''}`
+                )}
               </button>
             </div>
           </div>
@@ -2256,17 +2701,66 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   </div>
                 </div>
 
+                {/* Description */}
+                <div className="space-y-2">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-500" /> Description
+                  </h3>
+                  {isEditingTask ? (
+                    <textarea
+                      rows={6}
+                      value={editFormData.description}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-4 py-3 bg-white border-2 border-indigo-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 resize-none"
+                      placeholder="Add task description..."
+                    />
+                  ) : (
+                    <div className="p-6 bg-slate-950 rounded-[32px] text-indigo-50 relative overflow-hidden shadow-2xl">
+                      <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
+                        {selectedTask.description || 'No description provided.'}
+                      </p>
+                      <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                  )}
+                </div>
+
                 {/* Task Category */}
                 <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Task Category</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5" /> Task Category
+                  </p>
                   {isEditingTask ? (
-                    <input
-                      type="text"
-                      value={editFormData.category}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, category: e.target.value }))}
-                      placeholder="e.g., Operations, Planning, Review"
-                      className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
-                    />
+                    <div className="space-y-2 mt-2">
+                      <select
+                        value={editCategoryIsNew ? '__new__' : (editFormData.category || '')}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === '__new__') {
+                            setEditCategoryIsNew(true);
+                            setEditFormData(prev => ({ ...prev, category: '' }));
+                          } else {
+                            setEditCategoryIsNew(false);
+                            setEditFormData(prev => ({ ...prev, category: v }));
+                          }
+                        }}
+                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%226b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat"
+                      >
+                        <option value="">None</option>
+                        {taskCategories.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                        <option value="__new__">+ Create new category...</option>
+                      </select>
+                      {editCategoryIsNew && (
+                        <input
+                          type="text"
+                          value={editFormData.category}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, category: e.target.value.trim() }))}
+                          placeholder="Enter new category name"
+                          className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100"
+                        />
+                      )}
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 mt-2">
                       {selectedTask.category ? (
@@ -2294,7 +2788,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                       />
                     ) : (
                       <p className="text-sm font-bold text-slate-900 mt-2">
-                        {selectedTask.dueDate || 'Not set'}
+                        {selectedTask.dueDate ? formatDueDateDisplay(selectedTask.dueDate) : 'Ongoing'}
                       </p>
                     )}
                   </div>
@@ -2357,108 +2851,6 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                       <p className="text-sm font-bold text-slate-900 capitalize">
                         {selectedTask.status}
                       </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Description */}
-                <div className="space-y-2">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-indigo-500" /> Description
-                  </h3>
-                  {isEditingTask ? (
-                    <textarea
-                      rows={6}
-                      value={editFormData.description}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 bg-white border-2 border-indigo-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 resize-none"
-                      placeholder="Add task description..."
-                    />
-                  ) : (
-                    <div className="p-6 bg-slate-950 rounded-[32px] text-indigo-50 relative overflow-hidden shadow-2xl">
-                      <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
-                        {selectedTask.description || 'No description provided.'}
-                      </p>
-                      <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Activity Log Section */}
-                <div className="space-y-4 pt-4 border-t border-slate-200">
-                  <button
-                    onClick={() => setShowActivityLog(!showActivityLog)}
-                    className="w-full flex items-center justify-between group"
-                  >
-                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 group-hover:text-indigo-600 transition-colors">
-                      <History className="w-4 h-4 text-indigo-500" /> 
-                      Activity Log
-                    </h3>
-                    <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showActivityLog ? 'rotate-90' : ''}`} />
-                  </button>
-                  
-                  {showActivityLog && (
-                    <div className="space-y-2 pl-6 border-l-2 border-indigo-100">
-                      <div className="flex items-start gap-3 pb-3">
-                        <div className="w-2 h-2 rounded-full bg-indigo-400 mt-1.5" />
-                        <div className="flex-1">
-                          <p className="text-xs font-bold text-slate-900">Task created</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {selectedTask.createdAt ? new Date(selectedTask.createdAt).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true
-                            }) : 'Unknown'}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {selectedTask.updatedAt && selectedTask.updatedAt !== selectedTask.createdAt && (
-                        <div className="flex items-start gap-3 pb-3">
-                          <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5" />
-                          <div className="flex-1">
-                            <p className="text-xs font-bold text-slate-900">Task updated</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {new Date(selectedTask.updatedAt).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true
-                              })}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {selectedTask.notes && selectedTask.notes.map((note, idx) => (
-                        <div key={note.id} className="flex items-start gap-3 pb-3">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400 mt-1.5" />
-                          <div className="flex-1">
-                            <p className="text-xs font-bold text-slate-900">
-                              {note.userName} added a comment
-                            </p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {new Date(note.createdAt).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true
-                              })}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {(!selectedTask.notes || selectedTask.notes.length === 0) && (!selectedTask.updatedAt || selectedTask.updatedAt === selectedTask.createdAt) && (
-                        <p className="text-xs text-slate-400 italic">No recent activity</p>
-                      )}
                     </div>
                   )}
                 </div>
@@ -2658,6 +3050,85 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Activity Log Section */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <button
+                    onClick={() => setShowActivityLog(!showActivityLog)}
+                    className="w-full flex items-center justify-between group"
+                  >
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 group-hover:text-indigo-600 transition-colors">
+                      <History className="w-4 h-4 text-indigo-500" /> 
+                      Activity Log
+                    </h3>
+                    <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showActivityLog ? 'rotate-90' : ''}`} />
+                  </button>
+                  
+                  {showActivityLog && (
+                    <div className="space-y-2 pl-6 border-l-2 border-indigo-100">
+                      <div className="flex items-start gap-3 pb-3">
+                        <div className="w-2 h-2 rounded-full bg-indigo-400 mt-1.5" />
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-slate-900">Task created</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {selectedTask.createdAt ? new Date(selectedTask.createdAt).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true
+                            }) : 'Unknown'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {selectedTask.updatedAt && selectedTask.updatedAt !== selectedTask.createdAt && (
+                        <div className="flex items-start gap-3 pb-3">
+                          <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5" />
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-slate-900">Task updated</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {new Date(selectedTask.updatedAt).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedTask.notes && selectedTask.notes.map((note, idx) => (
+                        <div key={note.id} className="flex items-start gap-3 pb-3">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400 mt-1.5" />
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-slate-900">
+                              {note.userName} added a comment
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {new Date(note.createdAt).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {(!selectedTask.notes || selectedTask.notes.length === 0) && (!selectedTask.updatedAt || selectedTask.updatedAt === selectedTask.createdAt) && (
+                        <p className="text-xs text-slate-400 italic">No recent activity</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

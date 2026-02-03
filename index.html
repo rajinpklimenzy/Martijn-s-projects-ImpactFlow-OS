@@ -3,15 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
     <title>ImpactFlow OS - Impact 24x7</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script type="text/javascript" src="https://apis.google.com/js/api.js"></script>
+    <script type="text/javascript" src="https://accounts.google.com/gsi/client"></script>
+    <script type="text/javascript" src="https://apis.google.com/js/picker.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         /* Prevent scrollbars from jumping during transitions */
         html { overflow-y: scroll; scroll-behavior: smooth; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Force light mode - prevent dark mode styling on inputs */
+        input, select, textarea {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important; /* slate-900 */
+        }
+        
+        /* Ensure date inputs use white background */
+        input[type="date"], input[type="datetime-local"], input[type="time"] {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important;
+        }
+        
+        /* Ensure select dropdowns use white background */
+        select option {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important;
+        }
     </style>
 <script type="importmap">
 {

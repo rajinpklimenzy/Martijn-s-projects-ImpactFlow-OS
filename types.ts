@@ -291,6 +291,7 @@ export interface Contract {
   googleDriveFileId?: string;
   googleDriveWebViewLink?: string;
   googleDriveDownloadLink?: string;
+  googleDriveIconUrl?: string;
   isGoogleDriveLinked: boolean;
   // E-signature
   requiresSignature: boolean;

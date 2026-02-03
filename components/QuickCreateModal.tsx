@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar, Search, ChevronDown, Merge, Upload as UploadIcon, Image as ImageIcon } from 'lucide-react';
-import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiCreateInvoice, apiCreateNotification, apiGetContacts, apiMergeContacts, apiUpdateContact } from '../utils/api';
+import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar, Search, ChevronDown, Merge, Upload as UploadIcon, Image as ImageIcon, Tag } from 'lucide-react';
+import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiGetTaskCategories, apiCreateInvoice, apiCreateNotification, apiGetContacts, apiMergeContacts, apiUpdateContact } from '../utils/api';
 import { Company, User as UserType, Project, Contact } from '../types';
 import { extractDomain } from '../utils/validate';
 import { findDuplicateContacts, findFuzzyDuplicateContacts } from '../utils/dedup';
@@ -83,6 +83,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [taskCategories, setTaskCategories] = useState<string[]>([]);
+  const [taskCategoryIsNew, setTaskCategoryIsNew] = useState(false);
   const [isRegionDropdownOpen, setIsRegionDropdownOpen] = useState(false);
   const [regionSearch, setRegionSearch] = useState('');
   const regionDropdownRef = useRef<HTMLDivElement>(null);
@@ -122,6 +124,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     engagement: '',
     startDate: '',
     endDate: '',
+    category: '' as string,
     lineItems: [] as Array<{ description: string; quantity: number; rate: number; amount: number }>
   });
 
@@ -131,7 +134,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       assigneeId: '', ownerId: '', value: '', expectedCloseDate: '',
       stage: initialStage || 'Discovery', status: 'Planning', progress: '0',
       priority: 'Medium', description: '', industry: '', website: '', region: '', domain: '', linkedin: '', assignedUserIds: [],
-      engagement: '', startDate: '', endDate: ''
+      engagement: '', startDate: '', endDate: '', category: ''
     };
     
     // For invoice type, initialize with one empty line item and default currency
@@ -150,6 +153,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     setError(null);
     setFieldErrors({});
     setStep('form');
+    setTaskCategoryIsNew(false);
     setNoteImagePreview('');
     setNoteImageFile(null);
     if (noteImageInputRef.current) noteImageInputRef.current.value = '';
@@ -175,6 +179,18 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
         const allProjects = Array.isArray(pRes) ? pRes : pRes?.data || [];
         // Filter out archived projects only, show all active/planning/on-hold/completed projects
         setProjects(allProjects.filter((p: Project) => !p.archived));
+
+        if (type === 'task') {
+          try {
+            const catRes = await apiGetTaskCategories();
+            const list = Array.isArray((catRes as any)?.data) ? (catRes as any).data : [];
+            setTaskCategories(list);
+          } catch (_) {
+            setTaskCategories([]);
+          }
+        } else {
+          setTaskCategories([]);
+        }
          
          if (userId) {
            setFormData(prev => ({ 
@@ -590,7 +606,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           dueDate: formData.expectedCloseDate || undefined, 
           priority: formData.priority as any, 
           status: 'Todo', 
-          assigneeId: formData.assigneeId 
+          assigneeId: formData.assigneeId,
+          category: (formData.category && formData.category.trim()) ? formData.category.trim() : undefined
         };
 
         // Add note with image if present
@@ -1301,6 +1318,46 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {/* Task Category - only for task */}
+            {type === 'task' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5" /> Task Category
+                </label>
+                <select
+                  value={taskCategoryIsNew ? '__new__' : (formData.category || '')}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__new__') {
+                      setTaskCategoryIsNew(true);
+                      setFormData(prev => ({ ...prev, category: '' }));
+                    } else {
+                      setTaskCategoryIsNew(false);
+                      setFormData(prev => ({ ...prev, category: v }));
+                    }
+                  }}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%226b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
+                >
+                  <option value="">None</option>
+                  {taskCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  <option value="__new__">+ Create new category...</option>
+                </select>
+                {taskCategoryIsNew && (
+                  <div className="pt-1">
+                    <input
+                      type="text"
+                      value={formData.category}
+                      onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value.trim() }))}
+                      placeholder="Enter new category name"
+                      className="w-full px-6 py-3 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 font-medium"
+                    />
+                  </div>
+                )}
               </div>
             )}
 

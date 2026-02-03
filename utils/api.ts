@@ -189,6 +189,8 @@ export const apiGetTasks = (userId?: string, projectId?: string, status?: string
   return apiFetch(`/tasks${query ? `?${query}` : ''}`);
 };
 
+export const apiGetTaskCategories = () => apiFetch('/tasks/categories');
+
 export const apiCreateTask = (data: any) => apiFetch('/tasks', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateTask = (id: string, data: any) => apiFetch(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteTask = (id: string) => apiFetch(`/tasks/${id}`, { method: 'DELETE' });
@@ -301,6 +303,14 @@ export const apiCreateContractDocumentType = (data: { name: string }) =>
 export const apiGetGoogleDriveFile = (params: { fileId: string; userId: string }) => {
   const queryString = '?' + new URLSearchParams(Object.entries(params)).toString();
   return apiFetch(`/contracts/google-drive/file${queryString}`);
+};
+export const apiGetGoogleDriveAccessToken = (params: { userId: string }) => {
+  const queryString = '?' + new URLSearchParams(Object.entries(params)).toString();
+  return apiFetch(`/contracts/google-drive/access-token${queryString}`);
+};
+export const apiListGoogleDriveFiles = (params: { userId: string; query?: string; pageToken?: string; maxResults?: number }) => {
+  const queryString = '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])).toString();
+  return apiFetch(`/contracts/google-drive/files${queryString}`);
 };
 export const apiUploadToGoogleDrive = (data: { fileName: string; fileContent: string; fileMimeType?: string; userId: string; folderId?: string }) =>
   apiFetch('/contracts/google-drive/upload', { method: 'POST', body: JSON.stringify(data) });
