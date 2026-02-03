@@ -4,6 +4,7 @@ dotenv.config({ path: '.env.local' });
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { existsSync } from 'fs';
 import { auth, db } from './firebaseAdmin.ts';
 import { sendWelcomeEmail, sendVerificationCodeEmail } from './emailService.ts';
 import admin from 'firebase-admin';
@@ -164,40 +165,42 @@ apiRouter.get('/me', async (req, res) => {
   }
 });
 
-app.use('/api', apiRouter);
-app.use('/', apiRouter);
-
 // Determine the static directory (dist for production, current dir for dev)
 const isProduction = process.env.NODE_ENV === 'production';
 const staticDir = isProduction ? path.resolve(process.cwd(), 'dist') : process.cwd();
 const indexPath = path.resolve(staticDir, 'index.html');
 
-console.log(`[SERVER] Static directory: ${staticDir}`);
-console.log(`[SERVER] Index file: ${indexPath}`);
-
-// Serve static files (only actual files, not routes)
-// This will serve files like .js, .css, .png, etc. but won't serve index.html automatically
-const staticMiddleware = express.static(staticDir, { 
-  index: false, // Don't serve index.html automatically
-  dotfiles: 'ignore'
-});
-
-app.use((req, res, next) => {
-  // Skip API routes
-  if (req.path.startsWith('/api')) {
-    return next();
-  }
-  // Try to serve static file first
-  staticMiddleware(req, res, () => {
-    // If static file not found, continue to SPA handler
-    next();
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    environment: isProduction ? 'production' : 'development',
+    staticDir,
+    indexPath,
+    indexExists: existsSync(indexPath),
+    cwd: process.cwd()
   });
 });
 
-// Catch-all handler for SPA routing (must be last)
-// Serve index.html for all routes that don't match API routes or actual files
-app.get('*', (req, res) => {
-  // Skip API routes
+// API routes - must come before static file serving
+app.use('/api', apiRouter);
+
+console.log(`[SERVER] Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+console.log(`[SERVER] Static directory: ${staticDir}`);
+console.log(`[SERVER] Index file: ${indexPath}`);
+
+// Serve static files (JS, CSS, images, etc.)
+// This will serve files like .js, .css, .png, etc. but won't serve index.html automatically
+app.use(express.static(staticDir, { 
+  index: false, // Don't serve index.html automatically
+  dotfiles: 'ignore',
+  fallthrough: true // Continue to next middleware if file not found
+}));
+
+// Catch-all handler for SPA routing (MUST be last)
+// Handle ALL HTTP methods (GET, POST, etc.) to serve index.html for SPA routes
+app.all('*', (req, res) => {
+  // Skip API routes (shouldn't reach here, but safety check)
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ message: 'API Route Not Found' });
   }
@@ -217,15 +220,26 @@ app.get('*', (req, res) => {
   }
   
   // Serve index.html for all SPA routes (/privacy-policy, /help, /, etc.)
-  console.log(`[SERVER] Serving index.html for route: ${req.path}`);
+  console.log(`[SERVER] ${req.method} ${req.path} - Serving index.html`);
+  
+  // Check if index.html exists
+  if (!existsSync(indexPath)) {
+    console.error('[SERVER] ERROR: index.html not found at:', indexPath);
+    console.error('[SERVER] Current working directory:', process.cwd());
+    console.error('[SERVER] Static directory:', staticDir);
+    return res.status(500).send(`Error: index.html not found at ${indexPath}`);
+  }
+  
   res.sendFile(indexPath, (err) => {
     if (err) {
       console.error('[SERVER] Error serving index.html:', err);
       console.error('[SERVER] Attempted path:', indexPath);
+      console.error('[SERVER] Current working directory:', process.cwd());
+      console.error('[SERVER] File exists:', existsSync(indexPath));
       res.status(500).send('Error loading application');
     }
   });
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = 8020;
 app.listen(PORT, () => console.log(`ImpactFlow running on port ${PORT}`));
