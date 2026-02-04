@@ -45,19 +45,49 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
         return simulateApi(cleanEndpoint, options);
       }
 
-      const errorMessage = data.message || data.error?.message || `Server Error ${response.status}`;
+      // Safely extract error message
+      let errorMessage = `Server Error ${response.status}`;
+      try {
+        if (data && typeof data === 'object') {
+          errorMessage = data.message || data.error?.message || errorMessage;
+        }
+      } catch {
+        // If extraction fails, use default
+      }
+      
       const error = new Error(errorMessage);
       (error as any).status = response.status;
-      (error as any).code = data.error?.code;
+      if (data?.error?.code && typeof data.error.code === 'string') {
+        (error as any).code = data.error.code;
+      }
       throw error;
     }
     
     return data;
   } catch (err: any) {
     // Catch-all for network failures or 5xx errors
-    const isNetworkError = err.name === 'TypeError' || err.message.includes('Failed to fetch');
-    const isServiceUnavailable = err.status >= 500;
-    const isClientError = err.status >= 400 && err.status < 500;
+    // Safely extract error info without circular references
+    let errorMessage = 'Unknown error';
+    let errorName = 'Error';
+    let errorStatus: number | undefined;
+    let errorCode: string | undefined;
+    
+    try {
+      if (err && typeof err === 'object') {
+        errorMessage = err.message || String(err) || errorMessage;
+        errorName = err.name || errorName;
+        errorStatus = typeof err.status === 'number' ? err.status : undefined;
+        errorCode = typeof err.code === 'string' ? err.code : undefined;
+      } else if (err) {
+        errorMessage = String(err);
+      }
+    } catch {
+      // If extraction fails, use defaults
+    }
+    
+    const isNetworkError = errorName === 'TypeError' || errorMessage.includes('Failed to fetch');
+    const isServiceUnavailable = errorStatus !== undefined && errorStatus >= 500;
+    const isClientError = errorStatus !== undefined && errorStatus >= 400 && errorStatus < 500;
 
     // We allow simulation on network errors or 5xx
     if (isNetworkError || (isServiceUnavailable && !isClientError)) {
@@ -65,7 +95,15 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       return simulateApi(cleanEndpoint, options);
     }
 
-    throw err;
+    // Create a completely clean error object without any circular references
+    const cleanError = new Error(errorMessage);
+    if (errorStatus !== undefined) {
+      (cleanError as any).status = errorStatus;
+    }
+    if (errorCode) {
+      (cleanError as any).code = errorCode;
+    }
+    throw cleanError;
   }
 };
 
@@ -336,11 +374,130 @@ export const apiGetGoogleCalendarStatus = (userId: string) => apiFetch(`/google-
 export const apiGetGoogleCalendarAuthUrl = (userId: string) => apiFetch(`/google-calendar/auth-url?userId=${userId}`);
 export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: string) => apiFetch(`/google-calendar/events?userId=${userId}&startDate=${start}&endDate=${end}`);
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
-export const apiGetSharedInboxEmails = (userId: string) => apiFetch(`/shared-inbox/emails?userId=${userId}`);
+
+/** Shared Inbox – uses already connected Gmail (Google Calendar OAuth) */
+export const apiSyncSharedInbox = (userId: string, accountEmail?: string) => {
+  const params = new URLSearchParams({ userId });
+  if (accountEmail) params.append('accountEmail', accountEmail);
+  return apiFetch(`/shared-inbox/sync?${params.toString()}`, { method: 'POST' });
+};
+export const apiGetConnectedGmailAccounts = (userId: string) =>
+  apiFetch(`/shared-inbox/accounts?userId=${userId}`);
+export const apiDisconnectGmailAccount = (userId: string, accountEmail: string) =>
+  apiFetch('/shared-inbox/accounts', {
+    method: 'DELETE',
+    body: JSON.stringify({ userId, accountEmail })
+  });
+export const apiGetSharedInboxEmails = (userId: string, search?: string, status?: string) => {
+  const params = new URLSearchParams({ userId });
+  if (search) params.append('search', search);
+  if (status) params.append('status', status);
+  return apiFetch(`/shared-inbox/emails?${params.toString()}`);
+};
+export const apiGetSharedInboxEmailDetails = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}?userId=${userId}`);
+export const apiMarkSharedInboxEmailRead = (emailId: string, read: boolean, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/read`, { method: 'PUT', body: JSON.stringify({ read, userId }) });
+export const apiAssignSharedInboxEmail = (emailId: string, assignedToUserId: string, sharedByUserId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ emailId, assignedToUserId, sharedByUserId })
+  });
+export const apiUnassignSharedInboxEmail = (emailId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/assign`, { method: 'DELETE' });
+export const apiToggleSharedInboxEmailStarred = (emailId: string, isStarred: boolean) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/star`, { method: 'PUT', body: JSON.stringify({ isStarred }) });
+
+/** Shared Inbox Notes */
+export const apiAddEmailNote = (data: { emailId: string; userId: string; userName: string; message: string; imageUrl?: string; imageName?: string }) =>
+  apiFetch('/shared-inbox/notes', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetEmailNotes = (emailId: string) =>
+  apiFetch(`/shared-inbox/notes/${emailId}`);
+export const apiDeleteEmailNote = (noteId: string, userId: string) =>
+  apiFetch(`/shared-inbox/notes/${noteId}`, { method: 'DELETE', body: JSON.stringify({ userId }) });
+
+/** Shared Inbox AI Drafting */
+export const apiGenerateAIDraft = (emailId: string, userId: string, templateId?: string) =>
+  apiFetch('/shared-inbox/ai-draft', { method: 'POST', body: JSON.stringify({ emailId, userId, templateId }) });
+
+/** Email Templates */
+export const apiCreateEmailTemplate = (data: { name: string; content: string; userId: string; category: string }) =>
+  apiFetch('/shared-inbox/templates', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetEmailTemplates = (userId: string) =>
+  apiFetch(`/shared-inbox/templates?userId=${userId}`);
+export const apiUpdateEmailTemplate = (templateId: string, data: { name?: string; content?: string }) =>
+  apiFetch(`/shared-inbox/templates/${templateId}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteEmailTemplate = (templateId: string, userId: string) =>
+  apiFetch(`/shared-inbox/templates/${templateId}`, { method: 'DELETE', body: JSON.stringify({ userId }) });
+
+/** Email Sending */
+export const apiSendEmail = (data: { userId: string; accountEmail?: string; to: string | string[]; cc?: string | string[]; bcc?: string | string[]; subject: string; body: string; replyToMessageId?: string; replyToThreadId?: string; attachments?: Array<{ filename: string; content: string; type: string }> }) =>
+  apiFetch('/shared-inbox/send-email', { method: 'POST', body: JSON.stringify(data) });
+export const apiReplyEmail = (data: { emailId: string; userId: string; accountEmail?: string; body: string; replyAll?: boolean; attachments?: Array<{ filename: string; content: string; type: string }> }) =>
+  apiFetch('/shared-inbox/reply-email', { method: 'POST', body: JSON.stringify(data) });
+export const apiForwardEmail = (data: { emailId: string; userId: string; accountEmail?: string; to: string | string[]; cc?: string | string[]; bcc?: string | string[]; body: string; attachments?: Array<{ filename: string; content: string; type: string }> }) =>
+  apiFetch('/shared-inbox/forward-email', { method: 'POST', body: JSON.stringify(data) });
+
+/** Email Signatures */
+export const apiGetSignatures = (userId: string) =>
+  apiFetch(`/shared-inbox/signatures?userId=${userId}`);
+export const apiCreateSignature = (data: { userId: string; name: string; content: string; isDefault?: boolean }) =>
+  apiFetch('/shared-inbox/signatures', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateSignature = (signatureId: string, data: { userId: string; name?: string; content?: string; isDefault?: boolean }) =>
+  apiFetch(`/shared-inbox/signatures/${signatureId}`, { method: 'PUT', body: JSON.stringify(data) });
+
+/** Migration */
+export const apiMigrateEmailRecords = () =>
+  apiFetch('/shared-inbox/migrate', { method: 'POST' });
+
+/** Update Email Metadata */
+export const apiUpdateEmailMetadata = (emailId: string, data: { userId: string; priority?: 'high' | 'medium' | 'low'; threadStatus?: 'active' | 'archived' | 'resolved' | 'pending'; owner?: string | null; linkedRecords?: { contactId?: string; companyId?: string; dealId?: string; projectId?: string; contractId?: string } }) =>
+  apiFetch(`/shared-inbox/emails/${emailId}`, { method: 'PUT', body: JSON.stringify(data) });
+
+/** Download Attachment */
+export const apiDownloadAttachment = (emailId: string, attachmentId: string, userId: string) => {
+  const API_BASE = getApiBase();
+  return fetch(`${API_BASE}/shared-inbox/emails/${emailId}/attachments/${attachmentId}?userId=${userId}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  }).then(async (response) => {
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Failed to download attachment' }));
+      throw new Error(error.message || 'Failed to download attachment');
+    }
+    return response.blob();
+  });
+};
 
 export const apiGetExcludedDomains = () => apiFetch('/settings/excluded-domains');
 export const apiAddExcludedDomain = (domain: string) => apiFetch('/settings/excluded-domains', { method: 'POST', body: JSON.stringify({ domain }) });
 export const apiRemoveExcludedDomain = (id: string) => apiFetch(`/settings/excluded-domains/${id}`, { method: 'DELETE' });
+
+/** Sync Queue */
+export const apiProcessSyncQueue = (limit?: number) => 
+  apiFetch(`/shared-inbox/sync-queue/process${limit ? `?limit=${limit}` : ''}`, { method: 'POST' });
+export const apiGetSyncQueueStatus = () => 
+  apiFetch('/shared-inbox/sync-queue/status');
+export const apiRetryFailedSyncs = () => 
+  apiFetch('/shared-inbox/sync-queue/retry', { method: 'POST' });
+
+/** Sync Configuration */
+export const apiGetSyncConfiguration = (userId: string) => 
+  apiFetch(`/shared-inbox/sync-config?userId=${userId}`);
+export const apiUpdateSyncConfiguration = (data: { userId: string; syncScopeDays?: number; syncFrequencyMinutes?: number; autoSyncEnabled?: boolean; syncLabelFilters?: string[] }) => 
+  apiFetch('/shared-inbox/sync-config', { method: 'PUT', body: JSON.stringify(data) });
+
+/** Gmail Labels */
+export const apiGetGmailLabels = (userId: string) => 
+  apiFetch(`/shared-inbox/labels?userId=${userId}`);
+export const apiCreateGmailLabel = (data: { userId: string; accountEmail: string; labelName: string; messageListVisibility?: string; labelListVisibility?: string }) => 
+  apiFetch('/shared-inbox/labels', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateEmailLabels = (emailId: string, data: { addLabelIds?: string[]; removeLabelIds?: string[] }) => 
+  apiFetch(`/shared-inbox/emails/${emailId}/labels`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiRemoveEmailLabel = (emailId: string, labelId: string) => 
+  apiFetch(`/shared-inbox/emails/${emailId}/labels/${labelId}`, { method: 'DELETE' });
 
 /**
  * EVENTS

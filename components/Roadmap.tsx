@@ -1016,7 +1016,7 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
         </div>
       )}
 
-      {activeSection === 'inbox' && <div className="animate-in slide-in-from-right-4 duration-500"><Inbox /></div>}
+      {activeSection === 'inbox' && <div className="animate-in slide-in-from-right-4 duration-500"><Inbox currentUser={currentUser} /></div>}
       {activeSection === 'automation' && <div className="animate-in slide-in-from-right-4 duration-500"><Automations /></div>}
 
       {/* Image Preview Modal */}

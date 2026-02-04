@@ -5,6 +5,7 @@ import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Setting
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
   { id: 'schedule', label: 'Schedule', icon: <Calendar className="w-5 h-5" /> },
+  { id: 'inbox', label: 'Shared Inbox', icon: <Mail className="w-5 h-5" /> },
   { id: 'crm', label: 'CRM', icon: <Users className="w-5 h-5" /> },
   { id: 'pipeline', label: 'Deal Pipeline', icon: <Briefcase className="w-5 h-5" /> },
   { id: 'projects', label: 'Projects', icon: <FileText className="w-5 h-5" /> },

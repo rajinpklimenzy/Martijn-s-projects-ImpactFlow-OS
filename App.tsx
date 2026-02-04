@@ -12,6 +12,7 @@ import Settings from './components/Settings.tsx';
 import DataHygiene from './components/DataHygiene.tsx';
 import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
+import Inbox from './components/Inbox.tsx';
 import Roadmap from './components/Roadmap.tsx';
 import Expenses from './components/Expenses.tsx';
 import Budget from './components/Budget.tsx';
@@ -303,6 +304,7 @@ const App: React.FC = () => {
       case 'expenses': return <Expenses currentUser={currentUser} />;
       case 'budget': return <Budget currentUser={currentUser} />;
       case 'contracts': return <Contracts currentUser={currentUser} />;
+      case 'inbox': return <Inbox currentUser={currentUser} />;
       case 'roadmap': return <Roadmap currentUser={currentUser} onNavigate={setActiveTab} />;
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
@@ -461,8 +463,14 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          <section className="flex-1 overflow-y-auto p-4 lg:p-8 pb-20 lg:pb-8">
-            <div className="max-w-7xl mx-auto h-full">
+          <section
+            className={`flex-1 min-h-0 flex flex-col p-4 lg:p-8 pb-20 lg:pb-8 ${
+              activeTab === 'inbox' ? 'overflow-hidden' : 'overflow-y-auto'
+            }`}
+          >
+            <div
+              className={`h-full ${activeTab === 'inbox' ? 'min-h-0 flex flex-col' : 'max-w-7xl mx-auto'}`}
+            >
               {renderContent()}
             </div>
           </section>
