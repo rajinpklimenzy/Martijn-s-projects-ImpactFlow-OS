@@ -493,22 +493,62 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 parsedDate = new Date(year, month, day);
               }
             }
-            // "February 15, 2026" / "Feb 15, 2026" – month name, day, year
+            // "February 15, 2026" / "Feb 15, 2026" / "Aug 2, 2026" – month name, day, year
             else if (!parsedDate || isNaN(parsedDate.getTime())) {
+              // Match formats like "February 15, 2026", "Feb 15, 2026", "Aug 2, 2026"
               const longDateMatch = dueDateRaw.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})$/);
               if (longDateMatch) {
                 const [, monthStr, dayStr, yearStr] = longDateMatch;
-                const d = new Date(`${monthStr.trim()} ${dayStr}, ${yearStr}`);
-                if (!isNaN(d.getTime())) parsedDate = d;
+                const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 
+                                   'july', 'august', 'september', 'october', 'november', 'december'];
+                const monthAbbr = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
+                                   'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                const monthLower = monthStr.toLowerCase().trim();
+                let monthIndex = -1;
+                
+                // Find month index
+                for (let i = 0; i < monthNames.length; i++) {
+                  if (monthLower.startsWith(monthNames[i]) || monthLower.startsWith(monthAbbr[i])) {
+                    monthIndex = i;
+                    break;
+                  }
+                }
+                
+                if (monthIndex >= 0) {
+                  const day = parseInt(dayStr, 10);
+                  const year = parseInt(yearStr, 10);
+                  // Create date using local timezone (year, month, day) - this avoids UTC conversion
+                  parsedDate = new Date(year, monthIndex, day);
+                  // Verify the date is valid
+                  if (parsedDate.getFullYear() !== year || parsedDate.getMonth() !== monthIndex || parsedDate.getDate() !== day) {
+                    console.warn(`[IMPORT] Invalid date parsed from "${dueDateRaw}": year=${year}, month=${monthIndex}, day=${day}`);
+                    parsedDate = null; // Invalid date
+                  } else {
+                    console.log(`[IMPORT] Successfully parsed date "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+                  }
+                } else {
+                  console.warn(`[IMPORT] Could not match month name in "${dueDateRaw}"`);
+                }
               }
             }
-            // Try direct Date parse as fallback
+            // Try direct Date parse as fallback (but this can cause timezone issues)
             if (!parsedDate || isNaN(parsedDate.getTime())) {
-              parsedDate = new Date(dueDateRaw);
+              const fallbackDate = new Date(dueDateRaw);
+              if (!isNaN(fallbackDate.getTime())) {
+                // If fallback parsing worked, use local date components to avoid timezone shift
+                const year = fallbackDate.getFullYear();
+                const month = fallbackDate.getMonth();
+                const day = fallbackDate.getDate();
+                parsedDate = new Date(year, month, day);
+                console.log(`[IMPORT] Used fallback date parsing for "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+              }
             }
             
             if (parsedDate && !isNaN(parsedDate.getTime()) && !dueDate) {
               dueDate = dateToLocalYYYYMMDD(parsedDate);
+              console.log(`[IMPORT] Final dueDate for row ${index}: "${dueDateRaw}" -> "${dueDate}"`);
+            } else if (dueDateRaw && !dueDate) {
+              console.error(`[IMPORT] Failed to parse date "${dueDateRaw}" for row ${index}`);
             }
           }
         }
@@ -1045,11 +1085,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           console.log('[IMPORT] Excel worksheet range:', worksheet['!ref']);
           console.log('[IMPORT] Excel number of columns from range:', numCols);
           
-          // Convert to JSON with date formatting - ensure all columns are included
+          // Convert to JSON - preserve raw values to handle dates correctly
+          // raw: true preserves numbers (Excel serial dates) and strings (text-formatted dates)
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
             header: 1,
-            raw: false, // Convert dates to strings
-            dateNF: 'yyyy-mm-dd', // Format dates as YYYY-MM-DD
+            raw: true, // Keep raw values - numbers for serial dates, strings for text dates
             defval: '', // Include empty cells as empty strings
             blankrows: true // Include blank rows
           }) as any[][];
@@ -1117,11 +1157,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               const cellValue = dataRow[index];
               // Handle Excel date serial numbers - if it's a number > 25569, it's likely an Excel date
               if (typeof cellValue === 'number' && cellValue > 25569 && header.toLowerCase().includes('date')) {
-                // Convert Excel serial date to ISO string
+                // Convert Excel serial date to local date (avoid UTC conversion)
+                // Excel serial date: days since 1900-01-01 (but Excel treats 1900 as leap year incorrectly)
                 const excelEpoch = new Date(1900, 0, 1);
-                const days = cellValue - 2; // Excel counts from 1900-01-01
+                const days = cellValue - 2; // Excel counts from 1900-01-01, subtract 2 for the bug
                 const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
-                row[header] = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+                // Use local date components to avoid timezone shifts
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const day = date.getDate();
+                row[header] = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               } else {
                 row[header] = cellValue != null ? String(cellValue).trim() : '';
               }

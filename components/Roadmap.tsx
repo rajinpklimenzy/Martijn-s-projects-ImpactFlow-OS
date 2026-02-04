@@ -6,7 +6,7 @@ import {
   Loader2, AlertTriangle, ChevronRight, Box, History,
   X, User, Calendar, MessageSquare, Tag, Layout, ArrowRight,
   Trash2, Mail, Zap, Plus, Send, Archive, Image as ImageIcon, Video, Link as LinkIcon, ExternalLink,
-  CreditCard, Linkedin, TrendingUp
+  CreditCard, Linkedin, TrendingUp, BarChart3, FileVideo, BookOpen, Heart, Package, MessageCircle
 } from 'lucide-react';
 import { FeedbackItem, User as UserType } from '../types';
 import { apiGetFeedback, apiCreateFeedback, apiUpdateFeedback, apiDeleteFeedback, apiGetUsers } from '../utils/api';
@@ -835,6 +835,174 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
               </div>
               <p className="text-xs text-slate-500">
                 Source signals, such as recent funding, new hires, M&A, lay-offs, and attach this information to the company card.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* Dashboards (Sales KPIs) */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Feature Request</p>
+                    <h3 className="text-sm font-black text-slate-900">Dashboards (Sales KPIs)</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Comprehensive sales dashboards with key performance indicators, revenue tracking, and analytics to monitor sales performance.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* Connect Gemini Video Transcript/ Video Meeting Session to Accounts */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                    <FileVideo className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Feature Request</p>
+                    <h3 className="text-sm font-black text-slate-900">Gemini Video Transcript</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Connect Gemini video transcripts and meeting sessions to company accounts for automatic note-taking and insights.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* New section "Playbooks" */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">New Section</p>
+                    <h3 className="text-sm font-black text-slate-900">Playbooks</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Create and manage sales playbooks, best practices, and standardized workflows for your team.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* New Section: Client Satisfaction */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center">
+                    <Heart className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">New Section</p>
+                    <h3 className="text-sm font-black text-slate-900">Client Satisfaction</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Track and manage client satisfaction scores, feedback, and surveys to improve customer relationships.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* New section: Product & Service Library */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">New Section</p>
+                    <h3 className="text-sm font-black text-slate-900">Product & Service Library</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Centralized library to manage products, services, pricing, and catalog information for your business.
+              </p>
+              <button
+                disabled
+                className="self-start px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-2"
+              >
+                Coming Soon
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+            
+            {/* New Integration: LinkedIn DMs/ LinkedIn Sales Nav */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <MessageCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">New Integration</p>
+                    <h3 className="text-sm font-black text-slate-900">LinkedIn DMs & Sales Nav</h3>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-50 text-amber-600">
+                  In Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Integrate LinkedIn direct messages and LinkedIn Sales Navigator to manage conversations and leads directly in the platform.
               </p>
               <button
                 disabled
