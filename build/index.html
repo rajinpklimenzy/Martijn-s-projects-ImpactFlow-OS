@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>ImpactFlow OS - Impact 24x7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script type="text/javascript" src="https://apis.google.com/js/api.js"></script>
+    <script type="text/javascript" src="https://accounts.google.com/gsi/client"></script>
+    <script type="text/javascript" src="https://apis.google.com/js/picker.js"></script>
+    <style>
+        /* Force light mode globally */
+        html, body {
+            color-scheme: light !important;
+            background-color: rgb(248, 250, 252) !important; /* slate-50 */
+            color: rgb(15, 23, 42) !important; /* slate-900 */
+        }
+        
+        body { font-family: 'Inter', sans-serif; }
+        /* Prevent scrollbars from jumping during transitions */
+        html { overflow-y: scroll; scroll-behavior: smooth; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Force light mode - prevent dark mode styling on inputs */
+        input, select, textarea {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important; /* slate-900 */
+        }
+        
+        /* Ensure date inputs use white background */
+        input[type="date"], input[type="datetime-local"], input[type="time"] {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important;
+        }
+        
+        /* Ensure select dropdowns use white background */
+        select option {
+            background-color: white !important;
+            color: rgb(15, 23, 42) !important;
+        }
+        
+        /* Force light mode for checkboxes and radio buttons */
+        input[type="checkbox"],
+        input[type="radio"] {
+            background-color: white !important;
+            border: 2px solid rgb(203, 213, 225) !important; /* slate-300 */
+            border-radius: 4px !important;
+            width: 1rem !important;
+            height: 1rem !important;
+            appearance: auto !important;
+            -webkit-appearance: checkbox !important;
+            -moz-appearance: checkbox !important;
+            color-scheme: light !important;
+        }
+        
+        /* Checkboxes */
+        input[type="checkbox"] {
+            -webkit-appearance: checkbox !important;
+            -moz-appearance: checkbox !important;
+            appearance: checkbox !important;
+        }
+        
+        input[type="checkbox"]:checked {
+            background-color: rgb(99, 102, 241) !important; /* indigo-500 */
+            border-color: rgb(99, 102, 241) !important;
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-3-3a1 1 0 011.414-1.414L5.5 9.586l5.293-5.293a1 1 0 011.414 0z'/%3e%3c/svg%3e") !important;
+            background-size: 100% 100% !important;
+            background-position: center !important;
+            background-repeat: no-repeat !important;
+        }
+        
+        /* Radio buttons */
+        input[type="radio"] {
+            -webkit-appearance: radio !important;
+            -moz-appearance: radio !important;
+            appearance: radio !important;
+            border-radius: 50% !important;
+        }
+        
+        input[type="radio"]:checked {
+            background-color: white !important;
+            border-color: rgb(99, 102, 241) !important;
+            background-image: radial-gradient(circle, rgb(99, 102, 241) 40%, white 40%) !important;
+        }
+        
+        /* Prevent dark mode color scheme */
+        * {
+            color-scheme: light !important;
+        }
+    </style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?deps=react@19.0.0",
+    "recharts": "https://esm.sh/recharts@2.13.0?deps=react@19.0.0",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "dotenv": "https://esm.sh/dotenv@^17.2.3",
+    "firebase-admin": "https://esm.sh/firebase-admin@^13.6.0",
+    "resend": "https://esm.sh/resend@^6.8.0",
+    "express": "https://esm.sh/express@^5.2.1",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.4",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "firebase-admin/": "https://esm.sh/firebase-admin@^13.6.0/",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5.62.7?deps=react@19.0.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "xlsx": "https://esm.sh/xlsx@0.18.5"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/main-ChIh2mo0.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-D5k_pI80.css">
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+</body>
+</html>
