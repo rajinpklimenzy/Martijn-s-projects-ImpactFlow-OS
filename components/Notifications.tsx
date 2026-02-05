@@ -20,6 +20,7 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [filterMarkedNotes, setFilterMarkedNotes] = useState(false);
 
   const loadNotifications = useCallback(async (showLoading = false) => {
     try {
@@ -83,6 +84,11 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
     loadNotifications(false);
   }, [loadNotifications]);
 
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterMarkedNotes]);
+
   // Listen for custom event to refresh notifications immediately
   useEffect(() => {
     const handleNotificationRefresh = () => {
@@ -124,6 +130,10 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
   };
 
   const getIcon = (type: Notification['type'], title?: string) => {
+    // Check if it's a marked note notification
+    if (type === 'note-marked' || title?.toLowerCase().includes('marked')) {
+      return <UserPlus className="w-5 h-5 text-indigo-500" />;
+    }
     // Check if it's a pipeline notification by title
     if (title?.toLowerCase().includes('pipeline')) {
       return <TrendingUp className="w-5 h-5 text-purple-500" />;
@@ -139,6 +149,10 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
   };
 
   const getBg = (type: Notification['type'], title?: string) => {
+    // Check if it's a marked note notification
+    if (type === 'note-marked' || title?.toLowerCase().includes('marked')) {
+      return 'bg-indigo-50';
+    }
     // Check if it's a pipeline notification by title
     if (title?.toLowerCase().includes('pipeline')) {
       return 'bg-purple-50';
@@ -174,11 +188,17 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
     }
   };
 
+  // Filter notifications
+  const filteredNotifications = filterMarkedNotes 
+    ? notifications.filter(n => n.type === 'note-marked' || n.title?.toLowerCase().includes('marked'))
+    : notifications;
+  
   // Pagination calculations
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
-  const paginatedNotifications = notifications.slice(startIndex, endIndex);
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const paginatedNotifications = filteredNotifications.slice(startIndex, endIndex);
+  const unreadCount = filteredNotifications.filter(n => !n.read).length;
+  const totalPagesFiltered = Math.ceil(filteredNotifications.length / ITEMS_PER_PAGE);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -193,6 +213,17 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setFilterMarkedNotes(!filterMarkedNotes)}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 ${
+              filterMarkedNotes 
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
+                : 'text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <UserPlus className="w-4 h-4" />
+            {filterMarkedNotes ? 'Show All' : 'Marked Notes'}
+          </button>
           <button
             onClick={() => loadNotifications(true)}
             disabled={isRefreshing}
@@ -217,11 +248,17 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
         <div className="flex items-center justify-center py-20">
           <RefreshCw className="w-8 h-8 animate-spin text-indigo-600" />
         </div>
-      ) : notifications.length === 0 ? (
+      ) : filteredNotifications.length === 0 ? (
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-12 text-center">
           <Check className="w-16 h-16 mx-auto mb-4 text-slate-300" />
-          <h3 className="text-lg font-bold text-slate-900 mb-2">All caught up!</h3>
-          <p className="text-sm text-slate-500">No notifications at this time.</p>
+          <h3 className="text-lg font-bold text-slate-900 mb-2">
+            {filterMarkedNotes ? 'No marked notes' : 'All caught up!'}
+          </h3>
+          <p className="text-sm text-slate-500">
+            {filterMarkedNotes 
+              ? 'No notes have been marked for you yet.' 
+              : 'No notifications at this time.'}
+          </p>
         </div>
       ) : (
         <>
@@ -256,12 +293,12 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {totalPagesFiltered > 1 && (
             <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 shadow-sm px-6 py-4">
               <div className="text-sm text-slate-600">
                 Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
-                <span className="font-semibold">{Math.min(endIndex, notifications.length)}</span> of{' '}
-                <span className="font-semibold">{notifications.length}</span> notifications
+                <span className="font-semibold">{Math.min(endIndex, filteredNotifications.length)}</span> of{' '}
+                <span className="font-semibold">{filteredNotifications.length}</span> notifications
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -272,7 +309,7 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                  {Array.from({ length: totalPagesFiltered }, (_, i) => i + 1).map((page) => {
                     // Show first page, last page, current page, and pages around current
                     if (
                       page === 1 ||
@@ -306,8 +343,8 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
                   })}
                 </div>
                 <button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPagesFiltered, prev + 1))}
+                  disabled={currentPage === totalPagesFiltered}
                   className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="w-5 h-5" />

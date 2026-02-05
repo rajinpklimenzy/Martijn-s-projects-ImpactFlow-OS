@@ -8,7 +8,7 @@ import {
   MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note } from '../types';
-import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers, apiCreateNotification } from '../utils/api';
+import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers, apiCreateNotification, apiGetActivityFeed } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 
@@ -86,6 +86,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [contactMentionSearchQuery, setContactMentionSearchQuery] = useState('');
   const [contactMentionCursorPosition, setContactMentionCursorPosition] = useState(0);
   const [filteredContactMentionUsers, setFilteredContactMentionUsers] = useState<UserType[]>([]);
+  
+  // Activity feed state
+  const [contactActivities, setContactActivities] = useState<any[]>([]);
+  const [companyActivities, setCompanyActivities] = useState<any[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   useEffect(() => {
     if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
@@ -120,6 +125,54 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     window.addEventListener('refresh-crm', handleRefresh);
     return () => window.removeEventListener('refresh-crm', handleRefresh);
   }, []);
+
+  // Fetch activity feed for contact
+  const fetchContactActivities = async () => {
+    if (!selectedContact || activeContactTab !== 'activity') return;
+    setIsLoadingActivities(true);
+    try {
+      const res = await apiGetActivityFeed('contact', selectedContact.id);
+      setContactActivities(res?.data || []);
+    } catch (err: any) {
+      console.error('[CRM] Failed to fetch contact activities:', err);
+      setContactActivities([]);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
+
+  // Fetch activity feed for company
+  const fetchCompanyActivities = async () => {
+    if (!selectedCompany) return;
+    setIsLoadingActivities(true);
+    try {
+      const res = await apiGetActivityFeed('company', selectedCompany.id);
+      setCompanyActivities(res?.data || []);
+    } catch (err: any) {
+      console.error('[CRM] Failed to fetch company activities:', err);
+      setCompanyActivities([]);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
+
+  // Fetch activities when contact is selected and activity tab is active
+  useEffect(() => {
+    if (selectedContact && activeContactTab === 'activity') {
+      fetchContactActivities();
+    } else {
+      setContactActivities([]);
+    }
+  }, [selectedContact?.id, activeContactTab]);
+
+  // Fetch activities when company is selected
+  useEffect(() => {
+    if (selectedCompany) {
+      fetchCompanyActivities();
+    } else {
+      setCompanyActivities([]);
+    }
+  }, [selectedCompany?.id]);
 
   const handleUpdateCompany = async (updates: Partial<Company>) => {
     if (!selectedCompany) return;
@@ -1412,6 +1465,76 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   ))}
                 </div>
               </div>
+
+              {/* Activity Timeline Section */}
+              <div className="space-y-4 pt-4 border-t border-slate-200">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <History className="w-4 h-4 text-indigo-500" /> Email Activity Timeline
+                  </h3>
+                </div>
+                {isLoadingActivities ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                  </div>
+                ) : companyActivities.length === 0 ? (
+                  <div className="text-center py-20 bg-white border border-dashed border-slate-200 rounded-3xl">
+                    <Mail className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-sm font-bold text-slate-400">No email activities yet</p>
+                    <p className="text-xs text-slate-400 mt-1">Email activities will appear here when emails are linked to this company</p>
+                  </div>
+                ) : (
+                  <div className="relative border-l-2 border-slate-100 ml-4 pl-10 space-y-12">
+                    {companyActivities.map((activity, idx) => {
+                      const activityDate = new Date(activity.createdAt);
+                      const now = new Date();
+                      const diffMs = now.getTime() - activityDate.getTime();
+                      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                      let timeLabel = '';
+                      if (diffDays === 0) timeLabel = 'Today';
+                      else if (diffDays === 1) timeLabel = 'Yesterday';
+                      else if (diffDays < 7) timeLabel = `${diffDays} days ago`;
+                      else if (diffDays < 30) timeLabel = `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+                      else timeLabel = `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+                      
+                      const isEmailLinked = activity.activityType === 'email_linked';
+                      const borderColor = isEmailLinked ? 'border-indigo-600' : 'border-slate-200';
+                      const dotColor = isEmailLinked ? 'bg-indigo-600' : 'bg-slate-300';
+                      const textColor = isEmailLinked ? 'text-indigo-600' : 'text-slate-400';
+                      
+                      return (
+                        <div key={activity.id || idx} className="relative">
+                          <div className={`absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 ${borderColor} shadow-xl flex items-center justify-center`}>
+                            {isEmailLinked ? (
+                              <Mail className="w-4 h-4 text-indigo-600" />
+                            ) : (
+                              <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                            )}
+                          </div>
+                          <p className={`text-[10px] font-black ${textColor} uppercase mb-1 tracking-widest`}>
+                            {isEmailLinked ? 'Email Linked' : activity.activityType || 'Activity'} • {timeLabel}
+                          </p>
+                          <h4 className="text-sm font-black text-slate-900">{activity.title || 'Email Activity'}</h4>
+                          <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">{activity.description || activity.title}</p>
+                          {activity.emailId && (
+                            <button
+                              onClick={() => {
+                                onNavigate('inbox');
+                                setTimeout(() => {
+                                  window.location.hash = `email=${activity.emailId}`;
+                                }, 100);
+                              }}
+                              className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1.5"
+                            >
+                              <ExternalLink className="w-3 h-3" /> View Email
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1782,24 +1905,67 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Operational Engagement Timeline</h3>
                     <button className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-all flex items-center gap-1.5"><FileSearch className="w-3 h-3" /> Audit Log</button>
                   </div>
-                  <div className="relative border-l-2 border-slate-100 ml-4 pl-10 space-y-12">
-                     <div className="relative">
-                       <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-indigo-600 shadow-xl flex items-center justify-center">
-                         <div className="w-2 h-2 rounded-full bg-indigo-600" />
-                       </div>
-                       <p className="text-[10px] font-black text-indigo-600 uppercase mb-1 tracking-widest">Digital Touchpoint • Yesterday</p>
-                       <h4 className="text-sm font-black text-slate-900">Enterprise Email Receipt</h4>
-                       <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Confirmed receipt of Logistics Transformation Proposal V3. Stakeholder requested EMEA regional review by Friday.</p>
-                     </div>
-                     <div className="relative">
-                       <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-slate-200 shadow-sm flex items-center justify-center">
-                         <div className="w-2 h-2 rounded-full bg-slate-300" />
-                       </div>
-                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Registry Update • Last Week</p>
-                       <h4 className="text-sm font-black text-slate-900">Registry Association Linked</h4>
-                       <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Manually associated with the 'Q4 Global Logistics Consolidation' opportunity by Alex Rivera (Admin).</p>
-                     </div>
-                  </div>
+                  {isLoadingActivities ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                    </div>
+                  ) : contactActivities.length === 0 ? (
+                    <div className="text-center py-20 bg-white border border-dashed border-slate-200 rounded-3xl">
+                      <Mail className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-sm font-bold text-slate-400">No email activities yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Email activities will appear here when emails are linked to this contact</p>
+                    </div>
+                  ) : (
+                    <div className="relative border-l-2 border-slate-100 ml-4 pl-10 space-y-12">
+                      {contactActivities.map((activity, idx) => {
+                        const activityDate = new Date(activity.createdAt);
+                        const now = new Date();
+                        const diffMs = now.getTime() - activityDate.getTime();
+                        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                        let timeLabel = '';
+                        if (diffDays === 0) timeLabel = 'Today';
+                        else if (diffDays === 1) timeLabel = 'Yesterday';
+                        else if (diffDays < 7) timeLabel = `${diffDays} days ago`;
+                        else if (diffDays < 30) timeLabel = `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+                        else timeLabel = `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+                        
+                        const isEmailLinked = activity.activityType === 'email_linked';
+                        const borderColor = isEmailLinked ? 'border-indigo-600' : 'border-slate-200';
+                        const dotColor = isEmailLinked ? 'bg-indigo-600' : 'bg-slate-300';
+                        const textColor = isEmailLinked ? 'text-indigo-600' : 'text-slate-400';
+                        
+                        return (
+                          <div key={activity.id || idx} className="relative">
+                            <div className={`absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 ${borderColor} shadow-xl flex items-center justify-center`}>
+                              {isEmailLinked ? (
+                                <Mail className="w-4 h-4 text-indigo-600" />
+                              ) : (
+                                <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                              )}
+                            </div>
+                            <p className={`text-[10px] font-black ${textColor} uppercase mb-1 tracking-widest`}>
+                              {isEmailLinked ? 'Email Linked' : activity.activityType || 'Activity'} • {timeLabel}
+                            </p>
+                            <h4 className="text-sm font-black text-slate-900">{activity.title || 'Email Activity'}</h4>
+                            <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">{activity.description || activity.title}</p>
+                            {activity.emailId && (
+                              <button
+                                onClick={() => {
+                                  onNavigate('inbox');
+                                  setTimeout(() => {
+                                    window.location.hash = `email=${activity.emailId}`;
+                                  }, 100);
+                                }}
+                                className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1.5"
+                              >
+                                <ExternalLink className="w-3 h-3" /> View Email
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -5,10 +5,10 @@ import {
   Check, Building2, User, Clock, Trash2, Loader2, AlertCircle, 
   CheckSquare, AlertTriangle, ListChecks, ChevronDown, Layout, Save, Move,
   ChevronRight, ExternalLink, Briefcase, FileText, Users, TrendingUp, ShieldCheck, 
-  History, Info, MessageSquare, PieChart, UserPlus, Search, Sparkles, Edit2, RefreshCw
+  History, Info, MessageSquare, PieChart, UserPlus, Search, Sparkles, Edit2, RefreshCw, Mail
 } from 'lucide-react';
 import { Deal, Company, User as UserType, Contact } from '../types';
-import { apiGetDeals, apiUpdateDeal, apiDeleteDeal, apiGetCompanies, apiGetUsers, apiCreateNotification, apiGetContacts, apiGetAllPipelines, apiGetActivePipelineByType, apiCreatePipeline, apiUpdatePipeline, apiDeletePipeline } from '../utils/api';
+import { apiGetDeals, apiUpdateDeal, apiDeleteDeal, apiGetCompanies, apiGetUsers, apiCreateNotification, apiGetContacts, apiGetAllPipelines, apiGetActivePipelineByType, apiCreatePipeline, apiUpdatePipeline, apiDeletePipeline, apiGetActivityFeed } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol, formatCurrency } from '../utils/currency';
@@ -64,6 +64,10 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
   const [isBulkDeletingDeals, setIsBulkDeletingDeals] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  
+  // Activity feed state
+  const [dealActivities, setDealActivities] = useState<any[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   // Pipeline/Stage State - Only Sales Pipeline
   const [pipelines, setPipelines] = useState<PipelineConfig[]>([]);
@@ -463,17 +467,42 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
     }
   };
 
+  // Fetch activity feed for deal
+  const fetchDealActivities = async () => {
+    if (!selectedDeal || activeDetailTab !== 'activity') return;
+    setIsLoadingActivities(true);
+    try {
+      const res = await apiGetActivityFeed('deal', selectedDeal.id);
+      setDealActivities(res?.data || []);
+    } catch (err: any) {
+      console.error('[PIPELINE] Failed to fetch deal activities:', err);
+      setDealActivities([]);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
+
+  // Fetch activities when deal is selected and activity tab is active
+  useEffect(() => {
+    if (selectedDeal && activeDetailTab === 'activity') {
+      fetchDealActivities();
+    } else {
+      setDealActivities([]);
+    }
+  }, [selectedDeal?.id, activeDetailTab]);
+
   // Timeline events
   const getTimelineEvents = () => {
     if (!selectedDeal) return [];
     const events: Array<{
       id: string;
-      type: 'created' | 'stage' | 'stakeholder' | 'value' | 'close_date' | 'description';
+      type: 'created' | 'stage' | 'stakeholder' | 'value' | 'close_date' | 'description' | 'email_linked';
       title: string;
       description: string;
       date: string;
       icon: React.ReactNode;
       color: string;
+      emailId?: string;
     }> = [];
 
     // Deal creation
@@ -551,6 +580,22 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
         color: 'slate'
       });
     }
+
+    // Add email activities
+    dealActivities.forEach((activity) => {
+      if (activity.activityType === 'email_linked') {
+        events.push({
+          id: activity.id || `email-${activity.emailId}`,
+          type: 'email_linked',
+          title: activity.title || 'Email Linked',
+          description: activity.description || `Email "${activity.emailSubject || 'Untitled'}" from ${activity.emailSender || 'Unknown'}`,
+          date: activity.createdAt,
+          icon: <Mail className="w-4 h-4" />,
+          color: 'indigo',
+          emailId: activity.emailId
+        });
+      }
+    });
 
     // Sort by date (newest first)
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -986,7 +1031,11 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-6">
                       <History className="w-4 h-4 text-indigo-500" /> Opportunity Timeline
                     </h3>
-                    {(() => {
+                    {isLoadingActivities ? (
+                      <div className="flex items-center justify-center py-20">
+                        <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                      </div>
+                    ) : (() => {
                       const timelineEvents = getTimelineEvents();
                       if (timelineEvents.length === 0) {
                         return (
@@ -1044,6 +1093,19 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                                         </span>
                                       </div>
                                       <p className="text-xs text-slate-600 leading-relaxed">{event.description}</p>
+                                      {event.type === 'email_linked' && event.emailId && (
+                                        <button
+                                          onClick={() => {
+                                            onNavigate('inbox');
+                                            setTimeout(() => {
+                                              window.location.hash = `email=${event.emailId}`;
+                                            }, 100);
+                                          }}
+                                          className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1.5"
+                                        >
+                                          <ExternalLink className="w-3 h-3" /> View Email
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 </div>

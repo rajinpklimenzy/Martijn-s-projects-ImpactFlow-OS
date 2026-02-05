@@ -119,6 +119,17 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
     if (endpoint.includes('domain-mismatches')) return { success: true, data: { mismatches: [], count: 0 }, simulated: true };
   }
 
+  // Shared inbox fallbacks (when backend unreachable) – return shapes matching real API
+  if (endpoint.startsWith('/shared-inbox/labels')) {
+    return { success: true, labels: [], simulated: true };
+  }
+  if (endpoint.startsWith('/shared-inbox/senders')) {
+    return { success: true, data: [], simulated: true };
+  }
+  if (endpoint.startsWith('/shared-inbox/emails') && method === 'GET' && !endpoint.match(/\/emails\/[^/]+$/)) {
+    return { data: [], success: true, simulated: true };
+  }
+
   switch (endpoint) {
     case '/me':
     case '/auth/me':

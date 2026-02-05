@@ -14,6 +14,17 @@
     "start": "tsx server.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.19",
+    "@types/dompurify": "^3.2.0",
+    "cors": "^2.8.5",
+    "dompurify": "^3.3.1",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
+    "jspdf": "^4.0.0",
+    "lucide-react": "0.460.0",
+    "path": "^0.12.7",
+    "quill": "^2.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "lucide-react": "^0.460.0",
@@ -30,12 +41,13 @@
     "react-quill": "^2.0.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "@types/node": "^22.0.0",
-    "@vitejs/plugin-react": "^5.1.2",
-    "typescript": "^5.7.2",
-    "vite": "^7.3.1",
-    "tsx": "^4.19.2"
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   }
 }
