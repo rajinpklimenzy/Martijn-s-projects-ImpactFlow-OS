@@ -94,7 +94,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     try {
       await archiveProjectMutation.mutateAsync({ 
         id, 
-        isArchived: viewMode === 'active' 
+        archived: viewMode === 'active' 
       });
       setArchiveConfirmProject(null);
       if (selectedProject?.id === id) {

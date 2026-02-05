@@ -104,15 +104,18 @@ export const useUpdateProject = () => {
     mutationFn: async ({ id, data }: { id: string; data: Partial<Project> }) => {
       return await apiUpdateProject(id, data);
     },
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       showSuccess('Project updated successfully');
       
-      // Invalidate and refetch all related queries
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ 
-        queryKey: PROJECTS_QUERY_KEYS.projectActivities(variables.id) 
-      });
+      // Refetch immediately for instant UI update
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['projects'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['tasks'], type: 'active' }),
+        queryClient.refetchQueries({ 
+          queryKey: PROJECTS_QUERY_KEYS.projectActivities(variables.id),
+          type: 'active'
+        })
+      ]);
     },
     onError: (error: any) => {
       console.error('Failed to update project:', error);
@@ -130,12 +133,14 @@ export const useDeleteProject = () => {
     mutationFn: async (id: string) => {
       return await apiDeleteProject(id);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       showSuccess('Project deleted successfully');
       
-      // Invalidate all project-related queries after successful delete
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      // Refetch immediately for instant UI update
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['projects'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['tasks'], type: 'active' })
+      ]);
     },
     onError: (error: any) => {
       console.error('Failed to delete project:', error);
@@ -150,16 +155,16 @@ export const useArchiveProject = () => {
   const { showSuccess, showError } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, isArchived }: { id: string; isArchived: boolean }) => {
-      return await apiUpdateProject(id, { isArchived });
+    mutationFn: async ({ id, archived }: { id: string; archived: boolean }) => {
+      return await apiUpdateProject(id, { archived });
     },
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       showSuccess(
-        variables.isArchived ? 'Project archived successfully' : 'Project restored successfully'
+        variables.archived ? 'Project archived successfully' : 'Project restored successfully'
       );
       
-      // Invalidate queries after successful archive/restore
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // Refetch immediately for instant UI update
+      await queryClient.refetchQueries({ queryKey: ['projects'], type: 'active' });
       queryClient.invalidateQueries({ 
         queryKey: PROJECTS_QUERY_KEYS.projectActivities(variables.id) 
       });
@@ -181,12 +186,14 @@ export const useBulkDeleteProjects = () => {
       // Delete projects in parallel
       await Promise.all(ids.map(id => apiDeleteProject(id)));
     },
-    onSuccess: (_, ids) => {
+    onSuccess: async (_, ids) => {
       showSuccess(`${ids.length} project(s) deleted successfully`);
       
-      // Invalidate queries after successful bulk delete
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      // Refetch immediately for instant UI update
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['projects'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['tasks'], type: 'active' })
+      ]);
     },
     onError: (error: any) => {
       console.error('Failed to bulk delete projects:', error);
