@@ -4,16 +4,8 @@
 # IMPORTANT: Uses existing Artifact Registry repository: cloud-run-source-deploy
 # This repository should already exist (created by Cloud Run source deployments)
 #
-# Substitution variables:
-# - $PROJECT_ID, $SHORT_SHA are built-in (auto-provided)
-# - $_ARTIFACT_REPO: Artifact Registry repository name (default: "cloud-run-source-deploy")
-# - $_LOCATION: Artifact Registry location/region (default: "us-west1")
-# - $_IMAGE_PATH: Image path within repository (default: "martijn-s-projects-impactflow-os/impactflow-os")
-#   Set these in your Cloud Build trigger's "Substitution variables" section
-substitutions:
-  _ARTIFACT_REPO: 'cloud-run-source-deploy'
-  _LOCATION: 'us-west1'
-  _IMAGE_PATH: 'martijn-s-projects-impactflow-os/impactflow-os'
+# Using existing Artifact Registry repository: cloud-run-source-deploy
+# Built-in variables: $PROJECT_ID, $SHORT_SHA are auto-provided by Cloud Build
 
 steps:
   # Build with local tag first to avoid registry authentication during build
@@ -29,16 +21,16 @@ steps:
     args:
       - 'tag'
       - 'impactflow-os:${SHORT_SHA}'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_IMAGE_PATH}:${SHORT_SHA}'
+      - 'us-west1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/martijn-s-projects-impactflow-os/impactflow-os:${SHORT_SHA}'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_IMAGE_PATH}:${SHORT_SHA}'
+      - 'us-west1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/martijn-s-projects-impactflow-os/impactflow-os:${SHORT_SHA}'
 
 images:
-  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_IMAGE_PATH}:${SHORT_SHA}'
+  - 'us-west1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/martijn-s-projects-impactflow-os/impactflow-os:${SHORT_SHA}'
 
 # Required when the trigger uses a custom service account (satisfies option c).
 # IMPORTANT: The trigger MUST be set to "Cloud Build configuration file" (not "Dockerfile")
