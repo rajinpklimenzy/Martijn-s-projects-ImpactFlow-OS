@@ -1,16 +1,31 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, ExternalLink, 
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note } from '../types';
-import { apiGetCompanies, apiGetContacts, apiUpdateCompany, apiUpdateContact, apiDeleteCompany, apiDeleteContact, apiGetDeals, apiGetUsers, apiCreateNotification } from '../utils/api';
+import { apiCreateNotification } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
+import { BusinessCardScanner, LinkedInScanner } from './Scanner';
+import { 
+  useCompanies, 
+  useContacts, 
+  useDeals, 
+  useUsers,
+  useUpdateCompany,
+  useUpdateContact,
+  useDeleteCompany,
+  useDeleteContact,
+  useBulkDeleteCompanies,
+  useBulkDeleteContacts,
+  useBulkUpdateCompanies
+} from '../hooks/useCRMData';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface CRMProps {
   onNavigate: (tab: string) => void;
@@ -21,6 +36,7 @@ interface CRMProps {
 
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
   const { showSuccess, showError } = useToast();
+  const queryClient = useQueryClient();
   
   // Get current user from localStorage
   const currentUser = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}') : null;
@@ -29,11 +45,24 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [users, setUsers] = useState<UserType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // React Query hooks for data fetching with caching
+  const { data: companies = [], isLoading: isLoadingCompanies } = useCompanies(localSearchQuery);
+  const { data: contacts = [], isLoading: isLoadingContacts } = useContacts(localSearchQuery);
+  const { data: deals = [], isLoading: isLoadingDeals } = useDeals();
+  const { data: users = [], isLoading: isLoadingUsers } = useUsers();
+  
+  // React Query mutations
+  const updateCompanyMutation = useUpdateCompany();
+  const updateContactMutation = useUpdateContact();
+  const deleteCompanyMutation = useDeleteCompany();
+  const deleteContactMutation = useDeleteContact();
+  const bulkDeleteCompaniesMutation = useBulkDeleteCompanies();
+  const bulkDeleteContactsMutation = useBulkDeleteContacts();
+  const bulkUpdateCompaniesMutation = useBulkUpdateCompanies();
+  
+  // Combine loading states
+  const isLoading = isLoadingCompanies || isLoadingContacts || isLoadingDeals || isLoadingUsers;
   
   // Company filters - using arrays for multiple selections
   const [targetAccountFilters, setTargetAccountFilters] = useState<string[]>([]);
@@ -86,49 +115,66 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [contactMentionSearchQuery, setContactMentionSearchQuery] = useState('');
   const [contactMentionCursorPosition, setContactMentionCursorPosition] = useState(0);
   const [filteredContactMentionUsers, setFilteredContactMentionUsers] = useState<UserType[]>([]);
+  
+  // Scanner state
+  const [isBusinessCardScannerOpen, setIsBusinessCardScannerOpen] = useState(false);
+  const [isLinkedInScannerOpen, setIsLinkedInScannerOpen] = useState(false);
+  
+  // Manual refresh state
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  
+  // Manual refresh function
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['companies'] }),
+        queryClient.invalidateQueries({ queryKey: ['contacts'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['users'] })
+      ]);
+      showSuccess('Data refreshed successfully');
+    } catch (err) {
+      showError('Failed to refresh data');
+    } finally {
+      // Keep spinner for at least 500ms for better UX
+      setTimeout(() => setIsManualRefreshing(false), 500);
+    }
+  };
 
   useEffect(() => {
     if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
   }, [externalSearchQuery]);
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const [compRes, contRes, dealRes, userRes] = await Promise.all([
-        apiGetCompanies(localSearchQuery.trim() || undefined),
-        apiGetContacts(localSearchQuery.trim() || undefined),
-        apiGetDeals(),
-        apiGetUsers()
-      ]);
-      setCompanies(compRes.data || []);
-      setContacts(contRes.data || []);
-      setDeals(dealRes.data || []);
-      setUsers(userRes.data || []);
-    } catch (err) { showError('Failed to load data'); }
-    finally { setIsLoading(false); }
-  };
-
+  // Clear selections when search query or view changes
   useEffect(() => {
-    fetchData();
-    // Clear selections when search query changes
     setSelectedCompanyIds([]);
     setSelectedContactIds([]);
   }, [view, localSearchQuery]);
 
+  // Listen for external refresh events (e.g., from other components)
   useEffect(() => {
-    const handleRefresh = () => fetchData();
+    const handleRefresh = () => {
+      console.log('🔄 CRM refresh triggered - invalidating cache');
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    };
+    
     window.addEventListener('refresh-crm', handleRefresh);
     return () => window.removeEventListener('refresh-crm', handleRefresh);
-  }, []);
+  }, [queryClient]);
 
   const handleUpdateCompany = async (updates: Partial<Company>) => {
     if (!selectedCompany) return;
     try {
-      await apiUpdateCompany(selectedCompany.id, updates);
+      await updateCompanyMutation.mutateAsync({ id: selectedCompany.id, updates });
       setSelectedCompany({ ...selectedCompany, ...updates });
-      setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? { ...c, ...updates } : c));
       showSuccess('Account updated');
-    } catch (err) { showError('Update failed'); }
+    } catch (err) { 
+      showError('Update failed'); 
+    }
   };
 
   const handleUpdateContactDetails = async () => {
@@ -142,10 +188,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
     setIsUpdatingContact(true);
     try {
-      await apiUpdateContact(selectedContact.id, editContactFormData);
+      await updateContactMutation.mutateAsync({ id: selectedContact.id, updates: editContactFormData });
       const updatedContact = { ...selectedContact, ...editContactFormData };
       setSelectedContact(updatedContact);
-      setContacts(prev => prev.map(c => c.id === selectedContact.id ? updatedContact : c));
       setIsEditingContact(false);
       showSuccess('Contact profile updated successfully');
     } catch (err: any) {
@@ -159,8 +204,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const handleDeleteCompany = async (id: string) => {
     setIsDeletingCompany(true);
     try {
-      await apiDeleteCompany(id);
-      setCompanies(prev => prev.filter(c => c.id !== id));
+      await deleteCompanyMutation.mutateAsync(id);
       if (selectedCompany?.id === id) {
         setSelectedCompany(null);
         setIsEditingCompany(false);
@@ -177,15 +221,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const handleDeleteContact = async (id: string) => {
     setIsDeletingContact(true);
     try {
-      await apiDeleteContact(id);
-      setContacts(prev => prev.filter(c => c.id !== id));
+      await deleteContactMutation.mutateAsync(id);
       if (selectedContact?.id === id) {
         setSelectedContact(null);
         setIsEditingContact(false);
       }
       setDeleteConfirmContact(null);
       showSuccess('Contact deleted successfully');
-      fetchData(); // Refresh data
     } catch (err: any) {
       showError(err.message || 'Failed to delete contact');
     } finally {
@@ -520,38 +562,45 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   // Helper function to check if company has deals
-  const hasDeals = (companyId: string) => {
+  // Memoize hasDeals function to avoid recalculation on every render
+  const hasDeals = useCallback((companyId: string) => {
     return deals.some(d => d.companyId === companyId);
-  };
+  }, [deals]);
 
   // Filter companies based on selected filters (multiple selections allowed)
-  const filteredCompanies = companies.filter(company => {
-    // Target account filter - if filters selected, must match at least one
-    if (targetAccountFilters.length > 0) {
-      const matchesTarget = targetAccountFilters.includes('target') && company.isTargetAccount;
-      const matchesNonTarget = targetAccountFilters.includes('non-target') && !company.isTargetAccount;
-      if (!matchesTarget && !matchesNonTarget) return false;
-    }
+  // Memoize filtered companies to avoid recalculation on every render
+  const filteredCompanies = useMemo(() => {
+    return companies.filter(company => {
+      // Target account filter - if filters selected, must match at least one
+      if (targetAccountFilters.length > 0) {
+        const matchesTarget = targetAccountFilters.includes('target') && company.isTargetAccount;
+        const matchesNonTarget = targetAccountFilters.includes('non-target') && !company.isTargetAccount;
+        if (!matchesTarget && !matchesNonTarget) return false;
+      }
 
-    // Assigned filter - if filters selected, must match at least one
-    if (assignedFilters.length > 0) {
-      const matchesAssigned = assignedFilters.includes('assigned') && company.ownerId;
-      const matchesUnassigned = assignedFilters.includes('unassigned') && !company.ownerId;
-      if (!matchesAssigned && !matchesUnassigned) return false;
-    }
+      // Assigned filter - if filters selected, must match at least one
+      if (assignedFilters.length > 0) {
+        const matchesAssigned = assignedFilters.includes('assigned') && company.ownerId;
+        const matchesUnassigned = assignedFilters.includes('unassigned') && !company.ownerId;
+        if (!matchesAssigned && !matchesUnassigned) return false;
+      }
 
-    // Deals filter - if filters selected, must match at least one
-    if (dealsFilters.length > 0) {
-      const matchesHasDeals = dealsFilters.includes('has-deals') && hasDeals(company.id);
-      const matchesNoDeals = dealsFilters.includes('no-deals') && !hasDeals(company.id);
-      if (!matchesHasDeals && !matchesNoDeals) return false;
-    }
+      // Deals filter - if filters selected, must match at least one
+      if (dealsFilters.length > 0) {
+        const matchesHasDeals = dealsFilters.includes('has-deals') && hasDeals(company.id);
+        const matchesNoDeals = dealsFilters.includes('no-deals') && !hasDeals(company.id);
+        if (!matchesHasDeals && !matchesNoDeals) return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [companies, targetAccountFilters, assignedFilters, dealsFilters, hasDeals]);
 
   // Check if any filters are active
-  const hasActiveFilters = targetAccountFilters.length > 0 || assignedFilters.length > 0 || dealsFilters.length > 0;
+  const hasActiveFilters = useMemo(() => 
+    targetAccountFilters.length > 0 || assignedFilters.length > 0 || dealsFilters.length > 0,
+    [targetAccountFilters, assignedFilters, dealsFilters]
+  );
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -605,8 +654,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     setIsBulkDeletingCompanies(true);
     try {
       const targetIds = [...selectedCompanyIds];
-      await Promise.all(targetIds.map(id => apiDeleteCompany(id)));
-      setCompanies(prev => prev.filter(c => !targetIds.includes(c.id)));
+      await bulkDeleteCompaniesMutation.mutateAsync(targetIds);
       if (selectedCompany && targetIds.includes(selectedCompany.id)) {
         setSelectedCompany(null);
         setIsEditingCompany(false);
@@ -614,7 +662,6 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setSelectedCompanyIds([]);
       setBulkDeleteConfirmOpen(null);
       showSuccess(`Successfully deleted ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'}`);
-      fetchData();
     } catch (err: any) {
       showError(err.message || 'Failed to delete companies');
     } finally {
@@ -626,8 +673,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     setIsBulkDeletingContacts(true);
     try {
       const targetIds = [...selectedContactIds];
-      await Promise.all(targetIds.map(id => apiDeleteContact(id)));
-      setContacts(prev => prev.filter(c => !targetIds.includes(c.id)));
+      await bulkDeleteContactsMutation.mutateAsync(targetIds);
       if (selectedContact && targetIds.includes(selectedContact.id)) {
         setSelectedContact(null);
         setIsEditingContact(false);
@@ -635,7 +681,6 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setSelectedContactIds([]);
       setBulkDeleteConfirmOpen(null);
       showSuccess(`Successfully deleted ${targetIds.length} contact${targetIds.length > 1 ? 's' : ''}`);
-      fetchData();
     } catch (err: any) {
       showError(err.message || 'Failed to delete contacts');
     } finally {
@@ -650,12 +695,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     try {
       const targetIds = [...selectedCompanyIds];
       // Mark all selected companies as target accounts
-      await Promise.all(targetIds.map(id => apiUpdateCompany(id, { isTargetAccount: true })));
-      
-      // Update local state
-      setCompanies(prev => prev.map(c => 
-        targetIds.includes(c.id) ? { ...c, isTargetAccount: true } : c
-      ));
+      await bulkUpdateCompaniesMutation.mutateAsync({ 
+        ids: targetIds, 
+        updates: { isTargetAccount: true } 
+      });
       
       // Update selected company if it's in the list
       if (selectedCompany && targetIds.includes(selectedCompany.id)) {
@@ -664,7 +707,6 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       
       setSelectedCompanyIds([]);
       showSuccess(`Successfully marked ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'} as target account${targetIds.length > 1 ? 's' : ''}`);
-      fetchData();
     } catch (err: any) {
       showError(err.message || 'Failed to mark companies as target accounts');
     } finally {
@@ -679,12 +721,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     try {
       const targetIds = [...selectedCompanyIds];
       // Unmark all selected companies as target accounts
-      await Promise.all(targetIds.map(id => apiUpdateCompany(id, { isTargetAccount: false })));
-      
-      // Update local state
-      setCompanies(prev => prev.map(c => 
-        targetIds.includes(c.id) ? { ...c, isTargetAccount: false } : c
-      ));
+      await bulkUpdateCompaniesMutation.mutateAsync({ 
+        ids: targetIds, 
+        updates: { isTargetAccount: false } 
+      });
       
       // Update selected company if it's in the list
       if (selectedCompany && targetIds.includes(selectedCompany.id)) {
@@ -693,7 +733,6 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       
       setSelectedCompanyIds([]);
       showSuccess(`Successfully unmarked ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'} as target account${targetIds.length > 1 ? 's' : ''}`);
-      fetchData();
     } catch (err: any) {
       showError(err.message || 'Failed to unmark companies as target accounts');
     } finally {
@@ -744,9 +783,37 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </button>
           </div>
         </div>
-        <button onClick={() => view === 'companies' ? onAddCompany() : onAddContact()} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm">
-          <Plus className="w-4 h-4" /> Add {view === 'companies' ? 'Company' : 'Contact'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleManualRefresh}
+            disabled={isManualRefreshing}
+            className="px-3 py-2 bg-slate-100 text-slate-700 text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-slate-200 transition-all shadow-sm disabled:opacity-50"
+            title="Refresh data"
+          >
+            <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={() => view === 'companies' ? onAddCompany() : onAddContact()} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm">
+            <Plus className="w-4 h-4" /> Add {view === 'companies' ? 'Company' : 'Contact'}
+          </button>
+          {view === 'contacts' && (
+            <>
+              <button 
+                onClick={() => setIsBusinessCardScannerOpen(true)} 
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-all shadow-sm"
+                title="Scan Business Card"
+              >
+                <Scan className="w-4 h-4" /> Scan Card
+              </button>
+              <button 
+                onClick={() => setIsLinkedInScannerOpen(true)} 
+                className="px-4 py-2 bg-blue-700 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-blue-800 transition-all shadow-sm"
+                title="Import from LinkedIn"
+              >
+                <Linkedin className="w-4 h-4" /> LinkedIn
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Main Content Area */}
@@ -984,16 +1051,71 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </div>
           )}
 
-        {/* Content Grid - Show loader only in this area */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[600px] w-full">
-            <div className="col-span-full flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[600px] w-full items-start">
-              {view === 'companies' ? (
+        {/* Content Grid - Always show grid, skeleton cards when loading */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[600px] w-full items-start">
+          {isLoading ? (
+            // Show skeleton cards while loading - exact same dimensions as real cards
+            Array.from({ length: 8 }).map((_, index) => (
+              <div 
+                key={`skeleton-${index}`}
+                className={`bg-white rounded-2xl border border-slate-200 shadow-sm animate-pulse flex flex-col ${
+                  view === 'companies' ? 'p-6' : 'p-5 h-[220px]'
+                }`}
+              >
+                {view === 'companies' ? (
+                  // Company skeleton - matches real company card structure
+                  <>
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 bg-slate-200 rounded-lg"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+                      </div>
+                    </div>
+                    <div className="space-y-3 mb-6">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded"></div>
+                        <div className="h-3 bg-slate-200 rounded flex-1"></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded"></div>
+                        <div className="h-3 bg-slate-200 rounded flex-1"></div>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <div className="h-3 bg-slate-200 rounded w-2/3"></div>
+                      <div className="w-4 h-4 bg-slate-200 rounded"></div>
+                    </div>
+                  </>
+                ) : (
+                  // Contact skeleton - matches real contact card structure (220px height)
+                  <>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-11 h-11 bg-slate-200 rounded-full"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+                      </div>
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded"></div>
+                        <div className="h-3 bg-slate-200 rounded flex-1"></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded"></div>
+                        <div className="h-3 bg-slate-200 rounded flex-1"></div>
+                      </div>
+                    </div>
+                    <div className="pt-3 mt-auto border-t border-slate-100">
+                      <div className="h-8 bg-slate-200 rounded-xl w-full"></div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          ) : (
+            view === 'companies' ? (
                 filteredCompanies.map(company => {
               const owner = users.find(u => u.id === company.ownerId);
               const isSelected = selectedCompanyIds.includes(company.id);
@@ -1038,7 +1160,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <div 
                   key={contact.id}
                   onClick={() => setSelectedContact(contact)} 
-                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm relative flex flex-col`}
+                  className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm relative flex flex-col h-[220px]`}
                 >
                   <div className="absolute top-4 right-4" onClick={(e) => e.stopPropagation()}>
                     <input 
@@ -1048,37 +1170,37 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       onChange={() => setSelectedContactIds(prev => isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id])}
                     />
                   </div>
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl uppercase shadow-inner">{contact.name.charAt(0)}</div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-11 h-11 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-lg uppercase shadow-inner">{contact.name.charAt(0)}</div>
                     <div className="flex-1 overflow-hidden">
-                      <h3 className="font-bold text-lg text-slate-900 truncate">{contact.name}</h3>
-                      <p className="text-slate-500 text-xs font-bold uppercase truncate">{contact.role} @ {company?.name || 'Partner'}</p>
+                      <h3 className="font-bold text-base text-slate-900 truncate">{contact.name}</h3>
+                      <p className="text-slate-500 text-[11px] font-bold uppercase truncate">{contact.role} @ {company?.name || 'Partner'}</p>
                     </div>
                   </div>
-                  <div className="space-y-3 mb-6 text-sm text-slate-600">
-                    <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /><span className="truncate text-indigo-600">{contact.email}</span></div>
-                    <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /><span>{contact.phone}</span></div>
+                  <div className="space-y-2 text-sm text-slate-600 flex-1">
+                    <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /><span className="truncate text-indigo-600 text-[13px]">{contact.email}</span></div>
+                    <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /><span className="text-[13px]">{contact.phone}</span></div>
                   </div>
-                  <div className="pt-4 border-t border-slate-100 flex gap-2">
-                    {contact.linkedin && (
+                  {contact.linkedin && (
+                    <div className="pt-3 mt-auto border-t border-slate-100">
                       <a 
                         href={contact.linkedin} 
                         target="_blank" 
                         rel="noreferrer" 
                         onClick={(e) => e.stopPropagation()}
-                        className="flex-1 py-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
+                        className="w-full py-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
                       >
                         <Linkedin className="w-4 h-4" />
                         LinkedIn
                       </a>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })
+          )
         )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Bulk Action Bar */}
@@ -2122,6 +2244,34 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </div>
           </div>
         </div>
+      )}
+
+      {/* Business Card Scanner Modal */}
+      {isBusinessCardScannerOpen && (
+        <BusinessCardScanner
+          onClose={() => setIsBusinessCardScannerOpen(false)}
+          onSuccess={() => {
+            setIsBusinessCardScannerOpen(false);
+            // Invalidate and refetch companies and contacts from cache
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['contacts'] });
+          }}
+          currentUserId={currentUser?.id || ''}
+        />
+      )}
+
+      {/* LinkedIn Scanner Modal */}
+      {isLinkedInScannerOpen && (
+        <LinkedInScanner
+          onClose={() => setIsLinkedInScannerOpen(false)}
+          onSuccess={() => {
+            setIsLinkedInScannerOpen(false);
+            // Invalidate and refetch companies and contacts from cache
+            queryClient.invalidateQueries({ queryKey: ['companies'] });
+            queryClient.invalidateQueries({ queryKey: ['contacts'] });
+          }}
+          currentUserId={currentUser?.id || ''}
+        />
       )}
     </div>
   );

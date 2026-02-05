@@ -87,6 +87,21 @@ export interface Contact {
   linkedin?: string;
   notes?: Note[]; // Changed from string to Note array
   legacyNotes?: string; // Keep old notes field for backward compatibility
+  // Scanner-specific fields
+  leadSourceId?: string; // Reference to LeadSource
+  linkedinUrl?: string; // LinkedIn profile URL
+  linkedinData?: {
+    headline?: string;
+    currentRole?: string;
+    profileImageUrl?: string;
+  };
+  scannedFrom?: 'business_card' | 'linkedin';
+  scanConfidenceScore?: number; // 0-100
+  scanDate?: string; // ISO 8601 timestamp
+  originalScanData?: {
+    rawOcrText?: string;
+    extractedFields?: any;
+  };
 }
 
 export interface SocialSignal {
@@ -110,6 +125,11 @@ export interface Company {
   isTargetAccount?: boolean;
   socialSignals?: SocialSignal[];
   notes?: Note[];
+  // Scanner-specific fields
+  domain?: string; // Email domain (e.g., "techcorp.com")
+  createdSource?: string; // "business_card_scanner" | "linkedin_scanner" | "manual"
+  createdFromContactId?: string; // If auto-created from contact
+  linkedinCompanyUrl?: string; // Company LinkedIn page
 }
 
 export interface Deal {
@@ -335,4 +355,53 @@ export interface NotificationPreference {
   description: string;
   inApp: boolean;
   email: boolean;
+}
+
+// Lead Source Management
+export interface LeadSource {
+  id: string;
+  name: string;
+  type: 'scanner' | 'manual' | 'import' | 'api';
+  description: string;
+  active: boolean;
+  icon: string; // Icon name (lucide-react)
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string; // User ID who created this
+}
+
+// Scanner Data Models
+export interface ExtractedFieldData {
+  value: string;
+  confidence: number; // 0-100
+}
+
+export interface ExtractedData {
+  name: ExtractedFieldData;
+  title: ExtractedFieldData;
+  email: ExtractedFieldData;
+  phone: ExtractedFieldData;
+  company: ExtractedFieldData;
+  website: ExtractedFieldData;
+  linkedin: ExtractedFieldData;
+}
+
+export interface LinkedInProfile {
+  name: string;
+  headline: string;
+  currentRole: string;
+  currentCompany: string;
+  email: string | null;
+  phone: string | null;
+  profileImageUrl: string;
+  companyWebsite: string;
+  industry: string;
+  location?: string;
+  about?: string;
+}
+
+export interface ScanSuggestions {
+  existingContact: Contact | null;
+  existingCompany: Company | null;
+  createNewCompany: boolean;
 }

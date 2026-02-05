@@ -506,3 +506,74 @@ export const apiRemoveEmailLabel = (emailId: string, labelId: string) =>
  */
 export const apiCreateEvent = (data: any) => apiFetch('/events', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateEvent = (id: string, data: any) => apiFetch(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+/**
+ * LEAD SOURCE MANAGEMENT
+ */
+export const apiGetLeadSources = (activeOnly?: boolean) => {
+  const query = activeOnly ? '?active=true' : '';
+  return apiFetch(`/lead-sources${query}`);
+};
+export const apiGetLeadSourceById = (id: string) => apiFetch(`/lead-sources/${id}`);
+export const apiCreateLeadSource = (data: { name: string; type: string; description: string; icon: string }) =>
+  apiFetch('/lead-sources', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateLeadSource = (id: string, data: any) =>
+  apiFetch(`/lead-sources/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteLeadSource = (id: string) => apiFetch(`/lead-sources/${id}`, { method: 'DELETE' });
+export const apiToggleLeadSourceActive = (id: string) =>
+  apiFetch(`/lead-sources/${id}/toggle`, { method: 'PATCH' });
+
+/**
+ * BUSINESS CARD SCANNER
+ */
+export const apiUploadBusinessCard = async (file: File, userId: string) => {
+  const token = localStorage.getItem('auth_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('userId', userId);
+  
+  const response = await fetch(`${API_BASE}/scanner/business-card/upload`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Upload failed' }));
+    throw new Error(error.message || 'Failed to upload business card');
+  }
+  
+  return response.json();
+};
+
+export const apiConfirmBusinessCard = (data: {
+  contactData: any;
+  companyData: any;
+  linkToExistingCompany: string | null;
+  leadSourceId: string;
+  scanConfidenceScore?: number;
+  originalScanData?: any;
+  userId: string;
+}) => apiFetch('/scanner/business-card/confirm', { method: 'POST', body: JSON.stringify(data) });
+
+/**
+ * LINKEDIN SCANNER
+ */
+export const apiFetchLinkedInProfile = (data: { linkedinUrl: string; userId: string }) =>
+  apiFetch('/scanner/linkedin/fetch', { method: 'POST', body: JSON.stringify(data) });
+
+export const apiConfirmLinkedInProfile = (data: {
+  contactData: any;
+  linkedinData?: any;
+  companyData: any;
+  linkToExistingCompany: string | null;
+  leadSourceId: string;
+  userId: string;
+}) => apiFetch('/scanner/linkedin/confirm', { method: 'POST', body: JSON.stringify(data) });
+
+/**
+ * COMPANY LOOKUP
+ */
+export const apiGetCompanyByDomain = (domain: string) => apiFetch(`/companies/by-domain/${domain}`);

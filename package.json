@@ -1,4 +1,3 @@
-
 {
   "name": "impactflow-os",
   "private": true,
@@ -14,28 +13,28 @@
     "start": "tsx server.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.460.0",
+    "quill": "^2.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.460.0",
+    "react-quill": "^2.0.0",
     "recharts": "^2.13.0",
-    "express": "^5.2.1",
-    "cors": "^2.8.5",
-    "firebase-admin": "^13.6.0",
     "resend": "^6.7.0",
-    "dotenv": "^17.2.3",
-    "jspdf": "^2.5.1",
-    "@tanstack/react-query": "^5.62.7",
-    "xlsx": "^0.18.5",
-    "quill": "^2.0.3",
-    "react-quill": "^2.0.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
-    "@types/node": "^22.0.0",
     "@vitejs/plugin-react": "^5.1.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^7.3.1",
-    "tsx": "^4.19.2"
+    "vite": "^7.3.1"
   }
 }
