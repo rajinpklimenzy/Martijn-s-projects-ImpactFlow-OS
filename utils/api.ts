@@ -270,6 +270,62 @@ export const apiGetNotificationPreferences = (userId: string) => apiFetch(`/user
 export const apiUpdateNotificationPreferences = (userId: string, preferences: any[]) => apiFetch(`/users/${userId}/notification-preferences`, { method: 'PUT', body: JSON.stringify({ preferences }) });
 
 /**
+ * DATA RETENTION & ARCHIVE
+ */
+export const apiGetRetentionPolicy = (workspaceId: string = 'default') => 
+  apiFetch(`/data-retention/policy?workspaceId=${workspaceId}`);
+
+export const apiUpdateRetentionPolicy = (workspaceId: string, policy: {
+  retentionYears?: number;
+  coldStorageYears?: number;
+  archiveEnabled?: boolean;
+  autoCleanupEnabled?: boolean;
+  updatedBy?: string;
+}) => apiFetch('/data-retention/policy', {
+  method: 'PUT',
+  body: JSON.stringify({ workspaceId, ...policy })
+});
+
+export const apiGetRetentionStats = (workspaceId: string = 'default') =>
+  apiFetch(`/data-retention/stats?workspaceId=${workspaceId}`);
+
+export const apiTriggerArchive = (workspaceId: string = 'default', batchSize: number = 50) =>
+  apiFetch('/data-retention/archive', {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, batchSize })
+  });
+
+export const apiTriggerCleanup = (workspaceId: string = 'default', batchSize: number = 50) =>
+  apiFetch('/data-retention/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, batchSize })
+  });
+
+export const apiExportArchivedEmails = (workspaceId: string = 'default', options: {
+  format?: 'json' | 'csv';
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+} = {}) => {
+  const params = new URLSearchParams({ workspaceId });
+  if (options.format) params.append('format', options.format);
+  if (options.startDate) params.append('startDate', options.startDate);
+  if (options.endDate) params.append('endDate', options.endDate);
+  if (options.limit) params.append('limit', options.limit.toString());
+  return apiFetch(`/data-retention/export?${params.toString()}`);
+};
+
+// Email Routing Rules
+export const apiGetRoutingRules = (userId?: string) => {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+  return apiFetch(`/email-routing${query}`);
+};
+export const apiGetRoutingRule = (id: string) => apiFetch(`/email-routing/${id}`);
+export const apiCreateRoutingRule = (data: any) => apiFetch('/email-routing', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateRoutingRule = (id: string, data: any) => apiFetch(`/email-routing/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteRoutingRule = (id: string) => apiFetch(`/email-routing/${id}`, { method: 'DELETE' });
+
+/**
  * PIPELINE MANAGEMENT
  */
 export const apiGetAllPipelines = () => apiFetch('/pipelines');
@@ -473,23 +529,52 @@ export const apiCreateSignature = (data: { userId: string; name: string; content
   apiFetch('/shared-inbox/signatures', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateSignature = (signatureId: string, data: { userId: string; name?: string; content?: string; isDefault?: boolean }) =>
   apiFetch(`/shared-inbox/signatures/${signatureId}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteSignature = (signatureId: string, userId: string) =>
+  apiFetch(`/shared-inbox/signatures/${signatureId}`, { method: 'DELETE', body: JSON.stringify({ userId }) });
 
 /** Migration */
 export const apiMigrateEmailRecords = () =>
   apiFetch('/shared-inbox/migrate', { method: 'POST' });
 
 /** Update Email Metadata */
+// Archive & Organization API functions (Phase 8.3)
+export const apiArchiveEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({ userId })
+  });
+
+export const apiDeleteEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId })
+  });
+
+export const apiRestoreEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ userId })
+  });
+
 export const apiUpdateEmailMetadata = (emailId: string, data: { userId: string; priority?: 'high' | 'medium' | 'low'; threadStatus?: 'active' | 'archived' | 'resolved' | 'pending'; owner?: string | null; linkedRecords?: { contactId?: string; companyId?: string; dealId?: string; projectId?: string; contractId?: string }; customTags?: string[] }) =>
   apiFetch(`/shared-inbox/emails/${emailId}`, { method: 'PUT', body: JSON.stringify(data) });
 
 /** Download Attachment */
 export const apiDownloadAttachment = (emailId: string, attachmentId: string, userId: string) => {
   const API_BASE = getApiBase();
+  const token = localStorage.getItem('auth_token');
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   return fetch(`${API_BASE}/shared-inbox/emails/${emailId}/attachments/${attachmentId}?userId=${userId}`, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
   }).then(async (response) => {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Failed to download attachment' }));

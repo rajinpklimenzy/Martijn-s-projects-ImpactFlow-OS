@@ -26,7 +26,7 @@ import BugReportWidget from './components/BugReportWidget.tsx';
 import Help from './components/Help.tsx';
 import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, ShieldCheck } from 'lucide-react';
-import { Notification, CalendarEvent } from './types.ts';
+import { Notification as NotificationType, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
 import { QueryProvider } from './contexts/QueryProvider.tsx';
@@ -57,7 +57,7 @@ const App: React.FC = () => {
     event: null
   });
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationType[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isRefreshingNotifications, setIsRefreshingNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -76,7 +76,7 @@ const App: React.FC = () => {
       const res = await apiGetNotifications(storedUser.id, 20);
       const data = res?.data || res || [];
       
-      const mapped: Notification[] = (Array.isArray(data) ? data : []).map((n: any) => {
+      const mapped: NotificationType[] = (Array.isArray(data) ? data : []).map((n: any) => {
         // Format timestamp
         let timestamp = 'Just now';
         if (n.createdAt) {
@@ -116,13 +116,89 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  // WebSocket connection for real-time notifications
+  useEffect(() => {
+    const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
+    if (!storedUser?.id) return;
+
+    // Import WebSocket client dynamically
+    import('./utils/notificationWebSocket').then(({ getNotificationWebSocket, disconnectNotificationWebSocket }) => {
+      const ws = getNotificationWebSocket(storedUser.id);
+      
+      // Request browser notification permission
+      if ('Notification' in window && window.Notification.permission === 'default') {
+        window.Notification.requestPermission().then(permission => {
+          console.log('[NOTIFICATIONS] Browser notification permission:', permission);
+        });
+      }
+
+      // Handle WebSocket notifications
+      const handleNotification = (notification: any) => {
+        // Add to notifications list
+        setNotifications(prev => {
+          const exists = prev.find(n => n.id === notification.id);
+          if (exists) return prev;
+          
+          const timestamp = 'Just now';
+          return [{
+            id: notification.id,
+            userId: notification.userId,
+            type: notification.type || 'system',
+            title: notification.title,
+            message: notification.message,
+            timestamp,
+            read: false,
+            link: notification.link,
+          }, ...prev].slice(0, 20); // Keep latest 20
+        });
+
+        // Show browser notification if permitted
+        if ('Notification' in window && window.Notification.permission === 'granted') {
+          try {
+            const browserNotif = new window.Notification(notification.title, {
+              body: notification.message,
+              icon: '/favicon.ico',
+              tag: notification.id,
+              requireInteraction: false
+            });
+
+            browserNotif.onclick = () => {
+              window.focus();
+              if (notification.link) {
+                window.location.href = notification.link;
+              }
+              browserNotif.close();
+            };
+
+            // Auto-close after 5 seconds
+            setTimeout(() => browserNotif.close(), 5000);
+          } catch (error) {
+            console.error('[NOTIFICATIONS] Error showing browser notification:', error);
+          }
+        }
+      };
+
+      ws.on('notification', handleNotification);
+      
+      // Connect WebSocket
+      ws.connect().catch(error => {
+        console.error('[NOTIFICATIONS] WebSocket connection failed:', error);
+      });
+
+      return () => {
+        ws.off('notification', handleNotification);
+        disconnectNotificationWebSocket();
+      };
+    });
+  }, [currentUser]);
+
   useEffect(() => {
     loadNotifications();
     
-    // Refresh notifications every 10 seconds for quick updates
+    // Refresh notifications every 30 seconds for fallback (WebSocket is primary)
     const interval = setInterval(() => {
       loadNotifications(false); // Silent refresh in background
-    }, 10000);
+    }, 30000);
     
     // Listen for custom event to refresh notifications immediately
     const handleNotificationRefresh = () => {

@@ -5,8 +5,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  // Role model simplified: only Admin or User across the app
-  role: 'Admin' | 'User';
+  // Role-based access control: Viewer (read-only), Collaborator (comment/draft), Admin (full access)
+  role: 'Viewer' | 'Collaborator' | 'Admin' | 'User'; // 'User' is legacy, maps to 'Collaborator'
   avatar: string;
   active: boolean;
   jobTitle?: string;

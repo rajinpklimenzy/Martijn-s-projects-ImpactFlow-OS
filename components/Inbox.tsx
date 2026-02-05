@@ -75,6 +75,9 @@ import {
   apiCreateSignature,
   apiGetContacts,
   apiUpdateEmailMetadata,
+  apiArchiveEmail,
+  apiDeleteEmail,
+  apiRestoreEmail,
   apiDownloadAttachment,
   apiGetGmailLabels,
   apiCreateGmailLabel,
@@ -115,6 +118,7 @@ import {
 import ScheduleMeetingModal from './ScheduleMeetingModal';
 import { ImageWithFallback } from './common';
 import type { SharedInboxFilters } from '../utils/api';
+import { hasPermission, isAdmin, isCollaboratorOrAdmin } from '../utils/permissions';
 
 interface SharedInboxEmail {
   id: string;
@@ -257,6 +261,20 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const { showSuccess, showError } = useToast();
   const currentUser = propUser || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user_data') || 'null') : null);
   const userId = currentUser?.id;
+  const userRole = currentUser?.role || 'Viewer';
+  
+  // Permission checks
+  const canAddNote = hasPermission(userRole, 'shared-inbox:add-note');
+  const canAssignEmail = hasPermission(userRole, 'shared-inbox:assign-email');
+  const canSendEmail = hasPermission(userRole, 'shared-inbox:send-email');
+  const canReplyEmail = hasPermission(userRole, 'shared-inbox:reply-email');
+  const canForwardEmail = hasPermission(userRole, 'shared-inbox:forward-email');
+  const canStarEmail = hasPermission(userRole, 'shared-inbox:star-email');
+  const canArchiveEmail = hasPermission(userRole, 'shared-inbox:archive-email');
+  const canDeleteEmail = hasPermission(userRole, 'shared-inbox:delete-email');
+  const canUpdateMetadata = hasPermission(userRole, 'shared-inbox:update-metadata');
+  const canManageAccounts = hasPermission(userRole, 'shared-inbox:manage-accounts');
+  const canSyncEmails = hasPermission(userRole, 'shared-inbox:sync-emails');
 
   // Helper function to safely extract error message without circular references
   // NEVER tries to serialize the error object - only accesses safe string properties
@@ -337,7 +355,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [showAccountsList, setShowAccountsList] = useState(false);
   const [disconnectingAccount, setDisconnectingAccount] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'threads'>('threads');
+  const [viewMode, setViewMode] = useState<'list' | 'threads'>('list');
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [internalThreads, setInternalThreads] = useState<Record<string, Array<{ id: string; userId: string; userName: string; message: string; timestamp: string; imageUrl?: string; imageName?: string }>>>({});
@@ -1361,13 +1379,79 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  // Archive & Organization handlers (Phase 8.3)
+  const handleArchiveEmail = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiArchiveEmail(emailId, userId);
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'archived' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'archived' as const } : null);
+      }
+      showSuccess('Email archived');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to archive email');
+    }
+  };
+
+  const handleDeleteEmail = async (emailId: string) => {
+    if (!userId) return;
+    if (!confirm('Are you sure you want to delete this email? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      await apiDeleteEmail(emailId, userId);
+      setEmails(prev => prev.filter(e => e.id !== emailId));
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(null);
+      }
+      showSuccess('Email deleted');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to delete email');
+    }
+  };
+
+  const handleRestoreEmail = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiRestoreEmail(emailId, userId);
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'active' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'active' as const } : null);
+      }
+      showSuccess('Email restored');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to restore email');
+    }
+  };
+
+  const handleResolveConversation = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'resolved' });
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'resolved' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'resolved' as const } : null);
+      }
+      showSuccess('Conversation marked as resolved');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to resolve conversation');
+    }
+  };
+
   const handleBulkArchive = async () => {
     if (!userId || selectedEmailIds.size === 0) return;
     setBulkActionLoading(true);
     try {
       await Promise.all(
         Array.from<string>(selectedEmailIds).map((emailId) =>
-          apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'archived' })
+          apiArchiveEmail(emailId, userId)
         )
       );
       setEmails(prev =>
@@ -1389,17 +1473,17 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
     setBulkActionLoading(true);
     try {
-      // Note: Delete endpoint needs to be implemented in backend
-      // For now, we'll archive them instead
       await Promise.all(
         Array.from<string>(selectedEmailIds).map((emailId) =>
-          apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'archived' })
+          apiDeleteEmail(emailId, userId)
         )
       );
-      setEmails(prev =>
-        prev.map(e => selectedEmailIds.has(e.id) ? { ...e, threadStatus: 'archived' as const } : e)
-      );
-      showSuccess(`${selectedEmailIds.size} email(s) deleted`);
+      const deletedIds = Array.from(selectedEmailIds);
+      setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+      if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) {
+        setSelectedEmail(null);
+      }
+      showSuccess(`${deletedIds.length} email(s) deleted`);
       setSelectedEmailIds(new Set());
     } catch (err: any) {
       showError(err?.message || 'Failed to delete emails');
@@ -2295,6 +2379,17 @@ ${currentUser?.name || 'Team'}`;
   const filteredEmails = useMemo(() => {
     let result = [...emails];
     
+    // Apply threadStatus filter (Phase 8.3: Archive view)
+    if (filterStatus === 'archived') {
+      result = result.filter(email => email.threadStatus === 'archived');
+    } else if (filterStatus && filterStatus !== 'archived') {
+      // For other status filters, use the existing filterStatus logic
+      result = result.filter(email => email.status === filterStatus);
+    } else if (!filterStatus) {
+      // By default, exclude archived emails unless specifically viewing archived
+      result = result.filter(email => email.threadStatus !== 'archived');
+    }
+    
     // Apply label filter
     if (selectedLabelFilter) {
       result = result.filter(email => {
@@ -2514,14 +2609,16 @@ ${currentUser?.name || 'Team'}`;
             <MessageSquare className="w-4 h-4" />
             {viewMode === 'threads' ? 'Threads' : 'List'}
           </button>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-          >
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing…' : 'Sync from Gmail'}
-          </button>
+          {canSyncEmails && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+            >
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Syncing…' : 'Sync from Gmail'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -2993,6 +3090,33 @@ ${currentUser?.name || 'Team'}`;
               </span>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Archive View Toggle (Phase 8.3) */}
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (filterStatus === 'archived') {
+              setFilterStatus('');
+            } else {
+              setFilterStatus('archived');
+            }
+          }}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+            filterStatus === 'archived'
+              ? 'bg-indigo-600 text-white'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <InboxIcon className="w-4 h-4 inline mr-1.5" />
+          {filterStatus === 'archived' ? 'Show Active' : 'Show Archived'}
+        </button>
+        {filterStatus === 'archived' && (
+          <span className="text-sm text-slate-500">
+            {filteredEmails.length} archived email(s)
+          </span>
         )}
       </div>
 
@@ -4198,129 +4322,194 @@ ${currentUser?.name || 'Team'}`;
                 
                 {/* Action Bar - Separate row for better layout */}
                 <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-100">
-                  {/* Email Metadata Controls */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Priority Selector */}
-                    <select
-                      value={selectedEmail.priority || 'medium'}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { priority: e.target.value as 'high' | 'medium' | 'low' })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      title="Priority"
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                    
-                    {/* Thread Status Selector */}
-                    <select
-                      value={selectedEmail.threadStatus || 'active'}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { threadStatus: e.target.value as 'active' | 'archived' | 'resolved' | 'pending' })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      title="Status"
-                    >
-                      <option value="active">Active</option>
-                      <option value="pending">Pending</option>
-                      <option value="resolved">Resolved</option>
-                      <option value="archived">Archived</option>
-                    </select>
-                    
-                    {/* Owner Selector */}
-                    <select
-                      value={selectedEmail.owner || ''}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { owner: e.target.value || null })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[120px]"
-                      title="Assign to"
-                    >
-                      <option value="">Unassigned</option>
-                      {users.map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.name || user.email}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStar(selectedEmail.id, !selectedEmail.isStarred)}
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
-                      title={selectedEmail.isStarred ? 'Unstar' : 'Star'}
-                    >
-                      {selectedEmail.isStarred ? (
-                        <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-                      ) : (
-                        <StarOff className="w-4 h-4" />
+                  {/* Email Metadata Controls - Admin only */}
+                  {canUpdateMetadata && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Priority Selector */}
+                      <select
+                        value={selectedEmail.priority || 'medium'}
+                        onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { priority: e.target.value as 'high' | 'medium' | 'low' })}
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        title="Priority"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                      
+                      {/* Thread Status Selector */}
+                      <select
+                        value={selectedEmail.threadStatus || 'active'}
+                        onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { threadStatus: e.target.value as 'active' | 'archived' | 'resolved' | 'pending' })}
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        title="Status"
+                      >
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="archived">Archived</option>
+                      </select>
+                      
+                      {/* Owner Selector - Admin only */}
+                      {canAssignEmail && (
+                        <select
+                          value={selectedEmail.owner || ''}
+                          onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { owner: e.target.value || null })}
+                          className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[120px]"
+                          title="Assign to"
+                        >
+                          <option value="">Unassigned</option>
+                          {users.map(user => (
+                            <option key={user.id} value={user.id}>
+                              {user.name || user.email}
+                            </option>
+                          ))}
+                        </select>
                       )}
-                    </button>
-                    {selectedEmail.syncStatus?.starredStatus && (
-                      <div className="flex-shrink-0">
-                        {getSyncStatusIcon(selectedEmail.syncStatus.starredStatus)}
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  
+                  {/* Star button - Collaborator+ */}
+                  {canStarEmail && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStar(selectedEmail.id, !selectedEmail.isStarred)}
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                        title={selectedEmail.isStarred ? 'Unstar' : 'Star'}
+                      >
+                        {selectedEmail.isStarred ? (
+                          <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                        ) : (
+                          <StarOff className="w-4 h-4" />
+                        )}
+                      </button>
+                      {selectedEmail.syncStatus?.starredStatus && (
+                        <div className="flex-shrink-0">
+                          {getSyncStatusIcon(selectedEmail.syncStatus.starredStatus)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
+                    className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
+                  >
+                    {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
+                  </button>
+                  {selectedEmail.syncStatus?.readStatus && (
+                    <div className="flex-shrink-0">
+                      {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
+                    </div>
+                  )}
+                </div>
+                {/* Archive & Organization Actions - Admin only */}
+                {canArchiveEmail && (
+                  <>
+                    {selectedEmail.threadStatus === 'archived' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreEmail(selectedEmail.id)}
+                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                        title="Restore from archive"
+                      >
+                        <InboxIcon className="w-3 h-3" />
+                        Restore
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleArchiveEmail(selectedEmail.id)}
+                          className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+                          title="Archive email"
+                        >
+                          <InboxIcon className="w-3 h-3" />
+                          Archive
+                        </button>
+                        {selectedEmail.threadStatus !== 'resolved' && canUpdateMetadata && (
+                          <button
+                            type="button"
+                            onClick={() => handleResolveConversation(selectedEmail.id)}
+                            className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                            title="Mark as resolved"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Resolve
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                {/* Delete - Admin only */}
+                {canDeleteEmail && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEmail(selectedEmail.id)}
+                    className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                    title="Delete email"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Delete
+                  </button>
+                )}
+                {/* Reply/Forward - Admin only (Collaborators can draft but not send) */}
+                {canReplyEmail && (
+                  <>
                     <button
                       type="button"
-                      onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
+                      onClick={() => {
+                        setComposeMode('reply');
+                        setComposeTo([selectedEmail.email]);
+                        setComposeCc([]);
+                        setComposeBcc([]);
+                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                        setComposeBody('');
+                        setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                        setShowCc(false);
+                        setShowBcc(false);
+                        setShowComposeModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
                     >
-                      {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
+                      <Send className="w-3 h-3" />
+                      Reply
                     </button>
-                    {selectedEmail.syncStatus?.readStatus && (
-                      <div className="flex-shrink-0">
-                        {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComposeMode('reply');
-                      setComposeTo([selectedEmail.email]);
-                      setComposeCc([]);
-                      setComposeBcc([]);
-                      setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                      setComposeBody('');
-                      setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                      setShowCc(false);
-                      setShowBcc(false);
-                      setShowComposeModal(true);
-                    }}
-                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
-                  >
-                    <Send className="w-3 h-3" />
-                    Reply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComposeMode('replyAll');
-                      const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
-                      const allRecipients = [
-                        selectedEmail.email,
-                        ...(selectedEmail.to || []),
-                        ...(selectedEmail.cc || [])
-                      ].filter((email, index, self) => {
-                        const emailLower = email.toLowerCase();
-                        return self.findIndex(e => e.toLowerCase() === emailLower) === index && 
-                               emailLower !== accountEmailLower;
-                      });
-                      setComposeTo([selectedEmail.email]);
-                      setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
-                      setComposeBcc([]);
-                      setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                      setComposeBody('');
-                      setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                      setShowCc(true);
-                      setShowBcc(false);
-                      setShowComposeModal(true);
-                    }}
-                    className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
-                  >
-                    Reply All
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposeMode('replyAll');
+                        const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
+                        const allRecipients = [
+                          selectedEmail.email,
+                          ...(selectedEmail.to || []),
+                          ...(selectedEmail.cc || [])
+                        ].filter((email, index, self) => {
+                          const emailLower = email.toLowerCase();
+                          return self.findIndex(e => e.toLowerCase() === emailLower) === index && 
+                                 emailLower !== accountEmailLower;
+                        });
+                        setComposeTo([selectedEmail.email]);
+                        setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
+                        setComposeBcc([]);
+                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                        setComposeBody('');
+                        setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                        setShowCc(true);
+                        setShowBcc(false);
+                        setShowComposeModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+                    >
+                      Reply All
+                    </button>
+                  </>
+                )}
+                {/* Forward - Admin only */}
+                {canForwardEmail && (
                   <button
                     type="button"
                     onClick={() => {
@@ -4340,6 +4529,7 @@ ${currentUser?.name || 'Team'}`;
                   >
                     Forward
                   </button>
+                )}
                   {/* Schedule Meeting Button (Phase 5) */}
                   <button
                     type="button"
@@ -4887,10 +5077,11 @@ ${currentUser?.name || 'Team'}`;
                     )}
                   </h3>
 
-                  {/* Add New Note */}
-                  <div className="space-y-3">
-                    <div className="relative" style={{ position: 'relative' }}>
-                      <div className="quill-wrapper">
+                  {/* Add New Note - Collaborator+ only */}
+                  {canAddNote && (
+                    <div className="space-y-3">
+                      <div className="relative" style={{ position: 'relative' }}>
+                        <div className="quill-wrapper">
                         <style>{`
                           .quill-wrapper .ql-container {
                             border-bottom-left-radius: 0.75rem;
@@ -5128,33 +5319,41 @@ ${currentUser?.name || 'Team'}`;
                       </button>
                     </div>
 
-                    {/* Image Preview */}
-                    {noteImagePreview && (
-                      <div className="relative">
-                        <img
-                          src={noteImagePreview}
-                          alt="Note attachment preview"
-                          className="w-full max-h-48 object-contain rounded-lg border-2 border-slate-200"
-                        />
-                        <button
-                          onClick={() => {
-                            setNoteImagePreview('');
-                            setNoteImageFile(null);
-                            if (noteImageInputRef.current) noteImageInputRef.current.value = '';
-                          }}
-                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all shadow-lg"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                      {/* Image Preview */}
+                      {noteImagePreview && (
+                        <div className="relative">
+                          <img
+                            src={noteImagePreview}
+                            alt="Note attachment preview"
+                            className="w-full max-h-48 object-contain rounded-lg border-2 border-slate-200"
+                          />
+                          <button
+                            onClick={() => {
+                              setNoteImagePreview('');
+                              setNoteImageFile(null);
+                              if (noteImageInputRef.current) noteImageInputRef.current.value = '';
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all shadow-lg"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Viewer-only message */}
+                  {!canAddNote && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                      <p className="text-sm text-slate-600">You have read-only access. Contact an admin to add notes or comments.</p>
+                    </div>
+                  )}
 
                   {/* Notes List */}
                   <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
                     {internalThreads[selectedEmail?.id] && internalThreads[selectedEmail.id]?.length > 0 ? (
                       internalThreads[selectedEmail.id].map((thread) => {
-                        const canDelete = currentUser?.role === 'Admin' || thread.userId === currentUser?.id;
+                        const canDelete = hasPermission(userRole, 'shared-inbox:delete-note') && (isAdmin(userRole) || thread.userId === userId);
                         return (
                           <div key={thread.id} className={`p-4 bg-white border rounded-xl space-y-2 ${
                             (thread.markedFor || []).length > 0 ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'
@@ -6486,86 +6685,88 @@ ${currentUser?.name || 'Team'}`;
                     Schedule Meeting
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
-                      showError('Please fill in all required fields (To, Subject, Message)');
-                      return;
-                    }
-
-                    setIsSending(true);
-                    try {
-                      let finalBody = composeBody;
-                      if (composeSignature) {
-                        finalBody += `<br><br>${composeSignature}`;
+                {/* Send Button - Admin only (Collaborators can draft but not send) */}
+                {canSendEmail ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
+                        showError('Please fill in all required fields (To, Subject, Message)');
+                        return;
                       }
 
-                      // Convert attachments to base64 (skip Drive files - they're linked, not attached)
-                      const attachments = await Promise.all(
-                        composeAttachments
-                          .filter(att => !att.isDriveFile) // Only process regular file attachments
-                          .map(async (att) => {
-                            return new Promise<{ filename: string; content: string; type: string }>((resolve, reject) => {
-                              const reader = new FileReader();
-                              reader.onload = () => {
-                                const base64 = (reader.result as string).split(',')[1]; // Remove data:type;base64, prefix
-                                resolve({
-                                  filename: att.file.name,
-                                  content: base64,
-                                  type: att.file.type
-                                });
-                              };
-                              reader.onerror = reject;
-                              reader.readAsDataURL(att.file);
-                            });
-                          })
-                      );
-                      
-                      // Add Drive file links to email body for compose mode
-                      const driveFiles = composeAttachments.filter(a => a.isDriveFile && a.driveWebViewLink);
-                      if (driveFiles.length > 0 && composeMode === 'compose') {
-                        let driveLinksHtml = '<br><br><div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 12px;"><p style="font-size: 12px; color: #64748b; margin-bottom: 8px;"><strong>Attached from Google Drive:</strong></p><ul style="margin: 0; padding-left: 20px;">';
-                        driveFiles.forEach(file => {
-                          driveLinksHtml += `<li style="margin-bottom: 4px;"><a href="${file.driveWebViewLink}" target="_blank" style="color: #4f46e5; text-decoration: none;">${file.file.name}</a></li>`;
-                        });
-                        driveLinksHtml += '</ul></div>';
-                        finalBody += driveLinksHtml;
-                      }
+                      setIsSending(true);
+                      try {
+                        let finalBody = composeBody;
+                        if (composeSignature) {
+                          finalBody += `<br><br>${composeSignature}`;
+                        }
 
-                      if (composeMode === 'reply' || composeMode === 'replyAll') {
-                        await apiReplyEmail({
-                          emailId: selectedEmail?.id || '',
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          body: finalBody,
-                          replyAll: composeMode === 'replyAll',
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
-                        showSuccess('Reply sent successfully');
-                      } else if (composeMode === 'forward') {
-                        await apiForwardEmail({
-                          emailId: selectedEmail?.id || '',
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          to: composeTo,
-                          cc: composeCc.length > 0 ? composeCc : undefined,
-                          bcc: composeBcc.length > 0 ? composeBcc : undefined,
-                          body: finalBody,
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
-                        showSuccess('Email forwarded successfully');
-                      } else {
-                        const sentEmail = await apiSendEmail({
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          to: composeTo,
-                          cc: composeCc.length > 0 ? composeCc : undefined,
-                          bcc: composeBcc.length > 0 ? composeBcc : undefined,
-                          subject: composeSubject,
-                          body: finalBody,
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
+                        // Convert attachments to base64 (skip Drive files - they're linked, not attached)
+                        const attachments = await Promise.all(
+                          composeAttachments
+                            .filter(att => !att.isDriveFile) // Only process regular file attachments
+                            .map(async (att) => {
+                              return new Promise<{ filename: string; content: string; type: string }>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const base64 = (reader.result as string).split(',')[1]; // Remove data:type;base64, prefix
+                                  resolve({
+                                    filename: att.file.name,
+                                    content: base64,
+                                    type: att.file.type
+                                  });
+                                };
+                                reader.onerror = reject;
+                                reader.readAsDataURL(att.file);
+                              });
+                            })
+                        );
+                        
+                        // Add Drive file links to email body for compose mode
+                        const driveFiles = composeAttachments.filter(a => a.isDriveFile && a.driveWebViewLink);
+                        if (driveFiles.length > 0 && composeMode === 'compose') {
+                          let driveLinksHtml = '<br><br><div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 12px;"><p style="font-size: 12px; color: #64748b; margin-bottom: 8px;"><strong>Attached from Google Drive:</strong></p><ul style="margin: 0; padding-left: 20px;">';
+                          driveFiles.forEach(file => {
+                            driveLinksHtml += `<li style="margin-bottom: 4px;"><a href="${file.driveWebViewLink}" target="_blank" style="color: #4f46e5; text-decoration: none;">${file.file.name}</a></li>`;
+                          });
+                          driveLinksHtml += '</ul></div>';
+                          finalBody += driveLinksHtml;
+                        }
+
+                        if (composeMode === 'reply' || composeMode === 'replyAll') {
+                          await apiReplyEmail({
+                            emailId: selectedEmail?.id || '',
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            body: finalBody,
+                            replyAll: composeMode === 'replyAll',
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
+                          showSuccess('Reply sent successfully');
+                        } else if (composeMode === 'forward') {
+                          await apiForwardEmail({
+                            emailId: selectedEmail?.id || '',
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            to: composeTo,
+                            cc: composeCc.length > 0 ? composeCc : undefined,
+                            bcc: composeBcc.length > 0 ? composeBcc : undefined,
+                            body: finalBody,
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
+                          showSuccess('Email forwarded successfully');
+                        } else {
+                          const sentEmail = await apiSendEmail({
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            to: composeTo,
+                            cc: composeCc.length > 0 ? composeCc : undefined,
+                            bcc: composeBcc.length > 0 ? composeBcc : undefined,
+                            subject: composeSubject,
+                            body: finalBody,
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
                         
                         // Attach Drive files to sent email (if we have an email ID)
                         const sentEmailId = sentEmail?.data?.id;
@@ -6600,41 +6801,47 @@ ${currentUser?.name || 'Team'}`;
                         }
                       });
 
-                      setShowComposeModal(false);
-                      setComposeTo([]);
-                      setComposeCc([]);
-                      setComposeBcc([]);
-                      setComposeSubject('');
-                      setComposeBody('');
-                      setComposeAttachments([]);
-                      setToInput('');
-                      setCcInput('');
-                      setBccInput('');
-                      setShowDrivePicker(false);
-                      await loadEmails();
-                    } catch (err: any) {
-                      const errorMsg = getSafeErrorMessage(err, 'Failed to send email');
-                      showError(errorMsg);
-                    } finally {
-                      setIsSending(false);
-                    }
-                  }}
-                  disabled={isSending || composeTo.length === 0 || !composeSubject || !composeBody || connectedAccounts.length === 0}
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isSending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      {composeMode === 'reply' || composeMode === 'replyAll' ? 'Send Reply' :
-                       composeMode === 'forward' ? 'Forward' : 'Send'}
-                    </>
-                  )}
-                </button>
+                        setShowComposeModal(false);
+                        setComposeTo([]);
+                        setComposeCc([]);
+                        setComposeBcc([]);
+                        setComposeSubject('');
+                        setComposeBody('');
+                        setComposeAttachments([]);
+                        setToInput('');
+                        setCcInput('');
+                        setBccInput('');
+                        setShowDrivePicker(false);
+                        await loadEmails();
+                      } catch (err: any) {
+                        const errorMsg = getSafeErrorMessage(err, 'Failed to send email');
+                        showError(errorMsg);
+                      } finally {
+                        setIsSending(false);
+                      }
+                    }}
+                    disabled={isSending || composeTo.length === 0 || !composeSubject || !composeBody || connectedAccounts.length === 0}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isSending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        {composeMode === 'reply' || composeMode === 'replyAll' ? 'Send Reply' :
+                         composeMode === 'forward' ? 'Forward' : 'Send'}
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="px-4 py-2 bg-slate-100 text-slate-500 text-sm font-medium rounded-lg flex items-center gap-2" title="You don't have permission to send emails. Contact an admin.">
+                    <Send className="w-4 h-4" />
+                    Send (Admin Only)
+                  </div>
+                )}
               </div>
             </div>
           </div>
