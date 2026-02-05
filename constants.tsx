@@ -40,6 +40,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreference[] = [
   { id: 'project-update', label: 'Project Update', description: 'Alerts when milestone or status updates occur', inApp: false, email: true },
   { id: 'company-update', label: 'Company Update', description: 'Alerts when company information or details are updated', inApp: true, email: false },
   { id: 'contact-update', label: 'Contact Update', description: 'Alerts when contact information or details are updated', inApp: true, email: false },
+  { id: 'email-routing', label: 'Email Auto-Assigned', description: 'Alerts when an email is automatically assigned to you via routing rules', inApp: true, email: true },
+  { id: 'email-assigned', label: 'Email Assigned', description: 'Alerts when an email is manually assigned to you', inApp: true, email: false },
+  { id: 'email-mention', label: 'Email Mentions', description: 'Alerts when you are mentioned in an email note', inApp: true, email: true },
+  { id: 'new-email', label: 'New Email', description: 'Alerts when a new email is received in shared inbox', inApp: false, email: false },
 ];
 
 /**

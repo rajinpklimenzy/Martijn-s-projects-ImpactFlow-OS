@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FileText, Plus, X, Upload, Calendar, Building2, User, Tag, Clock,
   CheckCircle2, AlertCircle, Loader2, Eye, Edit2, Trash2, Download,
-  FileSignature, ExternalLink, Filter, Search, Cloud, FileCheck
+  FileSignature, ExternalLink, Filter, Search, Cloud, FileCheck, Mail, History
 } from 'lucide-react';
 import { Contract, Company, Contact } from '../types';
 import {
@@ -10,7 +10,8 @@ import {
   apiMarkContractAsSigned, apiGetCompanies, apiGetContacts,
   apiUploadToGoogleDrive, apiCreateGoogleDocForSignature,
   apiGetContractDocumentTypes, apiCreateContractDocumentType,
-  apiListGoogleDriveFiles, apiGetGoogleDriveFile, apiGetGoogleDriveAccessToken
+  apiListGoogleDriveFiles, apiGetGoogleDriveFile, apiGetGoogleDriveAccessToken,
+  apiGetActivityFeed
 } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
@@ -57,6 +58,10 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
   const [isDocTypeModalOpen, setIsDocTypeModalOpen] = useState(false);
   const [newDocTypeName, setNewDocTypeName] = useState('');
   const [isAddingDocType, setIsAddingDocType] = useState(false);
+  
+  // Activity feed state
+  const [contractActivities, setContractActivities] = useState<any[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
   
   const [formData, setFormData] = useState({
     title: '',
@@ -115,6 +120,30 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Fetch activity feed for contract
+  const fetchContractActivities = async () => {
+    if (!selectedContract) return;
+    setIsLoadingActivities(true);
+    try {
+      const res = await apiGetActivityFeed('contract', selectedContract.id);
+      setContractActivities(res?.data || []);
+    } catch (err: any) {
+      console.error('[CONTRACTS] Failed to fetch contract activities:', err);
+      setContractActivities([]);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
+
+  // Fetch activities when contract is selected
+  useEffect(() => {
+    if (selectedContract) {
+      fetchContractActivities();
+    } else {
+      setContractActivities([]);
+    }
+  }, [selectedContract?.id]);
 
   // Check Google Drive connection status
   useEffect(() => {
@@ -1443,6 +1472,77 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
                           Mark as Signed
                         </button>
                       )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Activity Timeline Section */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <History className="w-4 h-4 text-indigo-500" /> Email Activity Timeline
+                    </h3>
+                  </div>
+                  {isLoadingActivities ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                    </div>
+                  ) : contractActivities.length === 0 ? (
+                    <div className="text-center py-20 bg-white border border-dashed border-slate-200 rounded-3xl">
+                      <Mail className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-sm font-bold text-slate-400">No email activities yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Email activities will appear here when emails are linked to this contract</p>
+                    </div>
+                  ) : (
+                    <div className="relative border-l-2 border-slate-100 ml-4 pl-10 space-y-12">
+                      {contractActivities.map((activity, idx) => {
+                        const activityDate = new Date(activity.createdAt);
+                        const now = new Date();
+                        const diffMs = now.getTime() - activityDate.getTime();
+                        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                        let timeLabel = '';
+                        if (diffDays === 0) timeLabel = 'Today';
+                        else if (diffDays === 1) timeLabel = 'Yesterday';
+                        else if (diffDays < 7) timeLabel = `${diffDays} days ago`;
+                        else if (diffDays < 30) timeLabel = `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+                        else timeLabel = `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+                        
+                        const isEmailLinked = activity.activityType === 'email_linked';
+                        const borderColor = isEmailLinked ? 'border-indigo-600' : 'border-slate-200';
+                        const dotColor = isEmailLinked ? 'bg-indigo-600' : 'bg-slate-300';
+                        const textColor = isEmailLinked ? 'text-indigo-600' : 'text-slate-400';
+                        
+                        return (
+                          <div key={activity.id || idx} className="relative">
+                            <div className={`absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 ${borderColor} shadow-xl flex items-center justify-center`}>
+                              {isEmailLinked ? (
+                                <Mail className="w-4 h-4 text-indigo-600" />
+                              ) : (
+                                <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                              )}
+                            </div>
+                            <p className={`text-[10px] font-black ${textColor} uppercase mb-1 tracking-widest`}>
+                              {isEmailLinked ? 'Email Linked' : activity.activityType || 'Activity'} • {timeLabel}
+                            </p>
+                            <h4 className="text-sm font-black text-slate-900">{activity.title || 'Email Activity'}</h4>
+                            <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">{activity.description || activity.title}</p>
+                            {activity.emailId && (
+                              <button
+                                onClick={() => {
+                                  // Navigate to inbox - Contracts doesn't have onNavigate prop, so use window.location
+                                  window.location.hash = '#inbox';
+                                  setTimeout(() => {
+                                    window.location.hash = `#inbox&email=${activity.emailId}`;
+                                  }, 100);
+                                }}
+                                className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1.5"
+                              >
+                                <ExternalLink className="w-3 h-3" /> View Email
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

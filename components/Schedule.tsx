@@ -9,7 +9,8 @@ import {
 import { CalendarEvent, Task, TaskNote, Project, User as UserType } from '../types';
 import { 
   apiGetGoogleCalendarStatus, 
-  apiGetGoogleCalendarEvents, 
+  apiGetGoogleCalendarEvents,
+  apiGetCalendarEvents,
   apiGetTasks,
   apiGetProjects,
   apiGetUsers,
@@ -174,9 +175,11 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       const startDate = formatDate(start);
       const endDate = formatDate(end);
       
+      const allEvents: CalendarEvent[] = [];
+      
+      // Fetch Google Calendar events
       if (isGoogleConnected && currentUser?.id) {
         try {
-          // Fetch Google Calendar events for the entire visible range
           const response = await apiGetGoogleCalendarEvents(
             startDate, 
             endDate, 
@@ -184,14 +187,56 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
           );
           const googleEvents = response.data || [];
           // Filter out daily recurring events
-          const filteredEvents = filterDailyRecurringEvents(googleEvents);
-          setEvents(filteredEvents);
+          const filteredGoogleEvents = filterDailyRecurringEvents(googleEvents);
+          allEvents.push(...filteredGoogleEvents);
         } catch (err: any) {
-          setEvents([]);
+          console.warn('[Schedule] Failed to fetch Google Calendar events:', err.message);
         }
-      } else {
-        setEvents([]);
       }
+      
+      // Fetch Firestore calendar events (including events created from emails)
+      if (currentUser?.id) {
+        try {
+          const firestoreResponse = await apiGetCalendarEvents(
+            currentUser.id,
+            undefined, // emailId - get all events
+            startDate,
+            endDate
+          );
+          if (firestoreResponse.success && firestoreResponse.data) {
+            const firestoreEvents = firestoreResponse.data.map((event: any) => ({
+              id: event.id,
+              title: event.title,
+              description: event.description || '',
+              start: event.start,
+              end: event.end,
+              type: event.type || 'meeting',
+              location: event.location || '',
+              participants: event.participants || [],
+              color: event.color || '#4f46e5',
+              isAllDay: event.isAllDay || false,
+              source: 'firestore',
+              googleEventId: event.googleEventId || null,
+              htmlLink: event.htmlLink || null,
+              relatedEntity: event.relatedEntity || null
+            }));
+            allEvents.push(...firestoreEvents);
+          }
+        } catch (err: any) {
+          console.warn('[Schedule] Failed to fetch Firestore calendar events:', err.message);
+        }
+      }
+      
+      // Deduplicate events by ID and merge
+      const uniqueEvents = new Map<string, CalendarEvent>();
+      allEvents.forEach(event => {
+        const key = event.googleEventId || event.id;
+        if (!uniqueEvents.has(key)) {
+          uniqueEvents.set(key, event);
+        }
+      });
+      
+      setEvents(Array.from(uniqueEvents.values()));
 
       try {
         const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;

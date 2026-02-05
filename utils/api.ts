@@ -270,6 +270,62 @@ export const apiGetNotificationPreferences = (userId: string) => apiFetch(`/user
 export const apiUpdateNotificationPreferences = (userId: string, preferences: any[]) => apiFetch(`/users/${userId}/notification-preferences`, { method: 'PUT', body: JSON.stringify({ preferences }) });
 
 /**
+ * DATA RETENTION & ARCHIVE
+ */
+export const apiGetRetentionPolicy = (workspaceId: string = 'default') => 
+  apiFetch(`/data-retention/policy?workspaceId=${workspaceId}`);
+
+export const apiUpdateRetentionPolicy = (workspaceId: string, policy: {
+  retentionYears?: number;
+  coldStorageYears?: number;
+  archiveEnabled?: boolean;
+  autoCleanupEnabled?: boolean;
+  updatedBy?: string;
+}) => apiFetch('/data-retention/policy', {
+  method: 'PUT',
+  body: JSON.stringify({ workspaceId, ...policy })
+});
+
+export const apiGetRetentionStats = (workspaceId: string = 'default') =>
+  apiFetch(`/data-retention/stats?workspaceId=${workspaceId}`);
+
+export const apiTriggerArchive = (workspaceId: string = 'default', batchSize: number = 50) =>
+  apiFetch('/data-retention/archive', {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, batchSize })
+  });
+
+export const apiTriggerCleanup = (workspaceId: string = 'default', batchSize: number = 50) =>
+  apiFetch('/data-retention/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, batchSize })
+  });
+
+export const apiExportArchivedEmails = (workspaceId: string = 'default', options: {
+  format?: 'json' | 'csv';
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+} = {}) => {
+  const params = new URLSearchParams({ workspaceId });
+  if (options.format) params.append('format', options.format);
+  if (options.startDate) params.append('startDate', options.startDate);
+  if (options.endDate) params.append('endDate', options.endDate);
+  if (options.limit) params.append('limit', options.limit.toString());
+  return apiFetch(`/data-retention/export?${params.toString()}`);
+};
+
+// Email Routing Rules
+export const apiGetRoutingRules = (userId?: string) => {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+  return apiFetch(`/email-routing${query}`);
+};
+export const apiGetRoutingRule = (id: string) => apiFetch(`/email-routing/${id}`);
+export const apiCreateRoutingRule = (data: any) => apiFetch('/email-routing', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateRoutingRule = (id: string, data: any) => apiFetch(`/email-routing/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteRoutingRule = (id: string) => apiFetch(`/email-routing/${id}`, { method: 'DELETE' });
+
+/**
  * PIPELINE MANAGEMENT
  */
 export const apiGetAllPipelines = () => apiFetch('/pipelines');
@@ -375,10 +431,11 @@ export const apiGetGoogleCalendarAuthUrl = (userId: string) => apiFetch(`/google
 export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: string) => apiFetch(`/google-calendar/events?userId=${userId}&startDate=${start}&endDate=${end}`);
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
 
-/** Shared Inbox – uses already connected Gmail (Google Calendar OAuth) */
-export const apiSyncSharedInbox = (userId: string, accountEmail?: string) => {
+/** Shared Inbox – uses already connected Gmail (Google Calendar OAuth). scopeHours e.g. 24 = sync last 24 hrs. */
+export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number) => {
   const params = new URLSearchParams({ userId });
   if (accountEmail) params.append('accountEmail', accountEmail);
+  if (scopeHours != null) params.append('scopeHours', String(scopeHours));
   return apiFetch(`/shared-inbox/sync?${params.toString()}`, { method: 'POST' });
 };
 export const apiGetConnectedGmailAccounts = (userId: string) =>
@@ -388,12 +445,39 @@ export const apiDisconnectGmailAccount = (userId: string, accountEmail: string) 
     method: 'DELETE',
     body: JSON.stringify({ userId, accountEmail })
   });
-export const apiGetSharedInboxEmails = (userId: string, search?: string, status?: string) => {
+export interface SharedInboxFilters {
+  search?: string;
+  status?: string;
+  from?: string;
+  subject?: string;
+  hasAttachment?: boolean;
+  dateFrom?: string; // ISO or timestamp
+  dateTo?: string;
+  labelId?: string;
+  isRead?: boolean;
+  isStarred?: boolean;
+  page?: number;
+  limit?: number;
+}
+export const apiGetSharedInboxEmails = (userId: string, filters?: SharedInboxFilters) => {
   const params = new URLSearchParams({ userId });
-  if (search) params.append('search', search);
-  if (status) params.append('status', status);
+  if (!filters) return apiFetch(`/shared-inbox/emails?${params.toString()}`);
+  if (filters.search) params.append('search', filters.search);
+  if (filters.status) params.append('status', filters.status);
+  if (filters.from) params.append('from', filters.from);
+  if (filters.subject) params.append('subject', filters.subject);
+  if (filters.hasAttachment !== undefined) params.append('hasAttachment', String(filters.hasAttachment));
+  if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+  if (filters.dateTo) params.append('dateTo', filters.dateTo);
+  if (filters.labelId) params.append('labelId', filters.labelId);
+  if (filters.page !== undefined) params.append('page', String(filters.page));
+  if (filters.limit !== undefined) params.append('limit', String(filters.limit));
+  if (filters.isRead !== undefined) params.append('isRead', String(filters.isRead));
+  if (filters.isStarred !== undefined) params.append('isStarred', String(filters.isStarred));
   return apiFetch(`/shared-inbox/emails?${params.toString()}`);
 };
+export const apiGetSharedInboxSenders = (userId: string, limit?: number) =>
+  apiFetch(`/shared-inbox/senders?userId=${userId}${limit != null ? `&limit=${limit}` : ''}`);
 export const apiGetSharedInboxEmailDetails = (emailId: string, userId: string) =>
   apiFetch(`/shared-inbox/emails/${emailId}?userId=${userId}`);
 export const apiMarkSharedInboxEmailRead = (emailId: string, read: boolean, userId: string) =>
@@ -409,7 +493,7 @@ export const apiToggleSharedInboxEmailStarred = (emailId: string, isStarred: boo
   apiFetch(`/shared-inbox/emails/${emailId}/star`, { method: 'PUT', body: JSON.stringify({ isStarred }) });
 
 /** Shared Inbox Notes */
-export const apiAddEmailNote = (data: { emailId: string; userId: string; userName: string; message: string; imageUrl?: string; imageName?: string }) =>
+export const apiAddEmailNote = (data: { emailId: string; userId: string; userName: string; message: string; imageUrl?: string; imageName?: string; markedFor?: string[] }) =>
   apiFetch('/shared-inbox/notes', { method: 'POST', body: JSON.stringify(data) });
 export const apiGetEmailNotes = (emailId: string) =>
   apiFetch(`/shared-inbox/notes/${emailId}`);
@@ -445,23 +529,52 @@ export const apiCreateSignature = (data: { userId: string; name: string; content
   apiFetch('/shared-inbox/signatures', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateSignature = (signatureId: string, data: { userId: string; name?: string; content?: string; isDefault?: boolean }) =>
   apiFetch(`/shared-inbox/signatures/${signatureId}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteSignature = (signatureId: string, userId: string) =>
+  apiFetch(`/shared-inbox/signatures/${signatureId}`, { method: 'DELETE', body: JSON.stringify({ userId }) });
 
 /** Migration */
 export const apiMigrateEmailRecords = () =>
   apiFetch('/shared-inbox/migrate', { method: 'POST' });
 
 /** Update Email Metadata */
-export const apiUpdateEmailMetadata = (emailId: string, data: { userId: string; priority?: 'high' | 'medium' | 'low'; threadStatus?: 'active' | 'archived' | 'resolved' | 'pending'; owner?: string | null; linkedRecords?: { contactId?: string; companyId?: string; dealId?: string; projectId?: string; contractId?: string } }) =>
+// Archive & Organization API functions (Phase 8.3)
+export const apiArchiveEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({ userId })
+  });
+
+export const apiDeleteEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId })
+  });
+
+export const apiRestoreEmail = (emailId: string, userId: string) =>
+  apiFetch(`/shared-inbox/emails/${emailId}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ userId })
+  });
+
+export const apiUpdateEmailMetadata = (emailId: string, data: { userId: string; priority?: 'high' | 'medium' | 'low'; threadStatus?: 'active' | 'archived' | 'resolved' | 'pending'; owner?: string | null; linkedRecords?: { contactId?: string; companyId?: string; dealId?: string; projectId?: string; contractId?: string }; customTags?: string[] }) =>
   apiFetch(`/shared-inbox/emails/${emailId}`, { method: 'PUT', body: JSON.stringify(data) });
 
 /** Download Attachment */
 export const apiDownloadAttachment = (emailId: string, attachmentId: string, userId: string) => {
   const API_BASE = getApiBase();
+  const token = localStorage.getItem('auth_token');
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   return fetch(`${API_BASE}/shared-inbox/emails/${emailId}/attachments/${attachmentId}?userId=${userId}`, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
   }).then(async (response) => {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Failed to download attachment' }));
@@ -470,6 +583,18 @@ export const apiDownloadAttachment = (emailId: string, attachmentId: string, use
     return response.blob();
   });
 };
+
+/** Save Draft to Gmail (Phase 8.2) */
+export const apiSaveDraft = (data: { userId: string; accountEmail: string; to?: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; draftId?: string }) =>
+  apiFetch('/shared-inbox/save-draft', { method: 'POST', body: JSON.stringify(data) });
+
+/** Load Gmail Drafts (Phase 8.2) */
+export const apiLoadGmailDrafts = (userId: string, accountEmail: string) =>
+  apiFetch(`/shared-inbox/drafts?userId=${userId}&accountEmail=${encodeURIComponent(accountEmail)}`);
+
+/** Schedule Send Email (Phase 8.2) */
+export const apiScheduleSendEmail = (data: { userId: string; accountEmail: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; scheduledDateTime: string; timezone: string; attachments?: Array<{ filename: string; content: string; type: string }> }) =>
+  apiFetch('/shared-inbox/schedule-send', { method: 'POST', body: JSON.stringify(data) });
 
 export const apiGetExcludedDomains = () => apiFetch('/settings/excluded-domains');
 export const apiAddExcludedDomain = (domain: string) => apiFetch('/settings/excluded-domains', { method: 'POST', body: JSON.stringify({ domain }) });
@@ -489,6 +614,34 @@ export const apiGetSyncConfiguration = (userId: string) =>
 export const apiUpdateSyncConfiguration = (data: { userId: string; syncScopeDays?: number; syncFrequencyMinutes?: number; autoSyncEnabled?: boolean; syncLabelFilters?: string[] }) => 
   apiFetch('/shared-inbox/sync-config', { method: 'PUT', body: JSON.stringify(data) });
 
+/** Activity Feed */
+export const apiGetActivityFeed = (entityType: 'contact' | 'company' | 'deal' | 'project' | 'contract', entityId: string) =>
+  apiFetch(`/shared-inbox/activity/${entityType}/${entityId}`);
+
+/** CRM Integration - Linking */
+export const apiLinkContact = (data: { emailId: string; contactId: string; userId: string }) =>
+  apiFetch('/shared-inbox/link-contact', { method: 'POST', body: JSON.stringify(data) });
+export const apiLinkCompany = (data: { emailId: string; companyId: string; userId: string }) =>
+  apiFetch('/shared-inbox/link-company', { method: 'POST', body: JSON.stringify(data) });
+export const apiLinkDeal = (data: { emailId: string; dealId: string; userId: string }) =>
+  apiFetch('/shared-inbox/link-deal', { method: 'POST', body: JSON.stringify(data) });
+export const apiLinkProject = (data: { emailId: string; projectId: string; userId: string }) =>
+  apiFetch('/shared-inbox/link-project', { method: 'POST', body: JSON.stringify(data) });
+export const apiLinkContract = (data: { emailId: string; contractId: string; userId: string }) =>
+  apiFetch('/shared-inbox/link-contract', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetSuggestedLinks = (emailId: string) =>
+  apiFetch(`/shared-inbox/suggested-links?emailId=${emailId}`);
+
+/** Task & Project Integration */
+export const apiCreateTaskFromEmail = (data: { emailId: string; userId: string; title?: string; description?: string; dueDate?: string; priority?: string; projectId?: string; assigneeId?: string }) =>
+  apiFetch('/shared-inbox/create-task', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetRelatedTasks = (emailId: string) =>
+  apiFetch(`/shared-inbox/related-tasks/${emailId}`);
+export const apiGetRelatedProjects = (emailId: string) =>
+  apiFetch(`/shared-inbox/related-projects/${emailId}`);
+export const apiGetRelatedContracts = (emailId: string) =>
+  apiFetch(`/shared-inbox/related-contracts/${emailId}`);
+
 /** Gmail Labels */
 
 
@@ -496,10 +649,105 @@ export const apiGetGmailLabels = (userId: string) =>
   apiFetch(`/shared-inbox/labels?userId=${userId}`);
 export const apiCreateGmailLabel = (data: { userId: string; accountEmail: string; labelName: string; messageListVisibility?: string; labelListVisibility?: string }) => 
   apiFetch('/shared-inbox/labels', { method: 'POST', body: JSON.stringify(data) });
-export const apiUpdateEmailLabels = (emailId: string, data: { addLabelIds?: string[]; removeLabelIds?: string[] }) => 
+export const apiUpdateEmailLabels = (emailId: string, data: { addLabelIds?: string[]; removeLabelIds?: string[]; trackAccuracy?: boolean; suggestionId?: string }) =>
   apiFetch(`/shared-inbox/emails/${emailId}/labels`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiRemoveEmailLabel = (emailId: string, labelId: string) => 
   apiFetch(`/shared-inbox/emails/${emailId}/labels/${labelId}`, { method: 'DELETE' });
+
+/** Categorization & auto-labeling (Phase 3.3) */
+export const apiCategorizeEmail = (data: { emailId: string; userId: string; useAi?: boolean; availableLabels?: Array<{ id: string; name: string }> }) =>
+  apiFetch('/shared-inbox/categorize-email', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetCategorizationRules = (userId: string) =>
+  apiFetch(`/shared-inbox/categorization-rules?userId=${userId}`);
+export const apiGetCategorizationAccuracy = (userId: string, days: number = 30) =>
+  apiFetch(`/shared-inbox/categorization-accuracy?userId=${userId}&days=${days}`);
+export const apiCreateCategorizationRule = (data: { userId: string; type: 'domain' | 'keyword'; value: string; labelId: string; labelName?: string }) =>
+  apiFetch('/shared-inbox/categorization-rules', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateCategorizationRule = (ruleId: string, data: { userId: string; type?: 'domain' | 'keyword'; value?: string; labelId?: string; labelName?: string; enabled?: boolean }) =>
+  apiFetch(`/shared-inbox/categorization-rules/${ruleId}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteCategorizationRule = (ruleId: string, userId: string) =>
+  apiFetch(`/shared-inbox/categorization-rules/${ruleId}?userId=${userId}`, { method: 'DELETE' });
+export const apiClassifySender = (data: { fromEmail?: string; accountEmail?: string; emailId?: string; userId?: string }) =>
+  apiFetch('/shared-inbox/classify-sender', { method: 'POST', body: JSON.stringify(data) });
+export const apiGetFolderMapping = (userId: string) =>
+  apiFetch(`/shared-inbox/folder-mapping?userId=${userId}`);
+export const apiUpdateFolderMapping = (data: { userId: string; mappings: Array<{ labelId: string; labelName?: string; viewName?: string; sortOrder?: number }> }) =>
+  apiFetch('/shared-inbox/folder-mapping', { method: 'POST', body: JSON.stringify(data) });
+
+/**
+ * Calendar Integration API Functions (Phase 5)
+ */
+export const apiGetCalendarEvents = (userId: string, emailId?: string, startDate?: string, endDate?: string) => {
+  const params = new URLSearchParams({ userId });
+  if (emailId) params.append('emailId', emailId);
+  if (startDate) params.append('startDate', startDate);
+  if (endDate) params.append('endDate', endDate);
+  return apiFetch(`/shared-inbox/calendar-events?${params.toString()}`);
+};
+
+export const apiCreateCalendarEvent = (eventData: {
+  userId: string;
+  emailId: string;
+  title: string;
+  description?: string;
+  start: string;
+  end: string;
+  location?: string;
+  participants?: string[];
+  createInGoogleCalendar?: boolean;
+}) => apiFetch('/shared-inbox/calendar-events', {
+  method: 'POST',
+  body: JSON.stringify(eventData)
+});
+
+export const apiGetCalendarAvailability = (userId: string, teamMemberIds: string[], startDate: string, endDate: string) => {
+  const params = new URLSearchParams({
+    userId,
+    teamMemberIds: teamMemberIds.join(','),
+    startDate,
+    endDate
+  });
+  return apiFetch(`/shared-inbox/calendar-availability?${params.toString()}`);
+};
+
+export const apiCreateMeetingFromEmail = (userId: string, emailId: string, createInGoogleCalendar?: boolean) =>
+  apiFetch('/shared-inbox/create-meeting', {
+    method: 'POST',
+    body: JSON.stringify({ userId, emailId, createInGoogleCalendar })
+  });
+
+/**
+ * Google Drive Integration API Functions (Phase 6)
+ */
+export const apiGetDriveFiles = (userId: string, accountEmail?: string, folderId?: string, searchQuery?: string, pageToken?: string, maxResults?: number) => {
+  const params = new URLSearchParams({ userId });
+  if (accountEmail) params.append('accountEmail', accountEmail);
+  if (folderId) params.append('folderId', folderId);
+  if (searchQuery) params.append('query', searchQuery);
+  if (pageToken) params.append('pageToken', pageToken);
+  if (maxResults) params.append('maxResults', maxResults.toString());
+  return apiFetch(`/shared-inbox/drive-files?${params.toString()}`);
+};
+
+export const apiAttachDriveFile = (data: {
+  userId: string;
+  emailId: string;
+  fileId: string;
+  fileName?: string;
+  fileMimeType?: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  iconLink?: string;
+}) => apiFetch('/shared-inbox/attach-drive-file', {
+  method: 'POST',
+  body: JSON.stringify(data)
+});
+
+export const apiGetDrivePermissions = (userId: string, fileId: string, accountEmail?: string) => {
+  const params = new URLSearchParams({ userId, fileId });
+  if (accountEmail) params.append('accountEmail', accountEmail);
+  return apiFetch(`/shared-inbox/drive-permissions?${params.toString()}`);
+};
 
 /**
  * EVENTS

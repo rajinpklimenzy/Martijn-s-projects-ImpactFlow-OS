@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import DOMPurify from 'dompurify';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import {
@@ -17,6 +18,8 @@ import {
   Sparkles,
   Send,
   User,
+  UserPlus,
+  Users,
   AtSign,
   Upload as UploadIcon,
   Image as ImageIcon,
@@ -32,11 +35,23 @@ import {
   CheckCircle2 as CheckCircle,
   Clock,
   AlertCircle as AlertCircleIcon,
+  Filter as FilterIcon,
+  Bookmark,
+  Calendar,
+  MapPin,
+  ExternalLink,
+  Building2,
+  Briefcase,
+  FolderKanban,
+  FileText,
+  CheckSquare,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import {
   apiSyncSharedInbox,
   apiGetSharedInboxEmails,
+  apiGetSharedInboxSenders,
   apiGetSharedInboxEmailDetails,
   apiMarkSharedInboxEmailRead,
   apiToggleSharedInboxEmailStarred,
@@ -60,12 +75,50 @@ import {
   apiCreateSignature,
   apiGetContacts,
   apiUpdateEmailMetadata,
+  apiArchiveEmail,
+  apiDeleteEmail,
+  apiRestoreEmail,
   apiDownloadAttachment,
   apiGetGmailLabels,
   apiCreateGmailLabel,
   apiUpdateEmailLabels,
   apiRemoveEmailLabel,
+  apiCategorizeEmail,
+  apiGetCategorizationRules,
+  apiCreateCategorizationRule,
+  apiUpdateCategorizationRule,
+  apiDeleteCategorizationRule,
+  apiGetFolderMapping,
+  apiUpdateFolderMapping,
+  apiGetCategorizationAccuracy,
+  apiGetCalendarEvents,
+  apiCreateCalendarEvent,
+  apiGetCalendarAvailability,
+  apiCreateMeetingFromEmail,
+  apiGetDriveFiles,
+  apiAttachDriveFile,
+  apiLinkContact,
+  apiLinkCompany,
+  apiLinkDeal,
+  apiLinkProject,
+  apiLinkContract,
+  apiGetSuggestedLinks,
+  apiCreateTaskFromEmail,
+  apiGetRelatedTasks,
+  apiGetRelatedProjects,
+  apiGetRelatedContracts,
+  apiGetCompanies,
+  apiGetDeals,
+  apiGetProjects,
+  apiGetContracts,
+  apiSaveDraft,
+  apiLoadGmailDrafts,
+  apiScheduleSendEmail,
 } from '../utils/api';
+import ScheduleMeetingModal from './ScheduleMeetingModal';
+import { ImageWithFallback } from './common';
+import type { SharedInboxFilters } from '../utils/api';
+import { hasPermission, isAdmin, isCollaboratorOrAdmin } from '../utils/permissions';
 
 interface SharedInboxEmail {
   id: string;
@@ -134,10 +187,94 @@ const QuillEditor = React.forwardRef<any, any>((props, ref) => {
 });
 QuillEditor.displayName = 'QuillEditor';
 
+/** Renders email body as HTML (sanitized) when content looks like HTML, otherwise as plain text. Optional highlightTerm for search match highlighting. */
+function EmailBodyContent({ content, highlightTerm }: { content: string; highlightTerm?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const raw = content || 'No content';
+  const looksLikeHtml = /<[a-z][\s\S]*>/i.test(raw);
+  
+  // Lazy load images when they come into view
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const images = containerRef.current.querySelectorAll('img[data-src]');
+    if (images.length === 0) return;
+    
+    const imageObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const img = entry.target as HTMLImageElement;
+          const dataSrc = img.getAttribute('data-src');
+          if (dataSrc) {
+            img.src = dataSrc;
+            img.removeAttribute('data-src');
+            img.loading = 'lazy';
+            imageObserver.unobserve(img);
+          }
+        }
+      });
+    }, { rootMargin: '50px' });
+
+    images.forEach(img => imageObserver.observe(img));
+    
+    return () => {
+      images.forEach(img => imageObserver.unobserve(img));
+    };
+  }, [content]);
+  
+  if (highlightTerm && highlightTerm.trim()) {
+    const term = highlightTerm.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(${term})`, 'gi');
+    const plain = looksLikeHtml ? raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : raw;
+    const withHighlight = plain.replace(re, '<mark class="bg-amber-200 rounded px-0.5">$1</mark>');
+    const sanitized = DOMPurify.sanitize(withHighlight, { ALLOWED_TAGS: ['mark', 'br'] });
+    return (
+      <div ref={containerRef} className="prose prose-slate max-w-none text-sm break-words email-body-content" style={{ whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: sanitized }} />
+    );
+  }
+  const sanitized = looksLikeHtml ? DOMPurify.sanitize(raw, { 
+    ADD_ATTR: ['target', 'loading'], 
+    ADD_TAGS: ['img'] 
+  }) : '';
+  
+  // Add lazy loading to images in HTML content
+  let processedHtml = sanitized;
+  if (looksLikeHtml && sanitized) {
+    // Add loading="lazy" and convert src to data-src for lazy loading
+    processedHtml = sanitized.replace(/<img([^>]*?)src=["']([^"']+)["']([^>]*?)>/gi, (match, before, src, after) => {
+      return `<img${before}data-src="${src}" loading="lazy"${after}>`;
+    });
+  }
+  
+  return (
+    <div
+      ref={containerRef}
+      className="prose prose-slate max-w-none text-sm break-words email-body-content"
+      {...(looksLikeHtml
+        ? { dangerouslySetInnerHTML: { __html: processedHtml } }
+        : { style: { whiteSpace: 'pre-wrap' } as React.CSSProperties, children: raw })}
+    />
+  );
+}
+
 const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const { showSuccess, showError } = useToast();
   const currentUser = propUser || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user_data') || 'null') : null);
   const userId = currentUser?.id;
+  const userRole = currentUser?.role || 'Viewer';
+  
+  // Permission checks
+  const canAddNote = hasPermission(userRole, 'shared-inbox:add-note');
+  const canAssignEmail = hasPermission(userRole, 'shared-inbox:assign-email');
+  const canSendEmail = hasPermission(userRole, 'shared-inbox:send-email');
+  const canReplyEmail = hasPermission(userRole, 'shared-inbox:reply-email');
+  const canForwardEmail = hasPermission(userRole, 'shared-inbox:forward-email');
+  const canStarEmail = hasPermission(userRole, 'shared-inbox:star-email');
+  const canArchiveEmail = hasPermission(userRole, 'shared-inbox:archive-email');
+  const canDeleteEmail = hasPermission(userRole, 'shared-inbox:delete-email');
+  const canUpdateMetadata = hasPermission(userRole, 'shared-inbox:update-metadata');
+  const canManageAccounts = hasPermission(userRole, 'shared-inbox:manage-accounts');
+  const canSyncEmails = hasPermission(userRole, 'shared-inbox:sync-emails');
 
   // Helper function to safely extract error message without circular references
   // NEVER tries to serialize the error object - only accesses safe string properties
@@ -167,6 +304,12 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     return defaultMsg;
   };
 
+  /** Convert plain text with newlines to HTML so Quill displays line breaks correctly */
+  const plainTextToHtmlForQuill = (text: string): string => {
+    if (!text || typeof text !== 'string') return '';
+    return text.replace(/\n/g, '<br/>');
+  };
+
   // Wrapper to safely execute async functions without React serializing errors
   const safeAsyncCall = async <T,>(fn: () => Promise<T>, errorHandler?: (msg: string) => void): Promise<T | null> => {
     try {
@@ -185,14 +328,36 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalEmails, setTotalEmails] = useState(0);
+  const PAGE_SIZE = 50;
   const [search, setSearch] = useState('');
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  // Advanced filters (sent to API)
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterSubject, setFilterSubject] = useState('');
+  const [filterHasAttachment, setFilterHasAttachment] = useState<boolean | undefined>(undefined);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterIsRead, setFilterIsRead] = useState<boolean | undefined>(undefined);
+  const [filterIsStarred, setFilterIsStarred] = useState<boolean | undefined>(undefined);
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [senders, setSenders] = useState<Array<{ email: string; name: string }>>([]);
+  const [senderDropdownOpen, setSenderDropdownOpen] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; name: string; filters: SharedInboxFilters & { search?: string } }>>([]);
+  const [showSaveSearchModal, setShowSaveSearchModal] = useState(false);
+  const [savedSearchName, setSavedSearchName] = useState('');
+  const [showSavedSearchesDropdown, setShowSavedSearchesDropdown] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<Array<{ email: string; userId: string; ownerName: string; connectedAt: string; lastSyncedAt: string; isCurrentUser?: boolean }>>([]);
   const [showAccountsList, setShowAccountsList] = useState(false);
   const [disconnectingAccount, setDisconnectingAccount] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'threads'>('threads');
+  const [viewMode, setViewMode] = useState<'list' | 'threads'>('list');
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [internalThreads, setInternalThreads] = useState<Record<string, Array<{ id: string; userId: string; userName: string; message: string; timestamp: string; imageUrl?: string; imageName?: string }>>>({});
   const [newThreadMessage, setNewThreadMessage] = useState('');
   const [noteImagePreview, setNoteImagePreview] = useState<string>('');
@@ -216,6 +381,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [mentionCursorPosition, setMentionCursorPosition] = useState(0);
   const [filteredMentionUsers, setFilteredMentionUsers] = useState<any[]>([]);
   const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null);
+  const [markedForUsers, setMarkedForUsers] = useState<string[]>([]);
+  const [showMarkForDropdown, setShowMarkForDropdown] = useState(false);
+  const [markForSearchQuery, setMarkForSearchQuery] = useState('');
+  const markForDropdownRef = useRef<HTMLDivElement | null>(null);
   const [imagePreviewModal, setImagePreviewModal] = useState<{ isOpen: boolean; imageUrl: string; imageName?: string }>({
     isOpen: false,
     imageUrl: '',
@@ -230,10 +399,49 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string | null>(null);
   const [showLabelSelector, setShowLabelSelector] = useState(false);
   const [labelSelectorEmailId, setLabelSelectorEmailId] = useState<string | null>(null);
+  const [suggestedLabels, setSuggestedLabels] = useState<Array<{ labelId: string | null; labelName: string; source: string }>>([]);
+  const [currentSuggestionId, setCurrentSuggestionId] = useState<string | null>(null);
+  const [categorizingLoading, setCategorizingLoading] = useState(false);
+  const [categorizationRules, setCategorizationRules] = useState<Array<{ id: string; type: string; value: string; labelId: string; labelName?: string; enabled?: boolean }>>([]);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [showCategorizationRulesModal, setShowCategorizationRulesModal] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const emailListContainerRef = useRef<HTMLUListElement | null>(null);
+  const [newRuleType, setNewRuleType] = useState<'domain' | 'keyword'>('domain');
+  const [newRuleValue, setNewRuleValue] = useState('');
+  const [newRuleLabelId, setNewRuleLabelId] = useState('');
+  const [folderMappings, setFolderMappings] = useState<Array<{ labelId: string; labelName?: string; viewName?: string; sortOrder?: number }>>([]);
+  const [showFolderMappingModal, setShowFolderMappingModal] = useState(false);
   const [showCreateLabelModal, setShowCreateLabelModal] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
   const [creatingLabel, setCreatingLabel] = useState(false);
   const [selectedAccountForLabel, setSelectedAccountForLabel] = useState<string>('');
+  const [accuracyStats, setAccuracyStats] = useState<{ summary: { total: number; accepted: number; rejected: number; changed: number; pending: number; accuracyRate: number }; bySource: any; periodDays: number } | null>(null);
+  const [loadingAccuracyStats, setLoadingAccuracyStats] = useState(false);
+  
+  // Calendar integration state (Phase 5)
+  const [linkedCalendarEvents, setLinkedCalendarEvents] = useState<Array<{
+    id: string;
+    title: string;
+    start: string;
+    end: string;
+    location?: string;
+    participants?: string[];
+    googleEventId?: string;
+    htmlLink?: string;
+  }>>([]);
+  const [loadingCalendarEvents, setLoadingCalendarEvents] = useState(false);
+  const [creatingMeeting, setCreatingMeeting] = useState(false);
+  const [showScheduleMeetingModal, setShowScheduleMeetingModal] = useState(false);
+  const [scheduleMeetingExtractedDetails, setScheduleMeetingExtractedDetails] = useState<{
+    title?: string;
+    date?: string;
+    time?: string;
+    location?: string;
+    participants?: string[];
+    description?: string;
+  } | null>(null);
+  const [scheduleMeetingEmailId, setScheduleMeetingEmailId] = useState<string | null>(null);
   
   // Compose/Reply state
   const [showComposeModal, setShowComposeModal] = useState(false);
@@ -256,40 +464,233 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [contactSuggestions, setContactSuggestions] = useState<any[]>([]);
   const [showContactSuggestions, setShowContactSuggestions] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
-  const [composeAttachments, setComposeAttachments] = useState<Array<{ file: File; preview?: string; id: string }>>([]);
+  const [composeAttachments, setComposeAttachments] = useState<Array<{ file: File; preview?: string; id: string; isDriveFile?: boolean; driveFileId?: string; driveWebViewLink?: string; driveIconLink?: string }>>([]);
   const composeFileInputRef = useRef<HTMLInputElement>(null);
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<any[]>([]);
+  const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
+  const [driveSearchQuery, setDriveSearchQuery] = useState('');
+  const [driveNextPageToken, setDriveNextPageToken] = useState<string | null>(null);
+  
+  // CRM Integration state (Phase 7.1 & 7.2)
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [deals, setDeals] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [suggestedLinks, setSuggestedLinks] = useState<{ contacts: any[]; companies: any[] }>({ contacts: [], companies: [] });
+  const [loadingSuggestedLinks, setLoadingSuggestedLinks] = useState(false);
+  const [relatedTasks, setRelatedTasks] = useState<any[]>([]);
+  const [relatedProjects, setRelatedProjects] = useState<any[]>([]);
+  const [relatedContracts, setRelatedContracts] = useState<any[]>([]);
+  const [loadingRelatedItems, setLoadingRelatedItems] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkModalType, setLinkModalType] = useState<'contact' | 'company' | 'deal' | 'project' | 'contract' | null>(null);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+  const [linkingEmail, setLinkingEmail] = useState(false);
   
   // Confirmation modals state
   const [showDeleteTemplateConfirm, setShowDeleteTemplateConfirm] = useState<string | null>(null);
   const [showDiscardEmailConfirm, setShowDiscardEmailConfirm] = useState(false);
+  
+  // Compose enhancements state (Phase 8.2)
+  const [composeSelectedTemplate, setComposeSelectedTemplate] = useState<string | null>(null);
+  const [showAIDraftPanel, setShowAIDraftPanel] = useState(false);
+  const [composeAIDraft, setComposeAIDraft] = useState<string | null>(null);
+  const [isGeneratingComposeDraft, setIsGeneratingComposeDraft] = useState(false);
+  const [attachmentUploadProgress, setAttachmentUploadProgress] = useState<Record<string, number>>({});
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [showScheduleSendModal, setShowScheduleSendModal] = useState(false);
+  const [scheduleSendDateTime, setScheduleSendDateTime] = useState('');
+  const [scheduleSendTimezone, setScheduleSendTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [gmailDrafts, setGmailDrafts] = useState<any[]>([]);
+  const [loadingGmailDrafts, setLoadingGmailDrafts] = useState(false);
+  const [showGmailDraftsModal, setShowGmailDraftsModal] = useState(false);
+  
+  // Bulk selection state (Phase 8.1)
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  
+  // Sort state (Phase 8.1)
+  const [sortBy, setSortBy] = useState<'date' | 'sender' | 'subject' | 'unread'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  // Advanced filters state (Phase 8.1)
+  const [filterAssignedToMe, setFilterAssignedToMe] = useState(false);
+  const [filterAssignedToTeamMember, setFilterAssignedToTeamMember] = useState<string | null>(null);
   
   const quillEditorRef = useRef<any>(null);
   const quillInstanceRef = useRef<any>(null); // Store the actual Quill editor instance
   const noteImageInputRef = useRef<HTMLInputElement>(null);
   const composeQuillRef = useRef<any>(null);
 
-  const loadEmails = useCallback(async () => {
+  /** Parse Gmail-style search syntax from search box (e.g. from:john subject:invoice has:attachment is:unread) */
+  const parseGmailSearchSyntax = useCallback((query: string): { from?: string; subject?: string; hasAttachment?: boolean; isRead?: boolean; isStarred?: boolean; searchText: string } => {
+    const result: { from?: string; subject?: string; hasAttachment?: boolean; isRead?: boolean; isStarred?: boolean; searchText: string } = { searchText: '' };
+    if (!query || typeof query !== 'string') return result;
+    const tokens: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < query.length; i++) {
+      const c = query[i];
+      if (c === '"') { inQuotes = !inQuotes; continue; }
+      if (!inQuotes && (c === ' ' || c === '\t')) {
+        if (current) { tokens.push(current); current = ''; }
+        continue;
+      }
+      current += c;
+    }
+    if (current) tokens.push(current);
+    const remainder: string[] = [];
+    for (const token of tokens) {
+      const fromMatch = token.match(/^from:(.+)$/i);
+      if (fromMatch) { result.from = fromMatch[1].trim(); continue; }
+      const subjectMatch = token.match(/^subject:(.+)$/i);
+      if (subjectMatch) { result.subject = subjectMatch[1].trim(); continue; }
+      if (/^has:attachment$/i.test(token)) { result.hasAttachment = true; continue; }
+      if (/^has:no-attachment$/i.test(token) || /^-has:attachment$/i.test(token)) { result.hasAttachment = false; continue; }
+      if (/^is:read$/i.test(token)) { result.isRead = true; continue; }
+      if (/^is:unread$/i.test(token)) { result.isRead = false; continue; }
+      if (/^is:starred$/i.test(token)) { result.isStarred = true; continue; }
+      if (/^is:unstarred$/i.test(token)) { result.isStarred = false; continue; }
+      remainder.push(token);
+    }
+    result.searchText = remainder.join(' ').trim();
+    return result;
+  }, []);
+
+  const loadEmails = useCallback(async (silent = false, page = 0, append = false) => {
     if (!userId) return;
-    setLoading(true);
-    setError(null);
+    if (!silent && !append) {
+      setLoading(true);
+      setError(null);
+    }
+    if (append) {
+      setLoadingMore(true);
+    }
     try {
-      const res = await apiGetSharedInboxEmails(userId, search || undefined, undefined);
+      const filters: SharedInboxFilters = {};
+      const parsed = parseGmailSearchSyntax(search);
+      if (parsed.searchText) filters.search = parsed.searchText;
+      if (filterStatus) filters.status = filterStatus;
+      const fromVal = parsed.from ?? filterFrom;
+      if (fromVal) filters.from = fromVal;
+      const subjectVal = parsed.subject ?? filterSubject;
+      if (subjectVal) filters.subject = subjectVal;
+      const hasAttachmentVal = parsed.hasAttachment !== undefined ? parsed.hasAttachment : filterHasAttachment;
+      if (hasAttachmentVal !== undefined) filters.hasAttachment = hasAttachmentVal;
+      if (filterDateFrom) filters.dateFrom = filterDateFrom;
+      if (filterDateTo) filters.dateTo = filterDateTo;
+      if (selectedLabelFilter) filters.labelId = selectedLabelFilter;
+      const isReadVal = parsed.isRead !== undefined ? parsed.isRead : filterIsRead;
+      if (isReadVal !== undefined) filters.isRead = isReadVal;
+      const isStarredVal = parsed.isStarred !== undefined ? parsed.isStarred : filterIsStarred;
+      if (isStarredVal !== undefined) filters.isStarred = isStarredVal;
+      filters.page = page;
+      filters.limit = PAGE_SIZE;
+      const res = await apiGetSharedInboxEmails(userId, Object.keys(filters).length ? filters : undefined);
       const data = res?.data ?? res ?? [];
       const emailsArray = Array.isArray(data) ? data : [];
-      
-      
-      setEmails(emailsArray);
+      if (append) {
+        setEmails(prev => [...prev, ...emailsArray]);
+      } else {
+        setEmails(emailsArray);
+      }
+      const hasMoreData = res?.hasMore ?? (emailsArray.length === PAGE_SIZE);
+      setHasMore(hasMoreData);
+      setTotalEmails(res?.total ?? emailsArray.length);
+      setCurrentPage(page);
+      console.log('[INBOX] Loaded emails - page:', page, 'count:', emailsArray.length, 'hasMore:', hasMoreData, 'total:', res?.total);
     } catch (err: any) {
-      setEmails([]);
+      if (!append) {
+        setEmails([]);
+      }
       const msg = err?.message || 'Failed to load inbox';
-      setError(msg);
+      if (!silent) setError(msg);
       if (err?.message?.toLowerCase().includes('google') || err?.message?.toLowerCase().includes('connected')) {
         setGmailConnected(false);
       }
     } finally {
-      setLoading(false);
+      if (!silent && !append) {
+        setLoading(false);
+      }
+      if (append) {
+        setLoadingMore(false);
+      }
     }
-  }, [userId, search]);
+  }, [userId, search, filterStatus, filterFrom, filterSubject, filterHasAttachment, filterDateFrom, filterDateTo, selectedLabelFilter, filterIsRead, filterIsStarred]);
+  
+  const loadMoreEmails = useCallback(() => {
+    if (!loadingMore && hasMore && userId) {
+      const nextPage = currentPage + 1;
+      console.log('[INBOX] Loading more emails - page:', nextPage, 'hasMore:', hasMore, 'loadingMore:', loadingMore);
+      loadEmails(true, nextPage, true);
+    }
+  }, [loadingMore, hasMore, currentPage, loadEmails, userId]);
+
+  // Infinite scroll observer with scroll event fallback
+  useEffect(() => {
+    const loadMoreElement = loadMoreRef.current;
+    const scrollContainer = emailListContainerRef.current;
+    
+    if (!loadMoreElement || !scrollContainer || !hasMore || loadingMore) return;
+    
+    let observer: IntersectionObserver | null = null;
+    let scrollHandler: ((e: Event) => void) | null = null;
+
+    // Primary: Use IntersectionObserver with scrollable container as root
+    try {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting && hasMore && !loadingMore) {
+            console.log('[INBOX] IntersectionObserver triggered - loading more');
+            loadMoreEmails();
+          }
+        },
+        { 
+          threshold: 0.1, 
+          rootMargin: '300px',
+          root: scrollContainer // Use the scrollable container as root
+        }
+      );
+
+      observer.observe(loadMoreElement);
+    } catch (err) {
+      console.warn('[INBOX] IntersectionObserver failed, using scroll fallback:', err);
+    }
+
+    // Fallback: Scroll event listener
+    scrollHandler = () => {
+      if (loadingMore || !hasMore) return;
+      
+      const container = scrollContainer;
+      const element = loadMoreElement;
+      
+      if (!container || !element) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      
+      // Check if loadMore element is within 500px of the bottom of the scroll container
+      const distanceFromBottom = containerRect.bottom - elementRect.top;
+      
+      if (distanceFromBottom < 500 && distanceFromBottom > -100) {
+        console.log('[INBOX] Scroll handler triggered - loading more');
+        loadMoreEmails();
+      }
+    };
+
+    scrollContainer.addEventListener('scroll', scrollHandler, { passive: true });
+
+    return () => {
+      if (observer) {
+        observer.disconnect();
+      }
+      if (scrollHandler && scrollContainer) {
+        scrollContainer.removeEventListener('scroll', scrollHandler);
+      }
+    };
+  }, [hasMore, loadingMore, loadMoreEmails, viewMode, emails.length]);
 
   const checkGmailConnection = useCallback(async () => {
     if (!userId) return;
@@ -376,13 +777,45 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     loadEmails();
     
-    // Periodic refresh every 60 seconds for real-time feel
+    // Periodic refresh every 60 seconds (silent: no loader)
     const intervalId = setInterval(() => {
-      loadEmails();
+      loadEmails(true);
     }, 60000); // 60 seconds
     
     return () => clearInterval(intervalId);
   }, [userId, loadEmails]);
+
+  // Load saved searches from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('impactOS_savedSearches') : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setSavedSearches(parsed);
+      }
+    } catch (_) { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (savedSearches.length === 0) return;
+    try {
+      localStorage.setItem('impactOS_savedSearches', JSON.stringify(savedSearches));
+    } catch (_) { /* ignore */ }
+  }, [savedSearches]);
+
+  // Fetch senders for From autocomplete when advanced search is open
+  useEffect(() => {
+    if (!userId || !showAdvancedSearch) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiGetSharedInboxSenders(userId, 150);
+        const data = res?.data ?? res ?? [];
+        if (!cancelled && Array.isArray(data)) setSenders(data);
+      } catch (_) { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, showAdvancedSearch]);
 
   // Load users for mentions
   useEffect(() => {
@@ -399,6 +832,19 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (userId) loadUsers();
   }, [userId]);
 
+  // Close mark for dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (markForDropdownRef.current && !markForDropdownRef.current.contains(event.target as Node)) {
+        setShowMarkForDropdown(false);
+      }
+    };
+    if (showMarkForDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMarkForDropdown]);
+
   // Load contacts for autocomplete
   useEffect(() => {
     const loadContacts = async () => {
@@ -413,28 +859,36 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (userId) loadContacts();
   }, [userId]);
 
-  // Fetch Gmail labels
-  const fetchGmailLabels = useCallback(async () => {
-    if (!userId || loadingLabels) return;
+  // Fetch Gmail labels (accepts both { success, labels } and { data } from API or simulator)
+  const fetchGmailLabels = useCallback(async (force = false) => {
+    if (!userId) return;
+    if (loadingLabels && !force) return;
     try {
       setLoadingLabels(true);
-      const response = await apiGetGmailLabels(userId);
-      if (response.success && response.labels) {
-        setGmailLabels(response.labels);
-      }
+      const response: any = await apiGetGmailLabels(userId);
+      const list = response?.labels ?? response?.data;
+      setGmailLabels(Array.isArray(list) ? list : []);
     } catch (err: any) {
       console.error('Error fetching labels:', err);
+      setGmailLabels([]);
     } finally {
       setLoadingLabels(false);
     }
-  }, [userId, loadingLabels]);
+  }, [userId]);
 
-  // Load Gmail labels
+  // Load Gmail labels on mount when connected
   useEffect(() => {
     if (userId && gmailConnected) {
       fetchGmailLabels();
     }
   }, [userId, gmailConnected, fetchGmailLabels]);
+
+  // When Manage Labels modal opens, ensure we have fresh labels (refetch if needed)
+  useEffect(() => {
+    if (showLabelSelector && labelSelectorEmailId && userId) {
+      fetchGmailLabels(true);
+    }
+  }, [showLabelSelector, labelSelectorEmailId, userId, fetchGmailLabels]);
 
   // Load signatures
   useEffect(() => {
@@ -461,8 +915,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setSyncing(true);
     setError(null);
     try {
-      const res = await apiSyncSharedInbox(userId);
-      showSuccess(res?.message || 'Inbox synced with Gmail');
+      const res = await apiSyncSharedInbox(userId, undefined, 24);
+      showSuccess(res?.message || 'Synced new mail from last 24 hours');
       await loadEmails();
     } catch (err: any) {
       const msg = err?.message || 'Sync failed';
@@ -473,22 +927,172 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  // Load suggested links for email (Phase 7.1)
+  const loadSuggestedLinks = async (emailId: string) => {
+    if (!userId) return;
+    setLoadingSuggestedLinks(true);
+    try {
+      const res = await apiGetSuggestedLinks(emailId);
+      setSuggestedLinks(res?.data || { contacts: [], companies: [] });
+    } catch (err: any) {
+      console.error('Failed to load suggested links:', err);
+      setSuggestedLinks({ contacts: [], companies: [] });
+    } finally {
+      setLoadingSuggestedLinks(false);
+    }
+  };
+
+  // Load related items (tasks, projects, contracts) for email (Phase 7.2)
+  const loadRelatedItems = async (emailId: string) => {
+    if (!userId) return;
+    setLoadingRelatedItems(true);
+    try {
+      const [tasksRes, projectsRes, contractsRes] = await Promise.all([
+        apiGetRelatedTasks(emailId).catch(() => ({ success: true, data: [] })),
+        apiGetRelatedProjects(emailId).catch(() => ({ success: true, data: [] })),
+        apiGetRelatedContracts(emailId).catch(() => ({ success: true, data: [] }))
+      ]);
+      setRelatedTasks(tasksRes?.data || []);
+      setRelatedProjects(projectsRes?.data || []);
+      setRelatedContracts(contractsRes?.data || []);
+    } catch (err: any) {
+      console.error('Failed to load related items:', err);
+      setRelatedTasks([]);
+      setRelatedProjects([]);
+      setRelatedContracts([]);
+    } finally {
+      setLoadingRelatedItems(false);
+    }
+  };
+
+  // Load CRM data (companies, deals, projects, contracts) for linking
+  useEffect(() => {
+    const loadCrmData = async () => {
+      if (!userId) return;
+      try {
+        const [compRes, dealRes, projRes, contractRes] = await Promise.all([
+          apiGetCompanies().catch(() => ({ data: [] })),
+          apiGetDeals(userId).catch(() => ({ data: [] })),
+          apiGetProjects(userId).catch(() => ({ data: [] })),
+          apiGetContracts({ userId }).catch(() => ({ data: [] }))
+        ]);
+        setCompanies(compRes?.data || []);
+        setDeals(dealRes?.data || []);
+        setProjects(projRes?.data || []);
+        setContracts(contractRes?.data || []);
+      } catch (err: any) {
+        console.error('Failed to load CRM data:', err);
+      }
+    };
+    loadCrmData();
+  }, [userId]);
+
+  // Handle linking email to CRM entity
+  const handleLinkEmail = async (type: 'contact' | 'company' | 'deal' | 'project' | 'contract', entityId: string) => {
+    if (!selectedEmail?.id || !userId) return;
+    setLinkingEmail(true);
+    try {
+      const emailId = selectedEmail.id;
+      let linkedRecordKey: 'contactId' | 'companyId' | 'dealId' | 'projectId' | 'contractId';
+      
+      // Call appropriate API function based on type
+      switch (type) {
+        case 'contact':
+          await apiLinkContact({ emailId, contactId: entityId, userId });
+          linkedRecordKey = 'contactId';
+          break;
+        case 'company':
+          await apiLinkCompany({ emailId, companyId: entityId, userId });
+          linkedRecordKey = 'companyId';
+          break;
+        case 'deal':
+          await apiLinkDeal({ emailId, dealId: entityId, userId });
+          linkedRecordKey = 'dealId';
+          break;
+        case 'project':
+          await apiLinkProject({ emailId, projectId: entityId, userId });
+          linkedRecordKey = 'projectId';
+          break;
+        case 'contract':
+          await apiLinkContract({ emailId, contractId: entityId, userId });
+          linkedRecordKey = 'contractId';
+          break;
+        default:
+          throw new Error(`Unknown link type: ${type}`);
+      }
+      
+      showSuccess(`Email linked to ${type} successfully`);
+      
+      // Update selected email's linkedRecords
+      setSelectedEmail(prev => prev ? {
+        ...prev,
+        linkedRecords: {
+          ...(prev.linkedRecords || {}),
+          [linkedRecordKey]: entityId
+        }
+      } : null);
+      
+      // Reload related items
+      loadRelatedItems(emailId);
+      setShowLinkModal(false);
+      setLinkModalType(null);
+    } catch (err: any) {
+      showError(err?.message || `Failed to link email to ${type}`);
+    } finally {
+      setLinkingEmail(false);
+    }
+  };
+
+  // Handle creating task from email
+  const handleCreateTaskFromEmail = async (taskData: { title?: string; description?: string; dueDate?: string; priority?: string; projectId?: string; assigneeId?: string }) => {
+    if (!selectedEmail?.id || !userId) return;
+    try {
+      const res = await apiCreateTaskFromEmail({
+        emailId: selectedEmail.id,
+        userId,
+        title: taskData.title || selectedEmail.subject || 'Task from Email',
+        description: taskData.description || selectedEmail.body || '',
+        dueDate: taskData.dueDate,
+        priority: taskData.priority || 'Medium',
+        projectId: taskData.projectId,
+        assigneeId: taskData.assigneeId
+      });
+      showSuccess('Task created successfully');
+      setShowCreateTaskModal(false);
+      // Reload related items
+      loadRelatedItems(selectedEmail.id);
+    } catch (err: any) {
+      showError(err?.message || 'Failed to create task');
+    }
+  };
+
   const handleSelectEmail = async (email: SharedInboxEmail) => {
     if (!userId) return;
     setSelectedEmail(null);
-    setAiDraft(null); // Clear AI draft when switching emails
+    setSuggestedLabels([]);
+    setCurrentSuggestionId(null);
+    setAiDraft(null);
+    setAiDraftVariations([]);
+    setSelectedVariationIndex(null);
     setDetailLoading(true);
     try {
       const res = await apiGetSharedInboxEmailDetails(email.id, userId);
       const data = res?.data ?? res ?? {};
       setSelectedEmail({
         ...email,
+        ...data,
         body: data.body ?? email.lastMessage,
-        gmailThreadId: data.gmailThreadId,
+        gmailThreadId: data.gmailThreadId ?? email.gmailThreadId,
       });
       setEmails(prev =>
         prev.map(e => (e.id === email.id ? { ...e, isRead: true } : e))
       );
+      
+      // Load suggested links and related items
+      if (email.id) {
+        loadSuggestedLinks(email.id);
+        loadRelatedItems(email.id);
+      }
       
       // Load notes for this email
       try {
@@ -504,6 +1108,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             timestamp: note.createdAt,
             imageUrl: note.imageUrl,
             imageName: note.imageName,
+            markedFor: note.markedFor || [],
           })),
         }));
       } catch (notesErr: any) {
@@ -514,6 +1119,24 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           ...prev,
           [email.id]: [],
         }));
+      }
+      
+      // Load calendar events linked to this email (Phase 5)
+      if (userId) {
+        try {
+          setLoadingCalendarEvents(true);
+          const eventsRes = await apiGetCalendarEvents(userId, email.id);
+          if (eventsRes.success && eventsRes.data) {
+            setLinkedCalendarEvents(eventsRes.data);
+          } else {
+            setLinkedCalendarEvents([]);
+          }
+        } catch (err: any) {
+          console.error('Failed to load calendar events:', err.message);
+          setLinkedCalendarEvents([]);
+        } finally {
+          setLoadingCalendarEvents(false);
+        }
       }
     } catch (err: any) {
       showError(err?.message || 'Could not load email');
@@ -597,9 +1220,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   };
 
   // Update email labels
-  const handleUpdateEmailLabels = async (emailId: string, addLabelIds: string[] = [], removeLabelIds: string[] = []) => {
+  const handleUpdateEmailLabels = async (emailId: string, addLabelIds: string[] = [], removeLabelIds: string[] = [], trackAccuracy: boolean = false, suggestionId?: string) => {
     try {
-      await apiUpdateEmailLabels(emailId, { addLabelIds, removeLabelIds });
+      await apiUpdateEmailLabels(emailId, { addLabelIds, removeLabelIds, trackAccuracy, suggestionId });
       
       // Update local state
       setEmails(prev =>
@@ -708,6 +1331,167 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  // Bulk selection handlers (Phase 8.1)
+  const handleToggleBulkMode = () => {
+    setIsBulkMode(!isBulkMode);
+    setSelectedEmailIds(new Set());
+  };
+
+  const handleToggleEmailSelection = (emailId: string) => {
+    setSelectedEmailIds(prev => {
+      const next = new Set(prev);
+      if (next.has(emailId)) {
+        next.delete(emailId);
+      } else {
+        next.add(emailId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedEmailIds.size === filteredEmails.length) {
+      setSelectedEmailIds(new Set());
+    } else {
+      setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
+    }
+  };
+
+  // Bulk actions (Phase 8.1 & 8.3)
+  const handleBulkMarkRead = async () => {
+    if (!userId || selectedEmailIds.size === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        Array.from(selectedEmailIds).map((emailId: string) =>
+          apiMarkSharedInboxEmailRead(emailId, true, userId)
+        )
+      );
+      setEmails(prev =>
+        prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: true } : e)
+      );
+      showSuccess(`${selectedEmailIds.size} email(s) marked as read`);
+      setSelectedEmailIds(new Set());
+    } catch (err: any) {
+      showError(err?.message || 'Failed to mark emails as read');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Archive & Organization handlers (Phase 8.3)
+  const handleArchiveEmail = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiArchiveEmail(emailId, userId);
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'archived' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'archived' as const } : null);
+      }
+      showSuccess('Email archived');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to archive email');
+    }
+  };
+
+  const handleDeleteEmail = async (emailId: string) => {
+    if (!userId) return;
+    if (!confirm('Are you sure you want to delete this email? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      await apiDeleteEmail(emailId, userId);
+      setEmails(prev => prev.filter(e => e.id !== emailId));
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(null);
+      }
+      showSuccess('Email deleted');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to delete email');
+    }
+  };
+
+  const handleRestoreEmail = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiRestoreEmail(emailId, userId);
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'active' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'active' as const } : null);
+      }
+      showSuccess('Email restored');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to restore email');
+    }
+  };
+
+  const handleResolveConversation = async (emailId: string) => {
+    if (!userId) return;
+    try {
+      await apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'resolved' });
+      setEmails(prev =>
+        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'resolved' as const } : e)
+      );
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'resolved' as const } : null);
+      }
+      showSuccess('Conversation marked as resolved');
+    } catch (err: any) {
+      showError(err?.message || 'Failed to resolve conversation');
+    }
+  };
+
+  const handleBulkArchive = async () => {
+    if (!userId || selectedEmailIds.size === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        Array.from<string>(selectedEmailIds).map((emailId) =>
+          apiArchiveEmail(emailId, userId)
+        )
+      );
+      setEmails(prev =>
+        prev.map(e => selectedEmailIds.has(e.id) ? { ...e, threadStatus: 'archived' as const } : e)
+      );
+      showSuccess(`${selectedEmailIds.size} email(s) archived`);
+      setSelectedEmailIds(new Set());
+    } catch (err: any) {
+      showError(err?.message || 'Failed to archive emails');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!userId || selectedEmailIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedEmailIds.size} email(s)? This action cannot be undone.`)) {
+      return;
+    }
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        Array.from<string>(selectedEmailIds).map((emailId) =>
+          apiDeleteEmail(emailId, userId)
+        )
+      );
+      const deletedIds = Array.from(selectedEmailIds);
+      setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+      if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) {
+        setSelectedEmail(null);
+      }
+      showSuccess(`${deletedIds.length} email(s) deleted`);
+      setSelectedEmailIds(new Set());
+    } catch (err: any) {
+      showError(err?.message || 'Failed to delete emails');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   const handleViewAttachment = async (emailId: string, attachmentId: string, filename: string, mimeType: string) => {
     if (!userId) return;
     const loadingKey = `${emailId}-${attachmentId}-view`;
@@ -801,13 +1585,144 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  // Load Drive files
+  const loadDriveFiles = async (searchQuery?: string, pageToken?: string) => {
+    if (!userId) return;
+    setLoadingDriveFiles(true);
+    try {
+      const res = await apiGetDriveFiles(userId, composeAccountEmail || undefined, undefined, searchQuery || driveSearchQuery, pageToken);
+      const data = res?.data || res || {};
+      if (pageToken) {
+        // Append to existing files
+        setDriveFiles(prev => [...prev, ...(data.files || [])]);
+      } else {
+        // Replace files
+        setDriveFiles(data.files || []);
+      }
+      setDriveNextPageToken(data.nextPageToken || null);
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to load Drive files';
+      // Check if it's an account not connected error
+      if (errorMsg.includes('not connected') || err?.code === 'ACCOUNT_NOT_CONNECTED') {
+        showError(`Google account ${composeAccountEmail || 'selected account'} is not connected. Please connect your Google account in Settings.`);
+      } else {
+        showError(errorMsg);
+      }
+      // Clear files on error
+      if (!pageToken) {
+        setDriveFiles([]);
+      }
+    } finally {
+      setLoadingDriveFiles(false);
+    }
+  };
+
+  // Handle Drive file selection
+  const handleAttachDriveFile = async (file: any) => {
+    if (!userId || !showComposeModal) return;
+    
+    try {
+      // Check if we're replying/forwarding (need emailId)
+      const emailId = composeMode !== 'compose' && selectedEmail?.id ? selectedEmail.id : `draft_${Date.now()}`;
+      
+      // For compose mode, we'll attach it locally first, then attach when sending
+      // For reply/forward, attach immediately
+      if (composeMode === 'compose') {
+        // Add to local attachments list
+        const driveAttachment = {
+          id: `drive_${file.id}`,
+          file: new File([], file.name, { type: file.mimeType }),
+          isDriveFile: true,
+          driveFileId: file.id,
+          driveWebViewLink: file.webViewLink,
+          driveIconLink: file.iconLink,
+          preview: file.thumbnailLink || file.iconLink
+        };
+        setComposeAttachments([...composeAttachments, driveAttachment]);
+        setShowDrivePicker(false);
+        showSuccess('Drive file added');
+      } else {
+        // For reply/forward, attach immediately via API
+        await apiAttachDriveFile({
+          userId,
+          emailId: selectedEmail!.id,
+          fileId: file.id,
+          fileName: file.name,
+          fileMimeType: file.mimeType,
+          webViewLink: file.webViewLink,
+          webContentLink: file.webContentLink,
+          iconLink: file.iconLink
+        });
+        setShowDrivePicker(false);
+        showSuccess('Drive file attached');
+        // Reload email details to show new attachment
+        if (selectedEmail) {
+          handleSelectEmail(selectedEmail);
+        }
+      }
+    } catch (err: any) {
+      showError(err?.message || 'Failed to attach Drive file');
+    }
+  };
+
   // Remove attachment from compose
   const handleRemoveComposeAttachment = (id: string) => {
     const attachment = composeAttachments.find(att => att.id === id);
     if (attachment?.preview) {
       URL.revokeObjectURL(attachment.preview);
     }
+    // Remove upload progress if exists
+    setAttachmentUploadProgress(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     setComposeAttachments(composeAttachments.filter(att => att.id !== id));
+  };
+
+  // Save Draft Handler (Phase 8.2)
+  const handleSaveDraft = async () => {
+    if (!userId || !composeAccountEmail || !composeSubject || !composeBody) {
+      showError('Please fill in subject and message to save draft');
+      return;
+    }
+    
+    setSavingDraft(true);
+    try {
+      await apiSaveDraft({
+        userId,
+        accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+        to: composeTo.length > 0 ? composeTo : undefined,
+        cc: composeCc.length > 0 ? composeCc : undefined,
+        bcc: composeBcc.length > 0 ? composeBcc : undefined,
+        subject: composeSubject,
+        body: composeBody,
+      });
+      showSuccess('Draft saved to Gmail');
+    } catch (err: any) {
+      const errorMsg = getSafeErrorMessage(err, 'Failed to save draft');
+      showError(errorMsg);
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // Load Gmail Drafts Handler (Phase 8.2)
+  const loadGmailDrafts = async () => {
+    if (!userId || !composeAccountEmail) return;
+    
+    setLoadingGmailDrafts(true);
+    try {
+      const res = await apiLoadGmailDrafts(userId, composeAccountEmail || connectedAccounts[0]?.email);
+      const drafts = res?.data || res || [];
+      setGmailDrafts(Array.isArray(drafts) ? drafts : []);
+    } catch (err: any) {
+      const errorMsg = getSafeErrorMessage(err, 'Failed to load drafts');
+      showError(errorMsg);
+      setGmailDrafts([]);
+    } finally {
+      setLoadingGmailDrafts(false);
+    }
   };
 
   // Cleanup compose attachments on unmount
@@ -1102,6 +2017,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         message: messageText,
       };
       
+      // Add markedFor if any team members are selected
+      if (markedForUsers.length > 0) {
+        notePayload.markedFor = markedForUsers;
+      }
+      
       // Only add image fields if image exists
       if (noteImagePreview && noteImagePreview.trim()) {
         // Check if base64 string is too large (Firestore limit is ~1MB per field)
@@ -1138,6 +2058,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         timestamp: noteData.createdAt || new Date().toISOString(),
         imageUrl: noteImagePreview || undefined,
         imageName: noteImageFile?.name || undefined,
+        markedFor: noteData.markedFor || [],
       };
       
       // Update local state - add new note at the beginning (newest first)
@@ -1170,6 +2091,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       setNewThreadMessage('');
       setNoteImagePreview('');
       setNoteImageFile(null);
+      setMarkedForUsers([]);
       if (noteImageInputRef.current) noteImageInputRef.current.value = '';
       // Clear Quill editor
       if (quillInstanceRef.current) {
@@ -1229,9 +2151,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // Handle new format with variations
       if (draftData.variations && Array.isArray(draftData.variations) && draftData.variations.length > 0) {
         setAiDraftVariations(draftData.variations);
-        // Auto-select highest confidence variation
+        // Auto-select highest confidence variation; convert plain-text newlines to HTML for Quill
         setSelectedVariationIndex(0);
-        setAiDraft(draftData.variations[0].draft);
+        setAiDraft(plainTextToHtmlForQuill(draftData.variations[0].draft));
         showSuccess(`Generated ${draftData.variations.length} draft variations`);
       } else {
         // Fallback to single draft (backward compatibility)
@@ -1246,7 +2168,7 @@ Thank you for your email regarding "${selectedEmail.subject || 'your inquiry'}".
 Best regards,
 ${currentUser?.name || 'Team'}`;
         }
-        setAiDraft(draft);
+        setAiDraft(plainTextToHtmlForQuill(draft));
         setAiDraftVariations([{
           style: 'default',
           description: 'AI-generated draft',
@@ -1270,6 +2192,42 @@ ${currentUser?.name || 'Team'}`;
       }, 0);
     } finally {
       setIsGeneratingDraft(false);
+    }
+  };
+
+  // Generate AI draft for compose mode (Phase 8.2)
+  const handleGenerateComposeAIDraft = async () => {
+    if (!userId || !composeSubject || composeTo.length === 0) {
+      showError('Please enter a subject and recipient to generate AI draft');
+      return;
+    }
+    
+    setIsGeneratingComposeDraft(true);
+    setComposeAIDraft(null);
+    
+    try {
+      // For compose mode, we'll generate a draft based on subject and recipient
+      // This is a simplified version - in production, you'd call an API endpoint
+      const recipientName = composeTo[0].split('@')[0];
+      const draft = `Hi ${recipientName},
+
+${composeSubject ? `Regarding: ${composeSubject}` : ''}
+
+[Your message here]
+
+Best regards,
+${currentUser?.name || 'Team'}`;
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setComposeAIDraft(plainTextToHtmlForQuill(draft));
+      showSuccess('AI draft generated');
+    } catch (err: any) {
+      const errorMsg = getSafeErrorMessage(err, 'Failed to generate draft');
+      showError(errorMsg);
+    } finally {
+      setIsGeneratingComposeDraft(false);
     }
   };
 
@@ -1371,21 +2329,127 @@ ${currentUser?.name || 'Team'}`;
     }
   }, [userId]);
 
-  // Filter emails by selected label
+  // Load templates when compose modal opens (Phase 8.2)
+  useEffect(() => {
+    if (userId && showComposeModal) {
+      loadTemplates();
+    }
+  }, [userId, showComposeModal]);
+
+  // Helper function to truncate preview text to 100 characters
+  const truncatePreview = (text: string | undefined, maxLength: number = 100): string => {
+    if (!text) return '';
+    // Remove HTML tags and decode entities, normalize whitespace
+    let plainText = text.replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // Remove common email signature patterns and URLs that might be concatenated
+    // This helps clean up previews that include signatures, websites, etc.
+    plainText = plainText.replace(/https?:\/\/[^\s]+/g, '').trim();
+    plainText = plainText.replace(/\s+/g, ' ').trim();
+    
+    if (plainText.length <= maxLength) return plainText;
+    // Truncate at word boundary if possible
+    const truncated = plainText.substring(0, maxLength);
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > maxLength * 0.7) {
+      return truncated.substring(0, lastSpace) + '...';
+    }
+    return truncated + '...';
+  };
+
+  // Helper function to get sender initials for avatar
+  const getSenderInitials = (sender: string | undefined, email: string | undefined): string => {
+    const name = sender || email || '';
+    const parts = name.split(/[\s@]/);
+    if (parts.length >= 2) {
+      return (parts[0][0] || '').toUpperCase() + (parts[1][0] || '').toUpperCase();
+    }
+    return (name[0] || '?').toUpperCase();
+  };
+
+  // Filter and sort emails (Phase 8.1)
   const filteredEmails = useMemo(() => {
-    if (!selectedLabelFilter) {
-      return emails;
+    let result = [...emails];
+    
+    // Apply threadStatus filter (Phase 8.3: Archive view)
+    if (filterStatus === 'archived') {
+      result = result.filter(email => email.threadStatus === 'archived');
+    } else if (filterStatus && filterStatus !== 'archived') {
+      // For other status filters, use the existing filterStatus logic
+      result = result.filter(email => email.status === filterStatus);
+    } else if (!filterStatus) {
+      // By default, exclude archived emails unless specifically viewing archived
+      result = result.filter(email => email.threadStatus !== 'archived');
     }
     
-    return emails.filter(email => {
-      const emailLabels = email.labels || [];
-      return emailLabels.includes(selectedLabelFilter);
+    // Apply label filter
+    if (selectedLabelFilter) {
+      result = result.filter(email => {
+        const emailLabels = email.labels || [];
+        return emailLabels.includes(selectedLabelFilter);
+      });
+    }
+    
+    // Apply advanced filters
+    if (filterAssignedToMe && userId) {
+      result = result.filter(email => email.owner === userId);
+    }
+    
+    if (filterAssignedToTeamMember) {
+      result = result.filter(email => email.owner === filterAssignedToTeamMember);
+    }
+    
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case 'date':
+          const dateA = parseInt(a.internalDate || '0') || 0;
+          const dateB = parseInt(b.internalDate || '0') || 0;
+          comparison = dateB - dateA; // Most recent first by default
+          break;
+        case 'sender':
+          const senderA = (a.sender || a.email || '').toLowerCase();
+          const senderB = (b.sender || b.email || '').toLowerCase();
+          comparison = senderA.localeCompare(senderB);
+          break;
+        case 'subject':
+          const subjectA = (a.subject || '').toLowerCase();
+          const subjectB = (b.subject || '').toLowerCase();
+          comparison = subjectA.localeCompare(subjectB);
+          break;
+        case 'unread':
+          // Unread first (or last if ascending)
+          if (a.isRead === b.isRead) {
+            // If same read status, sort by date as secondary
+            const dateA = parseInt(a.internalDate || '0') || 0;
+            const dateB = parseInt(b.internalDate || '0') || 0;
+            comparison = dateB - dateA; // Most recent first as secondary sort
+          } else {
+            // Unread emails come first (negative comparison)
+            comparison = a.isRead ? 1 : -1;
+          }
+          break;
+      }
+      
+      return sortOrder === 'asc' ? -comparison : comparison;
     });
-  }, [emails, selectedLabelFilter]);
+    
+    return result;
+  }, [emails, selectedLabelFilter, filterAssignedToMe, filterAssignedToTeamMember, userId, sortBy, sortOrder]);
 
   const unreadCount = filteredEmails.filter(e => !e.isRead).length;
 
-  // Group emails by thread (gmailThreadId)
+  // Group emails by thread (gmailThreadId) - respects sortBy and sortOrder (Phase 8.1)
   const threadedEmails = useMemo(() => {
     if (viewMode === 'list') return null;
     
@@ -1398,24 +2462,66 @@ ${currentUser?.name || 'Team'}`;
       threads.get(threadId)!.push(email);
     });
     
-    // Sort threads by most recent email
-    return Array.from(threads.entries())
-      .map(([threadId, threadEmails]) => ({
-        threadId,
-        emails: threadEmails.sort((a, b) => {
+    // Sort emails within each thread by date (most recent first)
+    const threadArray = Array.from(threads.entries())
+      .map(([threadId, threadEmails]) => {
+        // Sort emails within thread by date
+        const sortedThreadEmails = [...threadEmails].sort((a, b) => {
           const dateA = parseInt(a.internalDate || '0') || 0;
           const dateB = parseInt(b.internalDate || '0') || 0;
           return dateB - dateA;
-        }),
-        latestEmail: threadEmails[0],
-        unreadCount: threadEmails.filter(e => !e.isRead).length,
-      }))
-      .sort((a, b) => {
-        const dateA = parseInt(a.latestEmail.internalDate || '0') || 0;
-        const dateB = parseInt(b.latestEmail.internalDate || '0') || 0;
-        return dateB - dateA;
+        });
+        return {
+          threadId,
+          emails: sortedThreadEmails,
+          latestEmail: sortedThreadEmails[0],
+          unreadCount: sortedThreadEmails.filter(e => !e.isRead).length,
+        };
       });
-  }, [filteredEmails, viewMode]);
+    
+    // Sort threads based on sortBy and sortOrder
+    threadArray.sort((a, b) => {
+      let comparison = 0;
+      const latestA = a.latestEmail;
+      const latestB = b.latestEmail;
+      
+      switch (sortBy) {
+        case 'date':
+          const dateA = parseInt(latestA.internalDate || '0') || 0;
+          const dateB = parseInt(latestB.internalDate || '0') || 0;
+          comparison = dateB - dateA; // Most recent first by default
+          break;
+        case 'sender':
+          const senderA = (latestA.sender || latestA.email || '').toLowerCase();
+          const senderB = (latestB.sender || latestB.email || '').toLowerCase();
+          comparison = senderA.localeCompare(senderB);
+          break;
+        case 'subject':
+          const subjectA = (latestA.subject || '').toLowerCase();
+          const subjectB = (latestB.subject || '').toLowerCase();
+          comparison = subjectA.localeCompare(subjectB);
+          break;
+        case 'unread':
+          // Unread threads first
+          if (a.unreadCount > 0 && b.unreadCount === 0) comparison = -1;
+          else if (a.unreadCount === 0 && b.unreadCount > 0) comparison = 1;
+          else if (a.unreadCount === b.unreadCount) {
+            // If same unread count, sort by date as secondary
+            const dateA = parseInt(latestA.internalDate || '0') || 0;
+            const dateB = parseInt(latestB.internalDate || '0') || 0;
+            comparison = dateB - dateA;
+          } else {
+            // More unread emails first
+            comparison = b.unreadCount - a.unreadCount;
+          }
+          break;
+      }
+      
+      return sortOrder === 'asc' ? -comparison : comparison;
+    });
+    
+    return threadArray;
+  }, [filteredEmails, viewMode, sortBy, sortOrder]);
 
   const toggleThread = (threadId: string) => {
     setExpandedThreads(prev => {
@@ -1424,6 +2530,18 @@ ${currentUser?.name || 'Team'}`;
         next.delete(threadId);
       } else {
         next.add(threadId);
+      }
+      return next;
+    });
+  };
+
+  const toggleMessage = (messageId: string) => {
+    setExpandedMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
       }
       return next;
     });
@@ -1439,7 +2557,7 @@ ${currentUser?.name || 'Team'}`;
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300">
+    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300 h-full overflow-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 shrink-0">
         <div>
@@ -1491,14 +2609,16 @@ ${currentUser?.name || 'Team'}`;
             <MessageSquare className="w-4 h-4" />
             {viewMode === 'threads' ? 'Threads' : 'List'}
           </button>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-          >
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing…' : 'Sync from Gmail'}
-          </button>
+          {canSyncEmails && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+            >
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Syncing…' : 'Sync from Gmail'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1598,18 +2718,769 @@ ${currentUser?.name || 'Team'}`;
         </div>
       )}
 
-      {/* Search */}
-      <div className="mt-4 relative shrink-0">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search emails…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && loadEmails()}
-          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-        />
+      {/* Search + Filters */}
+      <div className="mt-4 shrink-0 space-y-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search or use from: subject: has:attachment is:read"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && loadEmails()}
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAdvancedSearch(prev => !prev)}
+            className={`px-3 py-2.5 border rounded-xl text-sm font-medium flex items-center gap-2 shrink-0 ${
+              showAdvancedSearch ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title="Advanced filters"
+          >
+            <FilterIcon className="w-4 h-4" />
+            Filters
+            {(filterFrom || filterSubject || filterHasAttachment !== undefined || filterDateFrom || filterDateTo || filterIsRead !== undefined || filterIsStarred !== undefined || filterStatus || selectedLabelFilter) && (
+              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+            )}
+          </button>
+        </div>
+        {showAdvancedSearch && (
+          <div className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 space-y-3">
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Advanced filters</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="relative">
+                <label className="block text-xs text-slate-500 mb-1">From (sender)</label>
+                <input
+                  type="text"
+                  placeholder="email or name"
+                  value={filterFrom}
+                  onChange={e => { setFilterFrom(e.target.value); setSenderDropdownOpen(true); }}
+                  onFocus={() => setSenderDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setSenderDropdownOpen(false), 180)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+                {senderDropdownOpen && senders.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                    {senders
+                      .filter(s => !filterFrom || [s.email, s.name].some(t => t?.toLowerCase().includes(filterFrom.toLowerCase())))
+                      .slice(0, 20)
+                      .map(s => (
+                        <button
+                          key={s.email}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex flex-col"
+                          onMouseDown={e => { e.preventDefault(); setFilterFrom(s.email || s.name); setSenderDropdownOpen(false); }}
+                        >
+                          <span className="font-medium text-slate-800">{s.name || s.email}</span>
+                          {s.email !== s.name && <span className="text-xs text-slate-500">{s.email}</span>}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Subject</label>
+                <input
+                  type="text"
+                  placeholder="contains"
+                  value={filterSubject}
+                  onChange={e => setFilterSubject(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Attachment</label>
+                <select
+                  value={filterHasAttachment === undefined ? '' : String(filterHasAttachment)}
+                  onChange={e => setFilterHasAttachment(e.target.value === '' ? undefined : e.target.value === 'true')}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="">Any</option>
+                  <option value="true">Has attachment</option>
+                  <option value="false">No attachment</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="">Any</option>
+                  <option value="open">Open</option>
+                  <option value="assigned">Assigned to me</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Read</label>
+                <select
+                  value={filterIsRead === undefined ? '' : String(filterIsRead)}
+                  onChange={e => setFilterIsRead(e.target.value === '' ? undefined : e.target.value === 'true')}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="">Any</option>
+                  <option value="false">Unread</option>
+                  <option value="true">Read</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Starred</label>
+                <select
+                  value={filterIsStarred === undefined ? '' : String(filterIsStarred)}
+                  onChange={e => setFilterIsStarred(e.target.value === '' ? undefined : e.target.value === 'true')}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="">Any</option>
+                  <option value="true">Starred</option>
+                  <option value="false">Not starred</option>
+                </select>
+              </div>
+              {/* Advanced Filters: Assigned to me, Assigned to team member (Phase 8.1) */}
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Assigned To</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={filterAssignedToMe}
+                      onChange={(e) => {
+                        setFilterAssignedToMe(e.target.checked);
+                        if (e.target.checked) setFilterAssignedToTeamMember(null);
+                      }}
+                      className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                    />
+                    <span className="text-xs text-slate-700">Assigned to me</span>
+                  </label>
+                  <select
+                    value={filterAssignedToTeamMember || ''}
+                    onChange={(e) => {
+                      const value = e.target.value || null;
+                      setFilterAssignedToTeamMember(value);
+                      if (value) setFilterAssignedToMe(false);
+                    }}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  >
+                    <option value="">Any team member</option>
+                    {users.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Date from</label>
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={e => setFilterDateFrom(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Date to</label>
+                <input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={e => setFilterDateTo(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+              {gmailLabels.length > 0 && (
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Label</label>
+                  <select
+                    value={selectedLabelFilter || ''}
+                    onChange={e => setSelectedLabelFilter(e.target.value || null)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  >
+                    <option value="">All labels</option>
+                    {gmailLabels.map(label => (
+                      <option key={label.id} value={label.id}>{label.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadEmails()}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterFrom('');
+                  setFilterSubject('');
+                  setFilterHasAttachment(undefined);
+                  setFilterDateFrom('');
+                  setFilterDateTo('');
+                  setFilterIsRead(undefined);
+                  setFilterIsStarred(undefined);
+                  setFilterStatus('');
+                  setSelectedLabelFilter(null);
+                  setSearch('');
+                  loadEmails();
+                }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100"
+              >
+                Clear all
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSaveSearchModal(true)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+              >
+                <Bookmark className="w-4 h-4" />
+                Save search
+              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSavedSearchesDropdown(prev => !prev)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                >
+                  <Bookmark className="w-4 h-4" />
+                  Saved ({savedSearches.length})
+                </button>
+                {showSavedSearchesDropdown && (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-64 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                    {savedSearches.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-slate-500">No saved searches</p>
+                    ) : (
+                      savedSearches.map(s => (
+                        <div key={s.id} className="flex items-center group">
+                          <button
+                            type="button"
+                            className="flex-1 text-left px-3 py-2 text-sm hover:bg-slate-100 truncate"
+                            onClick={() => {
+                              setSearch(s.filters.search ?? '');
+                              setFilterFrom(s.filters.from ?? '');
+                              setFilterSubject(s.filters.subject ?? '');
+                              setFilterHasAttachment(s.filters.hasAttachment);
+                              setFilterDateFrom(s.filters.dateFrom ?? '');
+                              setFilterDateTo(s.filters.dateTo ?? '');
+                              setFilterIsRead(s.filters.isRead);
+                              setFilterIsStarred(s.filters.isStarred);
+                              setFilterStatus(s.filters.status ?? '');
+                              setSelectedLabelFilter(s.filters.labelId ?? null);
+                              setShowSavedSearchesDropdown(false);
+                              loadEmails();
+                            }}
+                          >
+                            {s.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100"
+                            onClick={() => {
+                              setSavedSearches(prev => prev.filter(x => x.id !== s.id));
+                              setShowSavedSearchesDropdown(false);
+                            }}
+                            title="Delete saved search"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCategorizationRulesModal(true);
+                  if (userId) {
+                    apiGetCategorizationRules(userId).then((r: any) => {
+                      const data = r?.data ?? r ?? [];
+                      setCategorizationRules(Array.isArray(data) ? data : []);
+                    }).catch(() => setCategorizationRules([]));
+                  }
+                }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                title="Auto-labeling rules (domain or keyword → label)"
+              >
+                <FilterIcon className="w-4 h-4" />
+                Categorization rules
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowFolderMappingModal(true);
+                  if (userId) {
+                    apiGetFolderMapping(userId).then((r: any) => {
+                      const data = r?.data ?? r ?? [];
+                      setFolderMappings(Array.isArray(data) ? data : []);
+                    }).catch(() => setFolderMappings([]));
+                  }
+                }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                title="Map Gmail labels to Impact OS views"
+              >
+                Folder mapping
+              </button>
+            </div>
+          </div>
+        )}
+        {/* Filter chips */}
+        {(search || filterFrom || filterSubject || filterHasAttachment !== undefined || filterDateFrom || filterDateTo || filterIsRead !== undefined || filterIsStarred !== undefined || filterStatus || selectedLabelFilter) && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500">Active:</span>
+            {search && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                Search &quot;{search.length > 20 ? search.slice(0, 20) + '…' : search}&quot;
+                <button type="button" onClick={() => setSearch('')} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {selectedLabelFilter && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-xs">
+                Label: {gmailLabels.find(l => l.id === selectedLabelFilter)?.name || selectedLabelFilter}
+                <button type="button" onClick={() => setSelectedLabelFilter(null)} className="hover:bg-indigo-200 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterFrom && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                From: {filterFrom}
+                <button type="button" onClick={() => setFilterFrom('')} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterSubject && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                Subject
+                <button type="button" onClick={() => setFilterSubject('')} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterHasAttachment !== undefined && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                {filterHasAttachment ? 'Has attachment' : 'No attachment'}
+                <button type="button" onClick={() => setFilterHasAttachment(undefined)} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterStatus && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                Status: {filterStatus}
+                <button type="button" onClick={() => setFilterStatus('')} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterIsRead !== undefined && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                {filterIsRead ? 'Read' : 'Unread'}
+                <button type="button" onClick={() => setFilterIsRead(undefined)} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {filterIsStarred !== undefined && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                {filterIsStarred ? 'Starred' : 'Not starred'}
+                <button type="button" onClick={() => setFilterIsStarred(undefined)} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+            {(filterDateFrom || filterDateTo) && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
+                Date {filterDateFrom && filterDateTo ? `${filterDateFrom} – ${filterDateTo}` : filterDateFrom || filterDateTo}
+                <button type="button" onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Archive View Toggle (Phase 8.3) */}
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (filterStatus === 'archived') {
+              setFilterStatus('');
+            } else {
+              setFilterStatus('archived');
+            }
+          }}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+            filterStatus === 'archived'
+              ? 'bg-indigo-600 text-white'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <InboxIcon className="w-4 h-4 inline mr-1.5" />
+          {filterStatus === 'archived' ? 'Show Active' : 'Show Archived'}
+        </button>
+        {filterStatus === 'archived' && (
+          <span className="text-sm text-slate-500">
+            {filteredEmails.length} archived email(s)
+          </span>
+        )}
+      </div>
+
+      {/* Bulk Actions Toolbar & Sort (Phase 8.1) */}
+      {(isBulkMode || selectedEmailIds.size > 0) && (
+        <div className="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className="text-sm font-medium text-indigo-700 hover:text-indigo-800"
+            >
+              {selectedEmailIds.size === filteredEmails.length ? 'Deselect all' : 'Select all'}
+            </button>
+            <span className="text-sm text-indigo-600">
+              {selectedEmailIds.size} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleBulkMarkRead}
+              disabled={bulkActionLoading || selectedEmailIds.size === 0}
+              className="px-3 py-1.5 bg-white border border-indigo-300 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Mark Read
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkArchive}
+              disabled={bulkActionLoading || selectedEmailIds.size === 0}
+              className="px-3 py-1.5 bg-white border border-indigo-300 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={bulkActionLoading || selectedEmailIds.size === 0}
+              className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleBulkMode}
+              className="px-3 py-1.5 text-indigo-700 text-sm font-medium hover:text-indigo-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* View Controls: Bulk Mode Toggle & Sort (Phase 8.1) */}
+      <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          {!isBulkMode && (
+            <button
+              type="button"
+              onClick={handleToggleBulkMode}
+              className="px-3 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-2"
+            >
+              <CheckSquare className="w-4 h-4" />
+              Select
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-600">Sort by:</label>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'date' | 'sender' | 'subject' | 'unread')}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="date">Date</option>
+            <option value="sender">Sender</option>
+            <option value="subject">Subject</option>
+            <option value="unread">Unread</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50"
+            title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortOrder === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Save search modal */}
+      {showSaveSearchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => { setShowSaveSearchModal(false); setSavedSearchName(''); }}>
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-medium text-slate-800">Save current search</p>
+            <input
+              type="text"
+              placeholder="Search name"
+              value={savedSearchName}
+              onChange={e => setSavedSearchName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => { setShowSaveSearchModal(false); setSavedSearchName(''); }} className="px-3 py-1.5 text-slate-600 text-sm hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = savedSearchName.trim() || 'Saved search';
+                  const filters: SharedInboxFilters & { search?: string } = {
+                    search: search || undefined,
+                    status: filterStatus || undefined,
+                    from: filterFrom || undefined,
+                    subject: filterSubject || undefined,
+                    hasAttachment: filterHasAttachment,
+                    dateFrom: filterDateFrom || undefined,
+                    dateTo: filterDateTo || undefined,
+                    labelId: selectedLabelFilter || undefined,
+                    isRead: filterIsRead,
+                    isStarred: filterIsStarred
+                  };
+                  const next = { id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `saved-${Date.now()}`, name, filters };
+                  setSavedSearches(prev => [...prev, next]);
+                  setShowSaveSearchModal(false);
+                  setSavedSearchName('');
+                }}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Categorization rules modal (Phase 3.3) */}
+      {showCategorizationRulesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setShowCategorizationRulesModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col p-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-800">Auto-labeling rules</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!userId) return;
+                  setLoadingAccuracyStats(true);
+                  try {
+                    const res = await apiGetCategorizationAccuracy(userId, 30);
+                    const data = (res as any)?.data;
+                    setAccuracyStats(data);
+                  } catch (e: any) {
+                    console.error('Failed to load accuracy stats:', e);
+                  } finally {
+                    setLoadingAccuracyStats(false);
+                  }
+                }}
+                className="text-xs text-indigo-600 hover:text-indigo-700 hover:underline"
+                disabled={loadingAccuracyStats}
+              >
+                {loadingAccuracyStats ? 'Loading...' : 'View accuracy stats'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">When an email matches a rule (sender domain or keyword in subject/body), &quot;Suggest labels&quot; will recommend the label. Add rules below.</p>
+            
+            {/* Accuracy Stats Section */}
+            {accuracyStats && (
+              <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <p className="text-xs font-semibold text-slate-700 mb-2">Categorization Accuracy (Last {accuracyStats.periodDays} days)</p>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <p className="text-xs text-slate-500">Overall Accuracy</p>
+                    <p className="text-lg font-semibold text-indigo-600">{accuracyStats.summary.accuracyRate}%</p>
+                    <p className="text-xs text-slate-400">{accuracyStats.summary.accepted} accepted / {accuracyStats.summary.accepted + accuracyStats.summary.rejected + accuracyStats.summary.changed} resolved</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Total Suggestions</p>
+                    <p className="text-lg font-semibold text-slate-700">{accuracyStats.summary.total}</p>
+                    <p className="text-xs text-slate-400">{accuracyStats.summary.pending} pending</p>
+                  </div>
+                </div>
+                <div className="mt-2 pt-2 border-t border-slate-200">
+                  <p className="text-xs font-medium text-slate-600 mb-1">By Source:</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <p className="text-slate-500">Domain Rules</p>
+                      <p className="font-semibold text-slate-700">{accuracyStats.bySource.domain.accuracyRate}%</p>
+                      <p className="text-slate-400">{accuracyStats.bySource.domain.accepted}/{accuracyStats.bySource.domain.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Keyword Rules</p>
+                      <p className="font-semibold text-slate-700">{accuracyStats.bySource.keyword.accuracyRate}%</p>
+                      <p className="text-slate-400">{accuracyStats.bySource.keyword.accepted}/{accuracyStats.bySource.keyword.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">AI Suggestions</p>
+                      <p className="font-semibold text-slate-700">{accuracyStats.bySource.ai.accuracyRate}%</p>
+                      <p className="text-slate-400">{accuracyStats.bySource.ai.accepted}/{accuracyStats.bySource.ai.total}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 mb-3">
+              <select value={newRuleType} onChange={e => setNewRuleType(e.target.value as 'domain' | 'keyword')} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
+                <option value="domain">Sender domain</option>
+                <option value="keyword">Keyword</option>
+              </select>
+              <input
+                type="text"
+                placeholder={newRuleType === 'domain' ? 'e.g. company.com' : 'e.g. invoice'}
+                value={newRuleValue}
+                onChange={e => setNewRuleValue(e.target.value)}
+                className="flex-1 min-w-[120px] px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+              />
+              <select value={newRuleLabelId} onChange={e => setNewRuleLabelId(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
+                <option value="">Select label</option>
+                {gmailLabels.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!newRuleValue.trim() || !newRuleLabelId || !userId}
+                onClick={async () => {
+                  if (!userId || !newRuleValue.trim() || !newRuleLabelId) return;
+                  try {
+                    await apiCreateCategorizationRule({
+                      userId,
+                      type: newRuleType,
+                      value: newRuleValue.trim(),
+                      labelId: newRuleLabelId,
+                      labelName: gmailLabels.find(l => l.id === newRuleLabelId)?.name
+                    });
+                    const res = await apiGetCategorizationRules(userId);
+                    const data = (res as any)?.data ?? (res as any) ?? [];
+                    setCategorizationRules(Array.isArray(data) ? data : []);
+                    setNewRuleValue('');
+                    setNewRuleLabelId('');
+                    showSuccess('Rule added');
+                  } catch (e: any) {
+                    showError(e?.message || 'Failed to add rule');
+                  }
+                }}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Add rule
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+              {categorizationRules.length === 0 ? (
+                <p className="p-3 text-sm text-slate-500">No rules yet. Add a domain or keyword rule above.</p>
+              ) : (
+                categorizationRules.map(rule => (
+                  <div key={rule.id} className="flex items-center justify-between gap-2 p-2 text-sm">
+                    <span className="text-slate-700">
+                      <span className="font-medium">{rule.type === 'domain' ? 'Domain' : 'Keyword'}</span>
+                      <span className="text-slate-500"> &quot;{rule.value}&quot; → </span>
+                      <span className="text-indigo-600">{rule.labelName || rule.labelId}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!userId) return;
+                        try {
+                          await apiDeleteCategorizationRule(rule.id, userId);
+                          setCategorizationRules(prev => prev.filter(r => r.id !== rule.id));
+                          showSuccess('Rule removed');
+                        } catch (e: any) {
+                          showError(e?.message || 'Failed to delete');
+                        }
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-600 rounded"
+                      title="Delete rule"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button type="button" onClick={() => setShowCategorizationRulesModal(false)} className="px-3 py-1.5 text-slate-600 text-sm hover:bg-slate-100 rounded-lg">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Folder mapping modal (Phase 3.3) */}
+      {showFolderMappingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setShowFolderMappingModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col p-4" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-slate-800 mb-2">Folder mapping</p>
+            <p className="text-xs text-slate-500 mb-3">Map Gmail labels to display names (view names) in Impact OS. Order determines sort in views.</p>
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 mb-3">
+              {folderMappings.length === 0 ? (
+                <p className="p-3 text-sm text-slate-500">No mappings. Add labels below to create folder-like views.</p>
+              ) : (
+                folderMappings.map((m, i) => (
+                  <div key={m.labelId || i} className="flex items-center gap-2 p-2 text-sm">
+                    <span className="flex-1 text-slate-700 truncate">{m.labelName || m.labelId}</span>
+                    <input
+                      type="text"
+                      placeholder="View name"
+                      value={m.viewName ?? ''}
+                      onChange={e => {
+                        const next = [...folderMappings];
+                        next[i] = { ...next[i], viewName: e.target.value };
+                        setFolderMappings(next);
+                      }}
+                      className="w-32 px-2 py-1 border border-slate-200 rounded text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFolderMappings(prev => prev.filter((_, j) => j !== i))}
+                      className="p-1 text-slate-400 hover:text-red-600 rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap items-center mb-3">
+              <select
+                value=""
+                onChange={e => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  if (folderMappings.some(m => m.labelId === id)) return;
+                  const label = gmailLabels.find(l => l.id === id);
+                  setFolderMappings(prev => [...prev, { labelId: id, labelName: label?.name, viewName: label?.name ?? '', sortOrder: prev.length }]);
+                  e.target.value = '';
+                }}
+                className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+              >
+                <option value="">Add label to mapping</option>
+                {gmailLabels.filter(l => !folderMappings.some(m => m.labelId === l.id)).map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowFolderMappingModal(false)} className="px-3 py-1.5 text-slate-600 text-sm hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!userId) return;
+                  try {
+                    await apiUpdateFolderMapping({ userId, mappings: folderMappings });
+                    showSuccess('Folder mapping saved');
+                    setShowFolderMappingModal(false);
+                  } catch (e: any) {
+                    showError(e?.message || 'Failed to save');
+                  }
+                }}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+              >
+                Save mapping
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm">
@@ -1618,7 +3489,7 @@ ${currentUser?.name || 'Team'}`;
       )}
 
       {/* Two-column layout: list | detail — no page scroll; list scrolls in card */}
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 overflow-hidden">
         {/* Email list — scrolls inside this card only */}
         <div
           className={`flex flex-col min-h-0 border border-slate-200 rounded-xl bg-white overflow-hidden ${
@@ -1626,8 +3497,21 @@ ${currentUser?.name || 'Team'}`;
           }`}
         >
           {loading ? (
-            <div className="flex-1 flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+            <div className="flex-1 overflow-y-auto">
+              {/* Loading skeletons */}
+              {[...Array(10)].map((_, idx) => (
+                <div key={idx} className="px-4 py-3 border-b border-slate-100 animate-pulse">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-slate-200 rounded-full flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="h-4 bg-slate-200 rounded w-3/4 mb-2" />
+                      <div className="h-3 bg-slate-200 rounded w-1/2 mb-1" />
+                      <div className="h-3 bg-slate-200 rounded w-full" />
+                    </div>
+                    <div className="w-16 h-3 bg-slate-200 rounded flex-shrink-0" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredEmails.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center py-16 text-center px-6">
@@ -1638,7 +3522,7 @@ ${currentUser?.name || 'Team'}`;
               <p className="text-slate-400 text-sm mt-1">
                 {selectedLabelFilter 
                   ? 'Try selecting a different label or clear the filter to see all emails.'
-                  : 'Connect Gmail and tap "Sync from Gmail" to pull in your inbox.'}
+                  : 'Connect Gmail and tap "Sync new mail (24 hrs)" to pull in recent inbox.'}
               </p>
               {selectedLabelFilter && (
                 <button
@@ -1659,7 +3543,7 @@ ${currentUser?.name || 'Team'}`;
               )}
             </div>
           ) : viewMode === 'threads' && threadedEmails ? (
-            <ul className="divide-y divide-slate-100 overflow-y-auto flex-1 min-h-0" key={`threads-${selectedLabelFilter || 'all'}`}>
+            <ul ref={emailListContainerRef} className="divide-y divide-slate-100 overflow-y-auto flex-1 min-h-0" key={`threads-${selectedLabelFilter || 'all'}`}>
               {threadedEmails.map(thread => {
                 const isExpanded = expandedThreads.has(thread.threadId);
                 const latest = thread.latestEmail;
@@ -1668,13 +3552,31 @@ ${currentUser?.name || 'Team'}`;
                 return (
                   <li key={thread.threadId}>
                     {/* Thread header */}
-                    <button
-                      type="button"
-                      onClick={() => hasMultiple ? toggleThread(thread.threadId) : handleSelectEmail(latest)}
+                    <div
                       className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 ${
                         selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                       }`}
                     >
+                      {/* Bulk Selection Checkbox (Phase 8.1) */}
+                      {isBulkMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedEmailIds.has(latest.id)}
+                          onChange={() => handleToggleEmailSelection(latest.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                        />
+                      )}
+                      {/* Sender Avatar (Phase 8.1) */}
+                      <div className="flex-shrink-0 mt-0.5">
+                        <ImageWithFallback
+                          src={undefined}
+                          alt={latest.sender || latest.email || ''}
+                          fallbackText={latest.sender || latest.email || ''}
+                          isAvatar={true}
+                          className="w-10 h-10 rounded-full"
+                        />
+                      </div>
                       {hasMultiple && (
                         <div
                           role="button"
@@ -1699,56 +3601,98 @@ ${currentUser?.name || 'Team'}`;
                           )}
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`truncate font-medium ${
-                              thread.unreadCount > 0 ? 'text-slate-900' : 'text-slate-600'
-                            }`}
-                          >
-                            {latest.subject || '(No subject)'}
-                          </span>
-                          {latest.isStarred && (
-                            <div className="flex items-center gap-1">
-                              <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />
-                              {latest.syncStatus?.starredStatus && getSyncStatusIcon(latest.syncStatus.starredStatus)}
-                            </div>
-                          )}
-                          {/* Priority Badge */}
-                          {latest.priority && latest.priority !== 'medium' && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                              latest.priority === 'high' ? 'bg-red-100 text-red-700' :
-                              latest.priority === 'low' ? 'bg-blue-100 text-blue-700' : ''
-                            }`}>
-                              {latest.priority === 'high' ? 'High' : 'Low'}
+                      <button
+                        type="button"
+                        onClick={() => !isBulkMode && (hasMultiple ? toggleThread(thread.threadId) : handleSelectEmail(latest))}
+                        className="flex-1 min-w-0 text-left"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`truncate font-medium ${
+                                thread.unreadCount > 0 ? 'text-slate-900' : 'text-slate-600'
+                              }`}
+                            >
+                              {latest.subject || '(No subject)'}
                             </span>
-                          )}
-                          {/* Thread Status Badge */}
-                          {latest.threadStatus && latest.threadStatus !== 'active' && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                              latest.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
-                              latest.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
-                              latest.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
-                            }`}>
-                              {latest.threadStatus.charAt(0).toUpperCase() + latest.threadStatus.slice(1)}
-                            </span>
-                          )}
-                          {/* Owner Badge */}
-                          {latest.owner && users.find(u => u.id === latest.owner) && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-100 text-indigo-700">
-                              {users.find(u => u.id === latest.owner)?.name || 'Assigned'}
-                            </span>
-                          )}
-                          {hasMultiple && (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium rounded-full">
-                              {thread.emails.length}
-                            </span>
-                          )}
-                        </div>
-                      <p className="text-xs text-slate-500 mt-0.5 truncate">
-                        {latest.sender || latest.email}
-                        {hasMultiple && ` · ${thread.emails.length} messages`}
-                      </p>
+                            {latest.isStarred && (
+                              <div className="flex items-center gap-1">
+                                <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />
+                                {latest.syncStatus?.starredStatus && getSyncStatusIcon(latest.syncStatus.starredStatus)}
+                              </div>
+                            )}
+                            {/* Attachment Indicator (Phase 8.1) */}
+                            {latest.attachments && latest.attachments.length > 0 && (
+                              <Paperclip className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" title={`${latest.attachments.length} attachment(s)`} />
+                            )}
+                            {/* Priority Badge */}
+                            {latest.priority && (
+                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                                latest.priority === 'high' ? 'bg-red-100 text-red-700' :
+                                latest.priority === 'low' ? 'bg-blue-100 text-blue-700' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {latest.priority === 'high' ? 'High' : latest.priority === 'low' ? 'Low' : 'Medium'}
+                              </span>
+                            )}
+                            {/* Thread Status Badge */}
+                            {latest.threadStatus && latest.threadStatus !== 'active' && (
+                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                                latest.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
+                                latest.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
+                                latest.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
+                              }`}>
+                                {latest.threadStatus.charAt(0).toUpperCase() + latest.threadStatus.slice(1)}
+                              </span>
+                            )}
+                            {/* Owner Badge */}
+                            {latest.owner && users.find(u => u.id === latest.owner) && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-100 text-indigo-700">
+                                {users.find(u => u.id === latest.owner)?.name || 'Assigned'}
+                              </span>
+                            )}
+                            {hasMultiple && (
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium rounded-full">
+                                {thread.emails.length}
+                              </span>
+                            )}
+                          </div>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                          {latest.sender || latest.email}
+                          {hasMultiple && ` · ${thread.emails.length} messages`}
+                        </p>
+                      {/* Participants display */}
+                      {(() => {
+                        // Collect all unique participants from thread
+                        const allParticipants = new Set<string>();
+                        thread.emails.forEach(email => {
+                          if (email.participants && Array.isArray(email.participants)) {
+                            email.participants.forEach(p => allParticipants.add(p.toLowerCase()));
+                          }
+                          if (email.to && Array.isArray(email.to)) {
+                            email.to.forEach(p => allParticipants.add(p.toLowerCase()));
+                          }
+                          if (email.cc && Array.isArray(email.cc)) {
+                            email.cc.forEach(p => allParticipants.add(p.toLowerCase()));
+                          }
+                        });
+                        const participantsList = Array.from(allParticipants).slice(0, 5);
+                        if (participantsList.length > 0) {
+                          return (
+                            <p className="text-xs text-slate-400 mt-0.5 truncate">
+                              <span className="text-slate-500">To: </span>
+                              {participantsList.map((p, idx) => (
+                                <span key={p}>
+                                  {p.split('@')[0]}
+                                  {idx < participantsList.length - 1 && ', '}
+                                </span>
+                              ))}
+                              {allParticipants.size > 5 && ` +${allParticipants.size - 5} more`}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
                       {(latest.accountEmail || latest.accountOwnerName) && (
                         <p className="text-xs text-slate-400 mt-0.5 truncate">
                           {latest.accountOwnerName && (
@@ -1761,12 +3705,14 @@ ${currentUser?.name || 'Team'}`;
                           )}
                         </p>
                       )}
+                        {/* Improved Preview Text Truncation (Phase 8.1) */}
                         {latest.lastMessage && (
                           <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                            {latest.lastMessage}
+                            {truncatePreview(latest.lastMessage, 100)}
                           </p>
                         )}
                       </div>
+                      </button>
                       <div className="flex flex-col items-end flex-shrink-0">
                         <span className="text-xs text-slate-400 whitespace-nowrap">
                           {latest.timestamp}
@@ -1775,143 +3721,255 @@ ${currentUser?.name || 'Team'}`;
                           <span className="w-2 h-2 rounded-full bg-indigo-500 mt-1" />
                         )}
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
-                    </button>
+                      {!isBulkMode && (
+                        <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
+                      )}
+                    </div>
                     
                     {/* Thread emails (when expanded) */}
                     {isExpanded && hasMultiple && (
                       <div className="bg-slate-50/50 border-l-4 border-indigo-200 pl-4">
-                        {thread.emails.map((email, idx) => (
-                          <button
-                            key={email.id}
-                            type="button"
-                            onClick={() => handleSelectEmail(email)}
-                            className={`w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex items-start gap-3 ${
-                              selectedEmail?.id === email.id ? 'bg-indigo-50' : ''
-                            }`}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-medium ${!email.isRead ? 'text-slate-900' : 'text-slate-600'}`}>
-                                  {email.sender || email.email}
+                        {thread.emails.map((email, idx) => {
+                          const isMessageExpanded = expandedMessages.has(email.id);
+                          return (
+                            <div key={email.id} className="border-b border-slate-200 last:border-b-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleMessage(email.id)}
+                                className={`w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex items-start gap-3 ${
+                                  selectedEmail?.id === email.id ? 'bg-indigo-50' : ''
+                                }`}
+                              >
+                                <div
+                                  className="p-1 hover:bg-slate-200 rounded flex-shrink-0 mt-0.5 cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleMessage(email.id);
+                                  }}
+                                >
+                                  {isMessageExpanded ? (
+                                    <ChevronDown className="w-3 h-3 text-slate-500" />
+                                  ) : (
+                                    <ChevronRight className="w-3 h-3 text-slate-500" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`text-xs font-medium ${!email.isRead ? 'text-slate-900' : 'text-slate-600'}`}>
+                                      {email.sender || email.email}
+                                    </span>
+                                    {!email.isRead && (
+                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                    )}
+                                    {/* Show To/CC if available */}
+                                    {(email.to?.length > 0 || email.cc?.length > 0) && (
+                                      <span className="text-xs text-slate-400">
+                                        {email.to?.length > 0 && `To: ${email.to.slice(0, 2).map((e: string) => e.split('@')[0]).join(', ')}${email.to.length > 2 ? '...' : ''}`}
+                                        {email.cc?.length > 0 && ` CC: ${email.cc.slice(0, 2).map((e: string) => e.split('@')[0]).join(', ')}${email.cc.length > 2 ? '...' : ''}`}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {email.lastMessage && !isMessageExpanded && (
+                                    <p className="text-xs text-slate-500 mt-1 line-clamp-1">
+                                      {truncatePreview(email.lastMessage, 100)}
+                                    </p>
+                                  )}
+                                </div>
+                                <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                                  {email.timestamp}
                                 </span>
-                                {!email.isRead && (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                                )}
-                              </div>
-                              {email.lastMessage && (
-                                <p className="text-xs text-slate-500 mt-1 line-clamp-1">
-                                  {email.lastMessage}
-                                </p>
+                              </button>
+                              {/* Expanded message body */}
+                              {isMessageExpanded && (
+                                <div className="px-4 pb-3 pt-1 bg-white border-t border-slate-200">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                                      <span className="font-medium">{email.sender || email.email}</span>
+                                      <span className="text-slate-400">·</span>
+                                      <span>{email.timestamp}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSelectEmail(email)}
+                                      className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                                    >
+                                      View full email →
+                                    </button>
+                                  </div>
+                                  {/* Email body with HTML formatting preserved */}
+                                  <div className="text-xs text-slate-700 mt-2">
+                                    <EmailBodyContent content={email.lastMessage || 'No content'} />
+                                  </div>
+                                  {/* Show participants if available */}
+                                  {(email.to?.length > 0 || email.cc?.length > 0 || email.bcc?.length > 0) && (
+                                    <div className="mt-3 pt-2 border-t border-slate-200 text-xs text-slate-500">
+                                      {email.to?.length > 0 && (
+                                        <div className="mb-1">
+                                          <span className="font-medium">To:</span> {email.to.join(', ')}
+                                        </div>
+                                      )}
+                                      {email.cc?.length > 0 && (
+                                        <div className="mb-1">
+                                          <span className="font-medium">CC:</span> {email.cc.join(', ')}
+                                        </div>
+                                      )}
+                                      {email.bcc?.length > 0 && (
+                                        <div>
+                                          <span className="font-medium">BCC:</span> {email.bcc.join(', ')}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
-                            <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
-                              {email.timestamp}
-                            </span>
-                          </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </li>
                 );
               })}
+              {/* Infinite scroll trigger */}
+              {hasMore && (
+                <li className="px-4 py-3" ref={loadMoreRef}>
+                  {loadingMore ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+                      <span className="ml-2 text-sm text-slate-500">Loading more...</span>
+                    </div>
+                  ) : (
+                    <div className="h-1" /> // Invisible spacer to trigger intersection
+                  )}
+                </li>
+              )}
             </ul>
           ) : (
-            <ul className="divide-y divide-slate-100 overflow-y-auto flex-1 min-h-0" key={`list-${selectedLabelFilter || 'all'}`}>
+            <ul ref={emailListContainerRef} className="divide-y divide-slate-100 overflow-y-auto flex-1 min-h-0" key={`list-${selectedLabelFilter || 'all'}`}>
               {filteredEmails.map(email => (
                 <li key={email.id}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectEmail(email)}
+                  <div
                     className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 ${
                       selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                     }`}
                   >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span
-                          className={`truncate font-medium ${
-                            !email.isRead ? 'text-slate-900' : 'text-slate-600'
-                          }`}
-                        >
-                          {email.subject || '(No subject)'}
-                        </span>
-                        {email.isStarred && (
-                          <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />
-                            {email.syncStatus?.starredStatus && getSyncStatusIcon(email.syncStatus.starredStatus)}
-                          </div>
-                        )}
-                        {/* Priority Badge */}
-                        {email.priority && email.priority !== 'medium' && (
-                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                            email.priority === 'high' ? 'bg-red-100 text-red-700' :
-                            email.priority === 'low' ? 'bg-blue-100 text-blue-700' : ''
-                          }`}>
-                            {email.priority === 'high' ? 'High' : 'Low'}
+                    {/* Bulk Selection Checkbox (Phase 8.1) */}
+                    {isBulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedEmailIds.has(email.id)}
+                        onChange={() => handleToggleEmailSelection(email.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                      />
+                    )}
+                    {/* Sender Avatar (Phase 8.1) */}
+                    <div className="flex-shrink-0 mt-0.5">
+                      <ImageWithFallback
+                        src={undefined}
+                        alt={email.sender || email.email || ''}
+                        fallbackText={email.sender || email.email || ''}
+                        isAvatar={true}
+                        className="w-10 h-10 rounded-full"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => !isBulkMode && handleSelectEmail(email)}
+                      className="flex-1 min-w-0 text-left"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`truncate font-medium ${
+                              !email.isRead ? 'text-slate-900' : 'text-slate-600'
+                            }`}
+                          >
+                            {email.subject || '(No subject)'}
                           </span>
-                        )}
-                        {/* Thread Status Badge */}
-                        {email.threadStatus && email.threadStatus !== 'active' && (
-                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                            email.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
-                            email.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
-                            email.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
-                          }`}>
-                            {email.threadStatus.charAt(0).toUpperCase() + email.threadStatus.slice(1)}
-                          </span>
-                        )}
-                        {/* Owner Badge */}
-                        {email.owner && users.find(u => u.id === email.owner) && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-100 text-indigo-700">
-                            {users.find(u => u.id === email.owner)?.name || 'Assigned'}
-                          </span>
-                        )}
-                        {/* Label Badges */}
-                        {email.labels && email.labels.length > 0 && (
-                          <>
-                            {email.labels.slice(0, 3).map(labelId => {
-                              const label = gmailLabels.find(l => l.id === labelId);
-                              if (!label) return null;
-                              return (
-                                <span
-                                  key={labelId}
-                                  className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-100 text-purple-700"
-                                  title={label.name}
-                                >
-                                  {label.name}
-                                </span>
-                              );
-                            })}
-                            {email.labels.length > 3 && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-100 text-purple-700">
-                                +{email.labels.length - 3}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5 truncate">
-                        {email.sender || email.email}
-                      </p>
-                      {(email.accountEmail || email.accountOwnerName) && (
-                        <p className="text-xs text-slate-400 mt-0.5 truncate">
-                          {email.accountOwnerName && (
-                            <span className="text-slate-500">via {email.accountOwnerName}</span>
+                          {email.isStarred && (
+                            <div className="flex items-center gap-1">
+                              <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />
+                              {email.syncStatus?.starredStatus && getSyncStatusIcon(email.syncStatus.starredStatus)}
+                            </div>
                           )}
-                          {email.accountEmail && (
-                            <span className="ml-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-medium rounded">
-                              {email.accountEmail}
+                          {/* Attachment Indicator (Phase 8.1) */}
+                          {email.attachments && email.attachments.length > 0 && (
+                            <Paperclip className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" title={`${email.attachments.length} attachment(s)`} />
+                          )}
+                          {/* Priority Badge */}
+                          {email.priority && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                              email.priority === 'high' ? 'bg-red-100 text-red-700' :
+                              email.priority === 'low' ? 'bg-blue-100 text-blue-700' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {email.priority === 'high' ? 'High' : email.priority === 'low' ? 'Low' : 'Medium'}
                             </span>
                           )}
+                          {/* Thread Status Badge */}
+                          {email.threadStatus && email.threadStatus !== 'active' && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                              email.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
+                              email.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
+                              email.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
+                            }`}>
+                              {email.threadStatus.charAt(0).toUpperCase() + email.threadStatus.slice(1)}
+                            </span>
+                          )}
+                          {/* Owner Badge */}
+                          {email.owner && users.find(u => u.id === email.owner) && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-100 text-indigo-700">
+                              {users.find(u => u.id === email.owner)?.name || 'Assigned'}
+                            </span>
+                          )}
+                          {/* Label Badges */}
+                          {email.labels && email.labels.length > 0 && (
+                            <>
+                              {email.labels.slice(0, 3).map(labelId => {
+                                const label = gmailLabels.find(l => l.id === labelId);
+                                if (!label) return null;
+                                return (
+                                  <span
+                                    key={labelId}
+                                    className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-100 text-purple-700"
+                                    title={label.name}
+                                  >
+                                    {label.name}
+                                  </span>
+                                );
+                              })}
+                              {email.labels.length > 3 && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-100 text-purple-700">
+                                  +{email.labels.length - 3}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                          {email.sender || email.email}
                         </p>
-                      )}
-                      {email.lastMessage && (
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                          {email.lastMessage}
-                        </p>
-                      )}
-                    </div>
+                        {(email.accountEmail || email.accountOwnerName) && (
+                          <p className="text-xs text-slate-400 mt-0.5 truncate">
+                            {email.accountOwnerName && (
+                              <span className="text-slate-500">via {email.accountOwnerName}</span>
+                            )}
+                            {email.accountEmail && (
+                              <span className="ml-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-medium rounded">
+                                {email.accountEmail}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                        {/* Improved Preview Text Truncation (Phase 8.1) */}
+                        {email.lastMessage && (
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                            {truncatePreview(email.lastMessage, 100)}
+                          </p>
+                        )}
+                      </div>
+                    </button>
                     <div className="flex flex-col items-end flex-shrink-0">
                       <span className="text-xs text-slate-400 whitespace-nowrap">
                         {email.timestamp}
@@ -1920,58 +3978,225 @@ ${currentUser?.name || 'Team'}`;
                         <span className="w-2 h-2 rounded-full bg-indigo-500 mt-1" />
                       )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
-                  </button>
+                    {!isBulkMode && (
+                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
+                    )}
+                  </div>
                 </li>
               ))}
+              {/* Infinite scroll trigger for list view */}
+              {viewMode === 'list' && hasMore && (
+                <li ref={loadMoreRef} className="px-4 py-3">
+                  {loadingMore ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+                      <span className="ml-2 text-sm text-slate-500">Loading more...</span>
+                    </div>
+                  ) : (
+                    <div className="h-1" /> // Invisible spacer to trigger intersection
+                  )}
+                </li>
+              )}
             </ul>
           )}
         </div>
 
         {/* Email detail — height by content; body scrolls inside panel */}
-        <div className="flex-1 min-h-0 flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0">
+        <div className="flex-1 min-h-0 flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0 max-h-full">
           {detailLoading ? (
             <div className="flex-1 flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
             </div>
           ) : selectedEmail ? (
-            <>
-              <div className="p-4 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap shrink-0">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold text-slate-900 truncate">
-                    {selectedEmail.subject || '(No subject)'}
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-0.5">
-                    {selectedEmail.sender || selectedEmail.email} · {selectedEmail.timestamp}
-                  </p>
-                  {(selectedEmail.accountEmail || selectedEmail.accountOwnerName) && (
-                    <p className="text-xs text-slate-400 mt-1">
-                      {selectedEmail.accountOwnerName && (
-                        <span>Synced via <span className="font-medium text-slate-600">{selectedEmail.accountOwnerName}</span></span>
-                      )}
-                      {selectedEmail.accountEmail && (
-                        <span className="ml-2 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded">
-                          {selectedEmail.accountEmail}
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div className="p-3 border-b border-slate-100 flex flex-col gap-2 overflow-visible">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base font-semibold text-slate-900 break-words">
+                      {selectedEmail.subject || '(No subject)'}
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                      <span className="break-words">{selectedEmail.sender || selectedEmail.email}</span>
+                      <span>·</span>
+                      <span>{selectedEmail.timestamp}</span>
+                      {(selectedEmail as EmailDetail).senderClassification && (
+                        <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 ${
+                          (selectedEmail as EmailDetail).senderClassification === 'internal' ? 'bg-slate-100 text-slate-700' :
+                          (selectedEmail as EmailDetail).senderClassification === 'system' ? 'bg-slate-200 text-slate-600' : 'bg-indigo-50 text-indigo-700'
+                        }`}>
+                          {(selectedEmail as EmailDetail).senderClassification === 'internal' ? 'Internal' :
+                           (selectedEmail as EmailDetail).senderClassification === 'system' ? 'System' : 'Customer'}
                         </span>
                       )}
                     </p>
+                    {(selectedEmail.accountEmail || selectedEmail.accountOwnerName) && (
+                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                        {selectedEmail.accountOwnerName && (
+                          <span>Synced via <span className="font-medium text-slate-600">{selectedEmail.accountOwnerName}</span></span>
+                        )}
+                        {selectedEmail.accountEmail && (
+                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded">
+                            {selectedEmail.accountEmail}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  {/* Action buttons moved to separate row */}
+                </div>
+                
+                {/* CRM Integration - Contact/Company Info & Linking (Phase 7.1) */}
+                {selectedEmail.linkedRecords && (
+                  <div className="flex flex-wrap items-center gap-2">
+                      {selectedEmail.linkedRecords.contactId && (() => {
+                        const contact = contacts.find(c => c.id === selectedEmail.linkedRecords?.contactId);
+                        return contact ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg">
+                            <User className="w-3 h-3" />
+                            {contact.name}
+                          </span>
+                        ) : null;
+                      })()}
+                      {selectedEmail.linkedRecords.companyId && (() => {
+                        const company = companies.find(c => c.id === selectedEmail.linkedRecords?.companyId);
+                        return company ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg">
+                            <Building2 className="w-3 h-3" />
+                            {company.name}
+                          </span>
+                        ) : null;
+                      })()}
+                      {selectedEmail.linkedRecords.dealId && (() => {
+                        const deal = deals.find(d => d.id === selectedEmail.linkedRecords?.dealId);
+                        return deal ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-lg">
+                            <Briefcase className="w-3 h-3" />
+                            {deal.title || deal.name}
+                          </span>
+                        ) : null;
+                      })()}
+                      {selectedEmail.linkedRecords.projectId && (() => {
+                        const project = projects.find(p => p.id === selectedEmail.linkedRecords?.projectId);
+                        return project ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-lg">
+                            <FolderKanban className="w-3 h-3" />
+                            {project.title || project.name}
+                          </span>
+                        ) : null;
+                      })()}
+                      {selectedEmail.linkedRecords.contractId && (() => {
+                        const contract = contracts.find(c => c.id === selectedEmail.linkedRecords?.contractId);
+                        return contract ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-lg">
+                            <FileText className="w-3 h-3" />
+                            {contract.title}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
                   )}
+                  {/* Suggested Links (Phase 7.1) */}
+                  {loadingSuggestedLinks ? (
+                    <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Finding matches...
+                    </div>
+                  ) : (suggestedLinks.contacts.length > 0 || suggestedLinks.companies.length > 0) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-500 font-medium">Suggested links:</span>
+                      {suggestedLinks.contacts.map(contact => (
+                        <button
+                          key={contact.id}
+                          onClick={() => handleLinkEmail('contact', contact.id)}
+                          disabled={linkingEmail}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+                        >
+                          <User className="w-3 h-3" />
+                          {contact.name}
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      ))}
+                      {suggestedLinks.companies.map(company => (
+                        <button
+                          key={company.id}
+                          onClick={() => handleLinkEmail('company', company.id)}
+                          disabled={linkingEmail}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
+                        >
+                          <Building2 className="w-3 h-3" />
+                          {company.name}
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Linking Buttons (Phase 7.1 & 7.2) */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 max-w-full">
+                    <button
+                      type="button"
+                      onClick={() => { setLinkModalType('contact'); setShowLinkModal(true); }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                      Link Contact
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setLinkModalType('company'); setShowLinkModal(true); }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                      Link Company
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setLinkModalType('deal'); setShowLinkModal(true); }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                      Link Deal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setLinkModalType('project'); setShowLinkModal(true); }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                      Link Project
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setLinkModalType('contract'); setShowLinkModal(true); }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                      Link Contract
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateTaskModal(true)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      <CheckSquare className="w-3 h-3 flex-shrink-0" />
+                      Create Task
+                    </button>
+                  </div>
                   {/* Labels Display */}
                   {selectedEmail.labels && selectedEmail.labels.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-2 mt-1 max-w-full">
                       {selectedEmail.labels.map(labelId => {
                         const label = gmailLabels.find(l => l.id === labelId);
                         if (!label) return null;
                         return (
                           <span
                             key={labelId}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg"
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
                           >
-                            {label.name}
+                            <span className="truncate max-w-[200px]">{label.name}</span>
                             <button
                               type="button"
                               onClick={() => handleRemoveEmailLabel(selectedEmail.id, labelId)}
-                              className="hover:text-purple-900"
+                              className="hover:text-purple-900 flex-shrink-0"
                               title="Remove label"
                             >
                               <X className="w-3 h-3" />
@@ -1981,8 +4206,66 @@ ${currentUser?.name || 'Team'}`;
                       })}
                     </div>
                   )}
+                  {/* Suggest labels (Phase 3.3) */}
+                  <div className="mt-1 flex flex-wrap items-center gap-2 max-w-full">
+                    <button
+                      type="button"
+                      disabled={categorizingLoading || !userId}
+                      onClick={async () => {
+                        if (!selectedEmail?.id || !userId) return;
+                        setCategorizingLoading(true);
+                        setSuggestedLabels([]);
+                        try {
+                          const res = await apiCategorizeEmail({
+                            emailId: selectedEmail.id,
+                            userId,
+                            useAi: true,
+                            availableLabels: gmailLabels.map(l => ({ id: l.id, name: l.name }))
+                          });
+                          const data = (res as any)?.data;
+                          if (data?.suggestedLabels?.length) {
+                            setSuggestedLabels(data.suggestedLabels);
+                            setCurrentSuggestionId(data.suggestionId || null);
+                          }
+                        } catch (_) {
+                          setSuggestedLabels([]);
+                        } finally {
+                          setCategorizingLoading(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                    >
+                      {categorizingLoading ? <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" /> : <Sparkles className="w-3 h-3 flex-shrink-0" />}
+                      Suggest labels
+                    </button>
+                    {suggestedLabels.length > 0 && (
+                      <span className="text-xs text-slate-500 flex-shrink-0">Suggested:</span>
+                    )}
+                    {suggestedLabels.map((s, i) => (
+                      <span
+                        key={s.labelId || i}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
+                      >
+                        <span className="truncate max-w-[150px]">{s.labelName}</span>
+                        <span className="text-amber-600 text-[10px] flex-shrink-0">({s.source})</span>
+                        {s.labelId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleUpdateEmailLabels(selectedEmail.id, [s.labelId!], [], true, currentSuggestionId || undefined);
+                              setSuggestedLabels(prev => prev.filter((_, j) => j !== i));
+                            }}
+                            className="hover:bg-amber-100 rounded px-0.5 flex-shrink-0"
+                            title="Add to email"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
                   {/* Add Labels Button */}
-                  <div className="mt-2">
+                  <div className="mt-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -1995,131 +4278,238 @@ ${currentUser?.name || 'Team'}`;
                       {selectedEmail.labels && selectedEmail.labels.length > 0 ? 'Manage Labels' : 'Add Labels'}
                     </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {/* Email Metadata Controls */}
-                  <div className="flex items-center gap-2 mr-2">
-                    {/* Priority Selector */}
-                    <select
-                      value={selectedEmail.priority || 'medium'}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { priority: e.target.value as 'high' | 'medium' | 'low' })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      title="Priority"
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                    
-                    {/* Thread Status Selector */}
-                    <select
-                      value={selectedEmail.threadStatus || 'active'}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { threadStatus: e.target.value as 'active' | 'archived' | 'resolved' | 'pending' })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      title="Status"
-                    >
-                      <option value="active">Active</option>
-                      <option value="pending">Pending</option>
-                      <option value="resolved">Resolved</option>
-                      <option value="archived">Archived</option>
-                    </select>
-                    
-                    {/* Owner Selector */}
-                    <select
-                      value={selectedEmail.owner || ''}
-                      onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { owner: e.target.value || null })}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[120px]"
-                      title="Assign to"
-                    >
-                      <option value="">Unassigned</option>
-                      {users.map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.name || user.email}
-                        </option>
+                  {/* Custom tags (Phase 3.3) */}
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-500">Tags:</span>
+                    {((selectedEmail as any).customTags || []).map((tag: string, i: number) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded-lg"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = ((selectedEmail as any).customTags || []).filter((_: string, j: number) => j !== i);
+                              apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
+                                setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
+                              }).catch(() => {});
+                            }}
+                            className="hover:text-red-600"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
                       ))}
-                    </select>
+                      <input
+                        type="text"
+                        placeholder="Add tag"
+                        value={newTagInput}
+                        onChange={e => setNewTagInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newTagInput.trim()) {
+                            const current = (selectedEmail as any).customTags || [];
+                            const next = [...current, newTagInput.trim()];
+                            apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
+                              setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
+                              setNewTagInput('');
+                            }).catch(() => {});
+                          }
+                        }}
+                        className="w-24 px-2 py-0.5 text-xs border border-slate-200 rounded-lg"
+                      />
                   </div>
-                  
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStar(selectedEmail.id, !selectedEmail.isStarred)}
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
-                      title={selectedEmail.isStarred ? 'Unstar' : 'Star'}
-                    >
-                      {selectedEmail.isStarred ? (
-                        <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-                      ) : (
-                        <StarOff className="w-4 h-4" />
+                
+                {/* Action Bar - Separate row for better layout */}
+                <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-100">
+                  {/* Email Metadata Controls - Admin only */}
+                  {canUpdateMetadata && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Priority Selector */}
+                      <select
+                        value={selectedEmail.priority || 'medium'}
+                        onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { priority: e.target.value as 'high' | 'medium' | 'low' })}
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        title="Priority"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                      
+                      {/* Thread Status Selector */}
+                      <select
+                        value={selectedEmail.threadStatus || 'active'}
+                        onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { threadStatus: e.target.value as 'active' | 'archived' | 'resolved' | 'pending' })}
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        title="Status"
+                      >
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="archived">Archived</option>
+                      </select>
+                      
+                      {/* Owner Selector - Admin only */}
+                      {canAssignEmail && (
+                        <select
+                          value={selectedEmail.owner || ''}
+                          onChange={(e) => handleUpdateEmailMetadata(selectedEmail.id, { owner: e.target.value || null })}
+                          className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[120px]"
+                          title="Assign to"
+                        >
+                          <option value="">Unassigned</option>
+                          {users.map(user => (
+                            <option key={user.id} value={user.id}>
+                              {user.name || user.email}
+                            </option>
+                          ))}
+                        </select>
                       )}
-                    </button>
-                    {selectedEmail.syncStatus?.starredStatus && (
-                      <div className="flex-shrink-0">
-                        {getSyncStatusIcon(selectedEmail.syncStatus.starredStatus)}
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  
+                  {/* Star button - Collaborator+ */}
+                  {canStarEmail && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStar(selectedEmail.id, !selectedEmail.isStarred)}
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                        title={selectedEmail.isStarred ? 'Unstar' : 'Star'}
+                      >
+                        {selectedEmail.isStarred ? (
+                          <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                        ) : (
+                          <StarOff className="w-4 h-4" />
+                        )}
+                      </button>
+                      {selectedEmail.syncStatus?.starredStatus && (
+                        <div className="flex-shrink-0">
+                          {getSyncStatusIcon(selectedEmail.syncStatus.starredStatus)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
+                    className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
+                  >
+                    {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
+                  </button>
+                  {selectedEmail.syncStatus?.readStatus && (
+                    <div className="flex-shrink-0">
+                      {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
+                    </div>
+                  )}
+                </div>
+                {/* Archive & Organization Actions - Admin only */}
+                {canArchiveEmail && (
+                  <>
+                    {selectedEmail.threadStatus === 'archived' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreEmail(selectedEmail.id)}
+                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                        title="Restore from archive"
+                      >
+                        <InboxIcon className="w-3 h-3" />
+                        Restore
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleArchiveEmail(selectedEmail.id)}
+                          className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+                          title="Archive email"
+                        >
+                          <InboxIcon className="w-3 h-3" />
+                          Archive
+                        </button>
+                        {selectedEmail.threadStatus !== 'resolved' && canUpdateMetadata && (
+                          <button
+                            type="button"
+                            onClick={() => handleResolveConversation(selectedEmail.id)}
+                            className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                            title="Mark as resolved"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Resolve
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                {/* Delete - Admin only */}
+                {canDeleteEmail && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEmail(selectedEmail.id)}
+                    className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                    title="Delete email"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Delete
+                  </button>
+                )}
+                {/* Reply/Forward - Admin only (Collaborators can draft but not send) */}
+                {canReplyEmail && (
+                  <>
                     <button
                       type="button"
-                      onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
+                      onClick={() => {
+                        setComposeMode('reply');
+                        setComposeTo([selectedEmail.email]);
+                        setComposeCc([]);
+                        setComposeBcc([]);
+                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                        setComposeBody('');
+                        setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                        setShowCc(false);
+                        setShowBcc(false);
+                        setShowComposeModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
                     >
-                      {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
+                      <Send className="w-3 h-3" />
+                      Reply
                     </button>
-                    {selectedEmail.syncStatus?.readStatus && (
-                      <div className="flex-shrink-0">
-                        {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComposeMode('reply');
-                      setComposeTo([selectedEmail.email]);
-                      setComposeCc([]);
-                      setComposeBcc([]);
-                      setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                      setComposeBody('');
-                      setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                      setShowCc(false);
-                      setShowBcc(false);
-                      setShowComposeModal(true);
-                    }}
-                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
-                  >
-                    <Send className="w-3 h-3" />
-                    Reply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComposeMode('replyAll');
-                      const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
-                      const allRecipients = [
-                        selectedEmail.email,
-                        ...(selectedEmail.to || []),
-                        ...(selectedEmail.cc || [])
-                      ].filter((email, index, self) => {
-                        const emailLower = email.toLowerCase();
-                        return self.findIndex(e => e.toLowerCase() === emailLower) === index && 
-                               emailLower !== accountEmailLower;
-                      });
-                      setComposeTo([selectedEmail.email]);
-                      setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
-                      setComposeBcc([]);
-                      setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                      setComposeBody('');
-                      setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                      setShowCc(true);
-                      setShowBcc(false);
-                      setShowComposeModal(true);
-                    }}
-                    className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
-                  >
-                    Reply All
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposeMode('replyAll');
+                        const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
+                        const allRecipients = [
+                          selectedEmail.email,
+                          ...(selectedEmail.to || []),
+                          ...(selectedEmail.cc || [])
+                        ].filter((email, index, self) => {
+                          const emailLower = email.toLowerCase();
+                          return self.findIndex(e => e.toLowerCase() === emailLower) === index && 
+                                 emailLower !== accountEmailLower;
+                        });
+                        setComposeTo([selectedEmail.email]);
+                        setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
+                        setComposeBcc([]);
+                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                        setComposeBody('');
+                        setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                        setShowCc(true);
+                        setShowBcc(false);
+                        setShowComposeModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+                    >
+                      Reply All
+                    </button>
+                  </>
+                )}
+                {/* Forward - Admin only */}
+                {canForwardEmail && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2139,9 +4529,174 @@ ${currentUser?.name || 'Team'}`;
                   >
                     Forward
                   </button>
+                )}
+                  {/* Schedule Meeting Button (Phase 5) */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!userId || !selectedEmail.id) return;
+                      setCreatingMeeting(true);
+                      try {
+                        const res = await apiCreateMeetingFromEmail(userId, selectedEmail.id, true);
+                        if (res.success) {
+                          showSuccess('Meeting created successfully!');
+                          // Reload calendar events
+                          if (selectedEmail.id) {
+                            const eventsRes = await apiGetCalendarEvents(userId, selectedEmail.id);
+                            if (eventsRes.success && eventsRes.data) {
+                              setLinkedCalendarEvents(eventsRes.data);
+                            }
+                          }
+                        }
+                      } catch (err: any) {
+                        showError(err.message || 'Failed to create meeting');
+                      } finally {
+                        setCreatingMeeting(false);
+                      }
+                    }}
+                    disabled={creatingMeeting || !userId}
+                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Create meeting from email (auto-extract details)"
+                  >
+                    {creatingMeeting ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Calendar className="w-3 h-3" />
+                    )}
+                    Schedule Meeting
+                  </button>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-6">
+              <div className="p-4 space-y-6">
+                {/* Email body - render as HTML when content looks like HTML so links, images, and formatting display correctly */}
+                {/* Always show email body first so it's always visible */}
+                <div className="border-b border-slate-200 pb-6 min-h-[200px]">
+                  <h3 className="text-sm font-semibold text-slate-900 mb-3">Email Content</h3>
+                  <div className="prose prose-slate max-w-none break-words">
+                    <EmailBodyContent content={selectedEmail.body || selectedEmail.lastMessage || 'No content'} highlightTerm={parseGmailSearchSyntax(search).searchText || undefined} />
+                  </div>
+                </div>
+
+                {/* Related Items - Tasks, Projects, Contracts (Phase 7.2) */}
+                {(relatedTasks.length > 0 || relatedProjects.length > 0 || relatedContracts.length > 0) && (
+                  <div className="border-b border-slate-200 pb-6">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-3">Related Items</h3>
+                    <div className="space-y-3">
+                      {relatedTasks.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckSquare className="w-4 h-4 text-indigo-500" />
+                            <h4 className="text-xs font-semibold text-slate-700">Tasks ({relatedTasks.length})</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {relatedTasks.map((task) => (
+                              <div key={task.id} className="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                                <p className="text-sm font-medium text-slate-900">{task.title}</p>
+                                {task.status && (
+                                  <span className="text-xs text-slate-500">{task.status}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {relatedProjects.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <FolderKanban className="w-4 h-4 text-amber-500" />
+                            <h4 className="text-xs font-semibold text-slate-700">Projects ({relatedProjects.length})</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {relatedProjects.map((project) => (
+                              <div key={project.id} className="p-2 bg-amber-50 rounded-lg border border-amber-200">
+                                <p className="text-sm font-medium text-amber-900">{project.title || project.name}</p>
+                                {project.status && (
+                                  <span className="text-xs text-amber-600">{project.status}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {relatedContracts.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <FileText className="w-4 h-4 text-red-500" />
+                            <h4 className="text-xs font-semibold text-slate-700">Contracts ({relatedContracts.length})</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {relatedContracts.map((contract) => (
+                              <div key={contract.id} className="p-2 bg-red-50 rounded-lg border border-red-200">
+                                <p className="text-sm font-medium text-red-900">{contract.title}</p>
+                                {contract.status && (
+                                  <span className="text-xs text-red-600">{contract.status}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* Calendar Events Linked to Email (Phase 5) */}
+                {linkedCalendarEvents.length > 0 && (
+                  <div className="border-b border-slate-200 pb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="w-4 h-4 text-indigo-500" />
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Linked Calendar Events ({linkedCalendarEvents.length})
+                      </h3>
+                    </div>
+                    <div className="space-y-2">
+                      {linkedCalendarEvents.map((event) => (
+                        <div
+                          key={event.id}
+                          className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-medium text-indigo-900 mb-1">
+                                {event.title}
+                              </h4>
+                              <div className="flex flex-col gap-1 text-xs text-indigo-700">
+                                <div className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>
+                                    {new Date(event.start).toLocaleString()} - {new Date(event.end).toLocaleString()}
+                                  </span>
+                                </div>
+                                {event.location && (
+                                  <div className="flex items-center gap-1">
+                                    <MapPin className="w-3 h-3" />
+                                    <span>{event.location}</span>
+                                  </div>
+                                )}
+                                {event.participants && event.participants.length > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3" />
+                                    <span>{event.participants.join(', ')}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {event.htmlLink && (
+                              <a
+                                href={event.htmlLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 p-1.5 text-indigo-600 hover:bg-indigo-200 rounded transition-colors"
+                                title="Open in Google Calendar"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* Attachments */}
                 {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
                   <div className="border-b border-slate-200 pb-6">
@@ -2152,36 +4707,62 @@ ${currentUser?.name || 'Team'}`;
                       </h3>
                     </div>
                     <div className="grid grid-cols-1 gap-2">
-                      {selectedEmail.attachments.map((attachment, idx) => (
+                      {selectedEmail.attachments.map((attachment, idx) => {
+                        const isDriveFile = (attachment as any).isDriveFile || (attachment as any).driveFileId;
+                        return (
                         <div
                           key={attachment.attachmentId || idx}
-                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors"
+                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                            isDriveFile 
+                              ? 'bg-blue-50/30 border-blue-200 hover:bg-blue-50' 
+                              : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                          }`}
                         >
                           <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className={`p-2 rounded-lg ${
-                              isImageFile(attachment.mimeType) ? 'bg-blue-50 text-blue-600' :
-                              isPdfFile(attachment.mimeType) ? 'bg-red-50 text-red-600' :
-                              'bg-slate-100 text-slate-600'
-                            }`}>
-                              {isImageFile(attachment.mimeType) ? (
-                                <ImageIcon className="w-4 h-4" />
-                              ) : isPdfFile(attachment.mimeType) ? (
-                                <File className="w-4 h-4" />
-                              ) : (
-                                <Paperclip className="w-4 h-4" />
-                              )}
-                            </div>
+                            {isDriveFile && (attachment as any).iconUrl ? (
+                              <img src={(attachment as any).iconUrl} alt={attachment.filename} className="w-8 h-8" />
+                            ) : (
+                              <div className={`p-2 rounded-lg ${
+                                isImageFile(attachment.mimeType) ? 'bg-blue-50 text-blue-600' :
+                                isPdfFile(attachment.mimeType) ? 'bg-red-50 text-red-600' :
+                                'bg-slate-100 text-slate-600'
+                              }`}>
+                                {isImageFile(attachment.mimeType) ? (
+                                  <ImageIcon className="w-4 h-4" />
+                                ) : isPdfFile(attachment.mimeType) ? (
+                                  <File className="w-4 h-4" />
+                                ) : (
+                                  <Paperclip className="w-4 h-4" />
+                                )}
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-900 truncate">
-                                {attachment.filename}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-slate-900 truncate">
+                                  {attachment.filename}
+                                </p>
+                                {isDriveFile && (
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[9px] font-bold rounded">Drive</span>
+                                )}
+                              </div>
                               <p className="text-xs text-slate-500">
-                                {formatFileSize(attachment.size)} · {attachment.mimeType}
+                                {isDriveFile ? 'Google Drive file' : `${formatFileSize(attachment.size)} · ${attachment.mimeType}`}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            {(isImageFile(attachment.mimeType) || isPdfFile(attachment.mimeType)) && (
+                            {isDriveFile && (attachment as any).previewUrl && (
+                              <a
+                                href={(attachment as any).previewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+                                title="Open in Drive"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                            {!isDriveFile && (isImageFile(attachment.mimeType) || isPdfFile(attachment.mimeType)) && (
                               <button
                                 onClick={() => handleViewAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename, attachment.mimeType)}
                                 disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-view`]}
@@ -2195,29 +4776,90 @@ ${currentUser?.name || 'Team'}`;
                                 )}
                               </button>
                             )}
-                            <button
-                              onClick={() => handleDownloadAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename)}
-                              disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`]}
-                              className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Download"
-                            >
-                              {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`] ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
+                            {!isDriveFile && (
+                              <button
+                                onClick={() => handleDownloadAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename)}
+                                disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`]}
+                                className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Download"
+                              >
+                                {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`] ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                            {isDriveFile && (attachment as any).downloadUrl && (
+                              <a
+                                href={(attachment as any).downloadUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 rounded-lg hover:bg-indigo-100 text-indigo-600 transition-colors"
+                                title="Download"
+                              >
                                 <Download className="w-4 h-4" />
-                              )}
-                            </button>
+                              </a>
+                            )}
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* Email body */}
-                <div className="prose prose-slate max-w-none text-sm whitespace-pre-wrap break-words">
-                  {selectedEmail.body || selectedEmail.lastMessage || 'No content'}
-                </div>
+                {/* Inline Drive Document Embedding */}
+                {selectedEmail.attachments && selectedEmail.attachments.some((att: any) => (att.isDriveFile || att.driveFileId) && att.previewUrl && (att.mimeType?.includes('google-apps') || att.mimeType?.includes('document') || att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('presentation'))) && (
+                  <div className="border-b border-slate-200 pb-6 mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <File className="w-4 h-4 text-blue-500" />
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Embedded Documents
+                      </h3>
+                    </div>
+                    <div className="space-y-4">
+                      {selectedEmail.attachments
+                        .filter((att: any) => (att.isDriveFile || att.driveFileId) && att.previewUrl && (att.mimeType?.includes('google-apps') || att.mimeType?.includes('document') || att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('presentation')))
+                        .map((attachment: any, idx: number) => {
+                          // Convert webViewLink to embeddable format for Google Docs/Sheets/Slides
+                          const embedUrl = attachment.previewUrl?.replace('/edit', '/preview') || attachment.previewUrl;
+                          return (
+                            <div key={attachment.attachmentId || idx} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                              <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  {attachment.iconUrl && (
+                                    <img src={attachment.iconUrl} alt={attachment.filename} className="w-5 h-5" />
+                                  )}
+                                  <span className="text-sm font-medium text-slate-900">{attachment.filename}</span>
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[9px] font-bold rounded">Drive</span>
+                                </div>
+                                {attachment.previewUrl && (
+                                  <a
+                                    href={attachment.previewUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 hover:bg-blue-100 text-blue-600 rounded transition-colors"
+                                    title="Open in Drive"
+                                  >
+                                    <ExternalLink className="w-4 h-4" />
+                                  </a>
+                                )}
+                              </div>
+                              <div className="relative" style={{ paddingBottom: '56.25%', height: 0 }}>
+                                <iframe
+                                  src={embedUrl}
+                                  className="absolute top-0 left-0 w-full h-full border-0"
+                                  title={attachment.filename}
+                                  allow="fullscreen"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
 
                 {/* AI Reply Draft */}
                 <div className="border-t border-slate-200 pt-4">
@@ -2295,7 +4937,7 @@ ${currentUser?.name || 'Team'}`;
                             type="button"
                             onClick={() => {
                               setSelectedVariationIndex(index);
-                              setAiDraft(variation.draft);
+                              setAiDraft(plainTextToHtmlForQuill(variation.draft));
                             }}
                             className={`p-3 rounded-lg border-2 text-left transition-all ${
                               selectedVariationIndex === index
@@ -2435,10 +5077,11 @@ ${currentUser?.name || 'Team'}`;
                     )}
                   </h3>
 
-                  {/* Add New Note */}
-                  <div className="space-y-3">
-                    <div className="relative" style={{ position: 'relative' }}>
-                      <div className="quill-wrapper">
+                  {/* Add New Note - Collaborator+ only */}
+                  {canAddNote && (
+                    <div className="space-y-3">
+                      <div className="relative" style={{ position: 'relative' }}>
+                        <div className="quill-wrapper">
                         <style>{`
                           .quill-wrapper .ql-container {
                             border-bottom-left-radius: 0.75rem;
@@ -2539,6 +5182,98 @@ ${currentUser?.name || 'Team'}`;
                       )}
                     </div>
 
+                    {/* Mark for Team Members */}
+                    <div className="relative" ref={markForDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setShowMarkForDropdown(!showMarkForDropdown)}
+                        className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-white border-2 rounded-xl text-sm transition-all ${
+                          markedForUsers.length > 0 
+                            ? 'border-indigo-300 bg-indigo-50' 
+                            : 'border-slate-200 hover:border-indigo-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <UserPlus className={`w-4 h-4 ${markedForUsers.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                          <span className={`font-medium ${markedForUsers.length > 0 ? 'text-indigo-900' : 'text-slate-600'}`}>
+                            {markedForUsers.length > 0 
+                              ? `Marked for ${markedForUsers.length} team member${markedForUsers.length > 1 ? 's' : ''}`
+                              : 'Mark for team member'}
+                          </span>
+                        </div>
+                        {markedForUsers.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMarkedForUsers([]);
+                            }}
+                            className="p-1 hover:bg-indigo-200 rounded transition-all"
+                          >
+                            <X className="w-3 h-3 text-indigo-600" />
+                          </button>
+                        )}
+                      </button>
+                      
+                      {/* Mark For Dropdown */}
+                      {showMarkForDropdown && (
+                        <div className="absolute top-full mt-2 left-0 w-full bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-[100] max-h-64 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-2">
+                              <UserPlus className="w-3 h-3" />
+                              Select Team Members
+                            </div>
+                            <input
+                              type="text"
+                              placeholder="Search team members..."
+                              value={markForSearchQuery}
+                              onChange={(e) => setMarkForSearchQuery(e.target.value)}
+                              className="w-full px-3 py-2 mb-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                            />
+                            {users
+                              .filter((user: any) => 
+                                user.id !== userId && 
+                                (markForSearchQuery === '' || 
+                                 user.name?.toLowerCase().includes(markForSearchQuery.toLowerCase()) ||
+                                 user.email?.toLowerCase().includes(markForSearchQuery.toLowerCase()))
+                              )
+                              .map((user: any) => {
+                                const isSelected = markedForUsers.includes(user.id);
+                                return (
+                                  <button
+                                    key={user.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setMarkedForUsers(prev => prev.filter(id => id !== user.id));
+                                      } else {
+                                        setMarkedForUsers(prev => [...prev, user.id]);
+                                      }
+                                    }}
+                                    className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left ${
+                                      isSelected ? 'bg-indigo-50' : ''
+                                    }`}
+                                  >
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {user.name?.charAt(0) || 'U'}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-bold text-slate-900 truncate">{user.name || 'Unknown'}</p>
+                                      <p className="text-xs text-slate-400 truncate">{user.email || ''}</p>
+                                    </div>
+                                    {isSelected && (
+                                      <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Image Upload */}
                     <div className="flex items-center gap-3">
                       <label className="flex-1 cursor-pointer group">
@@ -2584,42 +5319,60 @@ ${currentUser?.name || 'Team'}`;
                       </button>
                     </div>
 
-                    {/* Image Preview */}
-                    {noteImagePreview && (
-                      <div className="relative">
-                        <img
-                          src={noteImagePreview}
-                          alt="Note attachment preview"
-                          className="w-full max-h-48 object-contain rounded-lg border-2 border-slate-200"
-                        />
-                        <button
-                          onClick={() => {
-                            setNoteImagePreview('');
-                            setNoteImageFile(null);
-                            if (noteImageInputRef.current) noteImageInputRef.current.value = '';
-                          }}
-                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all shadow-lg"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                      {/* Image Preview */}
+                      {noteImagePreview && (
+                        <div className="relative">
+                          <img
+                            src={noteImagePreview}
+                            alt="Note attachment preview"
+                            className="w-full max-h-48 object-contain rounded-lg border-2 border-slate-200"
+                          />
+                          <button
+                            onClick={() => {
+                              setNoteImagePreview('');
+                              setNoteImageFile(null);
+                              if (noteImageInputRef.current) noteImageInputRef.current.value = '';
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all shadow-lg"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Viewer-only message */}
+                  {!canAddNote && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                      <p className="text-sm text-slate-600">You have read-only access. Contact an admin to add notes or comments.</p>
+                    </div>
+                  )}
 
                   {/* Notes List */}
                   <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
                     {internalThreads[selectedEmail?.id] && internalThreads[selectedEmail.id]?.length > 0 ? (
                       internalThreads[selectedEmail.id].map((thread) => {
-                        const canDelete = currentUser?.role === 'Admin' || thread.userId === currentUser?.id;
+                        const canDelete = hasPermission(userRole, 'shared-inbox:delete-note') && (isAdmin(userRole) || thread.userId === userId);
                         return (
-                          <div key={thread.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                          <div key={thread.id} className={`p-4 bg-white border rounded-xl space-y-2 ${
+                            (thread.markedFor || []).length > 0 ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'
+                          }`}>
                             <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-1">
                                 <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
                                   {thread.userName?.charAt(0) || 'U'}
                                 </div>
-                                <div>
-                                  <p className="text-xs font-bold text-slate-900">{thread.userName}</p>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-bold text-slate-900">{thread.userName}</p>
+                                    {(thread.markedFor || []).length > 0 && (
+                                      <span className="px-1.5 py-0.5 bg-indigo-600 text-white text-[9px] font-bold rounded-full flex items-center gap-1">
+                                        <UserPlus className="w-2.5 h-2.5" />
+                                        Marked
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-[10px] text-slate-400">
                                     {new Date(thread.timestamp).toLocaleString('en-US', {
                                       month: 'short',
@@ -2630,6 +5383,11 @@ ${currentUser?.name || 'Team'}`;
                                       hour12: true
                                     })}
                                   </p>
+                                  {(thread.markedFor || []).length > 0 && (
+                                    <p className="text-[10px] text-indigo-600 mt-1">
+                                      Marked for: {users.filter((u: any) => (thread.markedFor || []).includes(u.id)).map((u: any) => u.name).join(', ') || 'Unknown'}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               {canDelete && (
@@ -2684,7 +5442,7 @@ ${currentUser?.name || 'Team'}`;
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center py-16 text-center px-6">
               <Mail className="w-12 h-12 text-slate-300 mb-3" />
@@ -2932,6 +5690,118 @@ ${currentUser?.name || 'Team'}`;
                 >
                   Delete
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Google Drive File Picker Modal */}
+      {showDrivePicker && (
+        <div className="fixed inset-0 z-[250] overflow-hidden pointer-events-none">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-in fade-in duration-300"
+            onClick={() => setShowDrivePicker(false)}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+            <div className="bg-white rounded-[28px] shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col pointer-events-auto animate-in zoom-in-95 duration-300 overflow-hidden">
+              <div className="flex items-center justify-between p-6 border-b border-slate-200">
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <File className="w-5 h-5 text-blue-600" />
+                  Attach from Google Drive
+                </h2>
+                <button
+                  onClick={() => setShowDrivePicker(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {/* Search */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={driveSearchQuery}
+                    onChange={(e) => setDriveSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        loadDriveFiles(driveSearchQuery);
+                      }
+                    }}
+                    placeholder="Search Drive files..."
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                  />
+                  <button
+                    onClick={() => loadDriveFiles(driveSearchQuery)}
+                    disabled={loadingDriveFiles}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                  >
+                    {loadingDriveFiles ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+                  </button>
+                </div>
+                
+                {/* Files List */}
+                {loadingDriveFiles && driveFiles.length === 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                  </div>
+                ) : driveFiles.length === 0 ? (
+                  <div className="text-center py-12">
+                    <File className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">No files found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {driveFiles.map((file) => (
+                      <button
+                        key={file.id}
+                        onClick={() => handleAttachDriveFile(file)}
+                        className="w-full flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/30 transition-all text-left"
+                      >
+                        {file.iconLink ? (
+                          <img src={file.iconLink} alt={file.name} className="w-8 h-8" />
+                        ) : (
+                          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+                            <File className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">{file.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {file.size ? formatFileSize(file.size) : 'Drive file'} · {file.mimeType || 'Unknown type'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (file.webViewLink) {
+                              window.open(file.webViewLink, '_blank');
+                            }
+                          }}
+                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                          title="Open in Drive"
+                        >
+                          <ExternalLink className="w-4 h-4 text-slate-400" />
+                        </button>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Load More */}
+                {driveNextPageToken && (
+                  <div className="flex justify-center pt-4">
+                    <button
+                      onClick={() => loadDriveFiles(driveSearchQuery, driveNextPageToken)}
+                      disabled={loadingDriveFiles}
+                      className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                    >
+                      {loadingDriveFiles ? 'Loading...' : 'Load More'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3326,6 +6196,117 @@ ${currentUser?.name || 'Team'}`;
                 />
               </div>
 
+              {/* Template Selection Dropdown (Phase 8.2) */}
+              {templates.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Template
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={composeSelectedTemplate || ''}
+                      onChange={(e) => {
+                        const templateId = e.target.value || null;
+                        setComposeSelectedTemplate(templateId);
+                        if (templateId) {
+                          const template = templates.find(t => t.id === templateId);
+                          if (template?.content) {
+                            setComposeBody(template.content);
+                            showSuccess('Template loaded');
+                          }
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                    >
+                      <option value="">No template</option>
+                      {templates.map(template => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowTemplatesModal(true)}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1"
+                      title="Manage templates"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* AI Drafting Panel Toggle (Phase 8.2) */}
+              {composeMode === 'compose' && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAIDraftPanel(!showAIDraftPanel);
+                      if (!showAIDraftPanel && !composeAIDraft && composeSubject && composeTo.length > 0) {
+                        handleGenerateComposeAIDraft();
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 border-2 border-dashed border-indigo-200 rounded-lg text-sm font-medium text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {showAIDraftPanel ? 'Hide AI Suggestions' : 'Get AI Draft Suggestions'}
+                  </button>
+                  {showAIDraftPanel && (
+                    <div className="mt-3 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                      {isGeneratingComposeDraft ? (
+                        <div className="flex items-center gap-2 text-sm text-indigo-700">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating AI draft...
+                        </div>
+                      ) : composeAIDraft ? (
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs font-medium text-indigo-900">AI Draft Suggestion:</p>
+                            <button
+                              type="button"
+                              onClick={handleGenerateComposeAIDraft}
+                              className="text-xs text-indigo-600 hover:text-indigo-700"
+                            >
+                              Regenerate
+                            </button>
+                          </div>
+                          <div className="p-3 bg-white border border-indigo-200 rounded-lg text-sm text-slate-700 max-h-48 overflow-y-auto">
+                            <div dangerouslySetInnerHTML={{ __html: composeAIDraft }} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setComposeBody(composeAIDraft || '');
+                                showSuccess('AI draft inserted');
+                              }}
+                              className="flex-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                            >
+                              Use This Draft
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const textContent = composeAIDraft?.replace(/<[^>]+>/g, '') || '';
+                                navigator.clipboard.writeText(textContent);
+                                showSuccess('Draft copied to clipboard');
+                              }}
+                              className="px-3 py-2 border border-indigo-300 text-indigo-600 text-sm font-medium rounded-lg hover:bg-indigo-50 transition-colors"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-indigo-600">Enter a subject and recipient to generate AI draft suggestions.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Signature Selector */}
               {signatures.length > 0 && (
                 <div>
@@ -3416,23 +6397,43 @@ ${currentUser?.name || 'Team'}`;
                   Attachments
                 </label>
                 
-                {/* File Input */}
-                <label className="flex items-center gap-3 p-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
-                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
-                    <Paperclip className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-slate-900">Add Attachment</p>
-                    <p className="text-[10px] text-slate-400">Max 25MB per file</p>
-                  </div>
-                  <input
-                    ref={composeFileInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleComposeFileSelect}
-                    className="hidden"
-                  />
-                </label>
+                {/* Attachment Buttons */}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* File Input */}
+                  <label className="flex-1 flex items-center gap-3 p-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
+                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+                      <Paperclip className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-slate-900">Add Attachment</p>
+                      <p className="text-[10px] text-slate-400">Max 25MB per file</p>
+                    </div>
+                    <input
+                      ref={composeFileInputRef}
+                      type="file"
+                      multiple
+                      onChange={handleComposeFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+                  
+                  {/* Drive Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDrivePicker(true);
+                      setDriveSearchQuery('');
+                      loadDriveFiles();
+                    }}
+                    className="px-4 py-3 bg-white border-2 border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/30 transition-all flex items-center gap-2"
+                    title="Attach from Google Drive"
+                  >
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+                      <File className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-medium text-slate-900 hidden sm:inline">Drive</span>
+                  </button>
+                </div>
 
                 {/* Attachment List */}
                 {composeAttachments.length > 0 && (
@@ -3440,30 +6441,66 @@ ${currentUser?.name || 'Team'}`;
                     {composeAttachments.map((attachment) => (
                       <div
                         key={attachment.id}
-                        className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg"
+                        className={`flex items-center gap-3 p-3 border rounded-lg ${
+                          attachment.isDriveFile ? 'bg-blue-50/30 border-blue-200' : 'bg-slate-50 border-slate-200'
+                        }`}
                       >
-                        <div className={`p-2 rounded-lg ${
-                          isImageFile(attachment.file.type) ? 'bg-blue-50 text-blue-600' :
-                          isPdfFile(attachment.file.type) ? 'bg-red-50 text-red-600' :
-                          'bg-slate-100 text-slate-600'
-                        }`}>
-                          {isImageFile(attachment.file.type) ? (
-                            <ImageIcon className="w-4 h-4" />
-                          ) : isPdfFile(attachment.file.type) ? (
-                            <File className="w-4 h-4" />
-                          ) : (
-                            <Paperclip className="w-4 h-4" />
-                          )}
-                        </div>
+                        {attachment.isDriveFile && attachment.driveIconLink ? (
+                          <img src={attachment.driveIconLink} alt="Drive file" className="w-8 h-8" />
+                        ) : (
+                          <div className={`p-2 rounded-lg ${
+                            isImageFile(attachment.file.type) ? 'bg-blue-50 text-blue-600' :
+                            isPdfFile(attachment.file.type) ? 'bg-red-50 text-red-600' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isImageFile(attachment.file.type) ? (
+                              <ImageIcon className="w-4 h-4" />
+                            ) : isPdfFile(attachment.file.type) ? (
+                              <File className="w-4 h-4" />
+                            ) : (
+                              <Paperclip className="w-4 h-4" />
+                            )}
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-900 truncate">
-                            {attachment.file.name}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {formatFileSize(attachment.file.size)} · {attachment.file.type}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-900 truncate">
+                              {attachment.file.name}
+                            </p>
+                            {attachment.isDriveFile && (
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[9px] font-bold rounded">Drive</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-slate-500">
+                              {attachment.isDriveFile ? 'Google Drive file' : `${formatFileSize(attachment.file.size)} · ${attachment.file.type}`}
+                            </p>
+                            {/* Upload Progress Indicator (Phase 8.2) */}
+                            {attachmentUploadProgress[attachment.id] !== undefined && attachmentUploadProgress[attachment.id] < 100 && (
+                              <div className="flex-1 max-w-[100px]">
+                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-indigo-600 transition-all duration-300"
+                                    style={{ width: `${attachmentUploadProgress[attachment.id]}%` }}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{attachmentUploadProgress[attachment.id]}%</p>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        {attachment.preview && (
+                        {attachment.isDriveFile && attachment.driveWebViewLink && (
+                          <a
+                            href={attachment.driveWebViewLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+                            title="Open in Drive"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        )}
+                        {attachment.preview && !attachment.isDriveFile && (
                           <button
                             type="button"
                             onClick={() => {
@@ -3498,83 +6535,262 @@ ${currentUser?.name || 'Team'}`;
             </div>
 
             <div className="flex items-center justify-between p-6 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDiscardEmailConfirm(true);
-                }}
-                className="px-4 py-2 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                Cancel
-              </button>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={async () => {
-                    if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
-                      showError('Please fill in all required fields (To, Subject, Message)');
-                      return;
-                    }
-
-                    setIsSending(true);
-                    try {
-                      let finalBody = composeBody;
-                      if (composeSignature) {
-                        finalBody += `<br><br>${composeSignature}`;
+                  onClick={() => {
+                    setShowDiscardEmailConfirm(true);
+                  }}
+                  className="px-4 py-2 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                {/* Load Gmail Drafts Button (Phase 8.2) */}
+                {composeMode === 'compose' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setShowGmailDraftsModal(true);
+                      await loadGmailDrafts();
+                    }}
+                    className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
+                  >
+                    <File className="w-4 h-4" />
+                    Load Drafts
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Save Draft Button (Phase 8.2) */}
+                <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={savingDraft || !composeSubject || !composeBody}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {savingDraft ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <File className="w-4 h-4" />
+                      Save Draft
+                    </>
+                  )}
+                </button>
+                {/* Schedule Send Button (Phase 8.2) */}
+                {composeMode === 'compose' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!composeTo.length || !composeSubject || !composeBody) {
+                        showError('Please fill in all required fields (To, Subject, Message)');
+                        return;
+                      }
+                      setShowScheduleSendModal(true);
+                    }}
+                    className="px-4 py-2 border border-indigo-200 text-indigo-600 text-sm font-medium rounded-lg hover:bg-indigo-50 transition-colors flex items-center gap-2"
+                  >
+                    <Clock className="w-4 h-4" />
+                    Schedule
+                  </button>
+                )}
+                {/* Schedule Meeting Button (Phase 5) */}
+                {composeMode === 'compose' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
+                        showError('Please fill in all required fields (To, Subject, Message)');
+                        return;
+                      }
+                      
+                      // Extract meeting details from compose content
+                      const bodyText = composeBody.replace(/<[^>]+>/g, ' ').toLowerCase();
+                      const fullText = `${composeSubject} ${bodyText}`;
+                      
+                      // Extract date patterns
+                      const datePatterns = [
+                        /(\d{1,2}\/\d{1,2}\/\d{2,4})/g,
+                        /(\d{1,2}-\d{1,2}-\d{2,4})/g,
+                        /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{2,4}/gi,
+                        /(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi,
+                        /(today|tomorrow|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))/gi
+                      ];
+                      
+                      let extractedDate: string | undefined;
+                      for (const pattern of datePatterns) {
+                        const match = fullText.match(pattern);
+                        if (match) {
+                          extractedDate = match[0];
+                          break;
+                        }
+                      }
+                      
+                      // Extract time patterns
+                      const timePatterns = [
+                        /\b(\d{1,2}):(\d{2})\s*(am|pm)\b/gi,
+                        /\b(\d{1,2}):(\d{2})\b/gi,
+                        /\b(\d{1,2})\s*(am|pm)\b/gi
+                      ];
+                      
+                      let extractedTime: string | undefined;
+                      for (const pattern of timePatterns) {
+                        const match = fullText.match(pattern);
+                        if (match) {
+                          extractedTime = match[0];
+                          break;
+                        }
+                      }
+                      
+                      // Extract location patterns
+                      const locationPatterns = [
+                        /(?:location|where|venue|address|place|at):\s*([^\n,]+)/gi,
+                        /(?:meeting|call|conference)\s+(?:at|in|on)\s+([^\n,]+)/gi,
+                        /(?:zoom|meet|teams|webex|skype|google\s+meet)[\s:]+([^\s\n]+)/gi
+                      ];
+                      
+                      let extractedLocation: string | undefined;
+                      for (const pattern of locationPatterns) {
+                        const match = fullText.match(pattern);
+                        if (match && match[1]) {
+                          extractedLocation = match[1].trim();
+                          break;
+                        }
+                      }
+                      
+                      // Set extracted details and open modal
+                      setScheduleMeetingExtractedDetails({
+                        title: composeSubject,
+                        date: extractedDate,
+                        time: extractedTime,
+                        location: extractedLocation,
+                        participants: composeTo,
+                        description: composeBody.substring(0, 500)
+                      });
+                      setScheduleMeetingEmailId(null); // Will be set after email is sent
+                      setShowScheduleMeetingModal(true);
+                    }}
+                    disabled={creatingMeeting || !userId || composeTo.length === 0 || !composeSubject}
+                    className="px-4 py-2 bg-indigo-50 text-indigo-600 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Schedule a meeting"
+                  >
+                    {creatingMeeting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Calendar className="w-4 h-4" />
+                    )}
+                    Schedule Meeting
+                  </button>
+                )}
+                {/* Send Button - Admin only (Collaborators can draft but not send) */}
+                {canSendEmail ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
+                        showError('Please fill in all required fields (To, Subject, Message)');
+                        return;
                       }
 
-                      // Convert attachments to base64
-                      const attachments = await Promise.all(
-                        composeAttachments.map(async (att) => {
-                          return new Promise<{ filename: string; content: string; type: string }>((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const base64 = (reader.result as string).split(',')[1]; // Remove data:type;base64, prefix
-                              resolve({
-                                filename: att.file.name,
-                                content: base64,
-                                type: att.file.type
-                              });
-                            };
-                            reader.onerror = reject;
-                            reader.readAsDataURL(att.file);
-                          });
-                        })
-                      );
+                      setIsSending(true);
+                      try {
+                        let finalBody = composeBody;
+                        if (composeSignature) {
+                          finalBody += `<br><br>${composeSignature}`;
+                        }
 
-                      if (composeMode === 'reply' || composeMode === 'replyAll') {
-                        await apiReplyEmail({
-                          emailId: selectedEmail?.id || '',
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          body: finalBody,
-                          replyAll: composeMode === 'replyAll',
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
-                        showSuccess('Reply sent successfully');
-                      } else if (composeMode === 'forward') {
-                        await apiForwardEmail({
-                          emailId: selectedEmail?.id || '',
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          to: composeTo,
-                          cc: composeCc.length > 0 ? composeCc : undefined,
-                          bcc: composeBcc.length > 0 ? composeBcc : undefined,
-                          body: finalBody,
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
-                        showSuccess('Email forwarded successfully');
-                      } else {
-                        await apiSendEmail({
-                          userId: userId,
-                          accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
-                          to: composeTo,
-                          cc: composeCc.length > 0 ? composeCc : undefined,
-                          bcc: composeBcc.length > 0 ? composeBcc : undefined,
-                          subject: composeSubject,
-                          body: finalBody,
-                          attachments: attachments.length > 0 ? attachments : undefined
-                        });
+                        // Convert attachments to base64 (skip Drive files - they're linked, not attached)
+                        const attachments = await Promise.all(
+                          composeAttachments
+                            .filter(att => !att.isDriveFile) // Only process regular file attachments
+                            .map(async (att) => {
+                              return new Promise<{ filename: string; content: string; type: string }>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const base64 = (reader.result as string).split(',')[1]; // Remove data:type;base64, prefix
+                                  resolve({
+                                    filename: att.file.name,
+                                    content: base64,
+                                    type: att.file.type
+                                  });
+                                };
+                                reader.onerror = reject;
+                                reader.readAsDataURL(att.file);
+                              });
+                            })
+                        );
+                        
+                        // Add Drive file links to email body for compose mode
+                        const driveFiles = composeAttachments.filter(a => a.isDriveFile && a.driveWebViewLink);
+                        if (driveFiles.length > 0 && composeMode === 'compose') {
+                          let driveLinksHtml = '<br><br><div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 12px;"><p style="font-size: 12px; color: #64748b; margin-bottom: 8px;"><strong>Attached from Google Drive:</strong></p><ul style="margin: 0; padding-left: 20px;">';
+                          driveFiles.forEach(file => {
+                            driveLinksHtml += `<li style="margin-bottom: 4px;"><a href="${file.driveWebViewLink}" target="_blank" style="color: #4f46e5; text-decoration: none;">${file.file.name}</a></li>`;
+                          });
+                          driveLinksHtml += '</ul></div>';
+                          finalBody += driveLinksHtml;
+                        }
+
+                        if (composeMode === 'reply' || composeMode === 'replyAll') {
+                          await apiReplyEmail({
+                            emailId: selectedEmail?.id || '',
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            body: finalBody,
+                            replyAll: composeMode === 'replyAll',
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
+                          showSuccess('Reply sent successfully');
+                        } else if (composeMode === 'forward') {
+                          await apiForwardEmail({
+                            emailId: selectedEmail?.id || '',
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            to: composeTo,
+                            cc: composeCc.length > 0 ? composeCc : undefined,
+                            bcc: composeBcc.length > 0 ? composeBcc : undefined,
+                            body: finalBody,
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
+                          showSuccess('Email forwarded successfully');
+                        } else {
+                          const sentEmail = await apiSendEmail({
+                            userId: userId,
+                            accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                            to: composeTo,
+                            cc: composeCc.length > 0 ? composeCc : undefined,
+                            bcc: composeBcc.length > 0 ? composeBcc : undefined,
+                            subject: composeSubject,
+                            body: finalBody,
+                            attachments: attachments.length > 0 ? attachments : undefined
+                          });
+                        
+                        // Attach Drive files to sent email (if we have an email ID)
+                        const sentEmailId = sentEmail?.data?.id;
+                        if (sentEmailId) {
+                          const driveFilesToAttach = composeAttachments.filter(a => a.isDriveFile && a.driveFileId);
+                          for (const att of driveFilesToAttach) {
+                            try {
+                              await apiAttachDriveFile({
+                                userId,
+                                emailId: sentEmailId,
+                                fileId: att.driveFileId!,
+                                fileName: att.file.name,
+                                fileMimeType: att.file.type,
+                                webViewLink: att.driveWebViewLink,
+                                webContentLink: undefined,
+                                iconLink: att.driveIconLink
+                              });
+                            } catch (err: any) {
+                              console.error('Failed to attach Drive file:', err);
+                              // Continue with other attachments
+                            }
+                          }
+                        }
+                        
                         showSuccess('Email sent successfully');
                       }
 
@@ -3585,40 +6801,47 @@ ${currentUser?.name || 'Team'}`;
                         }
                       });
 
-                      setShowComposeModal(false);
-                      setComposeTo([]);
-                      setComposeCc([]);
-                      setComposeBcc([]);
-                      setComposeSubject('');
-                      setComposeBody('');
-                      setComposeAttachments([]);
-                      setToInput('');
-                      setCcInput('');
-                      setBccInput('');
-                      await loadEmails();
-                    } catch (err: any) {
-                      const errorMsg = getSafeErrorMessage(err, 'Failed to send email');
-                      showError(errorMsg);
-                    } finally {
-                      setIsSending(false);
-                    }
-                  }}
-                  disabled={isSending || composeTo.length === 0 || !composeSubject || !composeBody || connectedAccounts.length === 0}
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isSending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      {composeMode === 'reply' || composeMode === 'replyAll' ? 'Send Reply' :
-                       composeMode === 'forward' ? 'Forward' : 'Send'}
-                    </>
-                  )}
-                </button>
+                        setShowComposeModal(false);
+                        setComposeTo([]);
+                        setComposeCc([]);
+                        setComposeBcc([]);
+                        setComposeSubject('');
+                        setComposeBody('');
+                        setComposeAttachments([]);
+                        setToInput('');
+                        setCcInput('');
+                        setBccInput('');
+                        setShowDrivePicker(false);
+                        await loadEmails();
+                      } catch (err: any) {
+                        const errorMsg = getSafeErrorMessage(err, 'Failed to send email');
+                        showError(errorMsg);
+                      } finally {
+                        setIsSending(false);
+                      }
+                    }}
+                    disabled={isSending || composeTo.length === 0 || !composeSubject || !composeBody || connectedAccounts.length === 0}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isSending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        {composeMode === 'reply' || composeMode === 'replyAll' ? 'Send Reply' :
+                         composeMode === 'forward' ? 'Forward' : 'Send'}
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="px-4 py-2 bg-slate-100 text-slate-500 text-sm font-medium rounded-lg flex items-center gap-2" title="You don't have permission to send emails. Contact an admin.">
+                    <Send className="w-4 h-4" />
+                    Send (Admin Only)
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3751,21 +6974,32 @@ ${currentUser?.name || 'Team'}`;
               )}
               
               {loadingLabels ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                  <p className="text-slate-500 text-sm">Loading labels…</p>
                 </div>
               ) : gmailLabels.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-slate-500 text-sm mb-4">No labels available.</p>
-                  {connectedAccounts.length > 0 && (
+                  <p className="text-slate-500 text-sm mb-4">No labels available. Connect Gmail and sync to see labels, or create one below.</p>
+                  <div className="flex flex-wrap justify-center gap-2">
                     <button
-                      onClick={() => setShowCreateLabelModal(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                      type="button"
+                      onClick={() => fetchGmailLabels(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
                     >
-                      <Plus className="w-4 h-4" />
-                      Create Your First Label
+                      <RefreshCw className="w-4 h-4" />
+                      Retry
                     </button>
-                  )}
+                    {connectedAccounts.length > 0 && (
+                      <button
+                        onClick={() => setShowCreateLabelModal(true)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create Your First Label
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -3908,6 +7142,514 @@ ${currentUser?.name || 'Team'}`;
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Meeting Modal (Phase 5) */}
+      {showScheduleMeetingModal && userId && (
+        <ScheduleMeetingModal
+          isOpen={showScheduleMeetingModal}
+          onClose={() => {
+            setShowScheduleMeetingModal(false);
+            setScheduleMeetingExtractedDetails(null);
+            setScheduleMeetingEmailId(null);
+          }}
+          userId={userId}
+          emailId={scheduleMeetingEmailId || undefined}
+          emailSubject={composeSubject}
+          emailBody={composeBody}
+          participants={composeTo}
+          extractedDetails={scheduleMeetingExtractedDetails || undefined}
+          onCreateSuccess={() => {
+            // Reload calendar events if we have an email ID
+            if (scheduleMeetingEmailId && selectedEmail?.id === scheduleMeetingEmailId) {
+              apiGetCalendarEvents(userId, scheduleMeetingEmailId).then(res => {
+                if (res.success && res.data) {
+                  setLinkedCalendarEvents(res.data);
+                }
+              }).catch(() => {});
+            }
+          }}
+        />
+      )}
+
+      {/* Link Modal (Phase 7.1) */}
+      {showLinkModal && linkModalType && selectedEmail && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">
+                Link to {linkModalType.charAt(0).toUpperCase() + linkModalType.slice(1)}
+              </h3>
+              <button
+                onClick={() => { setShowLinkModal(false); setLinkModalType(null); }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {linkModalType === 'contact' && (
+                <div className="space-y-2">
+                  {contacts.map(contact => (
+                    <button
+                      key={contact.id}
+                      onClick={() => handleLinkEmail('contact', contact.id)}
+                      disabled={linkingEmail}
+                      className="w-full text-left p-3 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-colors disabled:opacity-50"
+                    >
+                      <p className="font-medium text-slate-900">{contact.name}</p>
+                      <p className="text-xs text-slate-500">{contact.email}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkModalType === 'company' && (
+                <div className="space-y-2">
+                  {companies.map(company => (
+                    <button
+                      key={company.id}
+                      onClick={() => handleLinkEmail('company', company.id)}
+                      disabled={linkingEmail}
+                      className="w-full text-left p-3 bg-slate-50 hover:bg-green-50 rounded-lg border border-slate-200 hover:border-green-300 transition-colors disabled:opacity-50"
+                    >
+                      <p className="font-medium text-slate-900">{company.name}</p>
+                      {company.industry && <p className="text-xs text-slate-500">{company.industry}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkModalType === 'deal' && (
+                <div className="space-y-2">
+                  {deals.map(deal => (
+                    <button
+                      key={deal.id}
+                      onClick={() => handleLinkEmail('deal', deal.id)}
+                      disabled={linkingEmail}
+                      className="w-full text-left p-3 bg-slate-50 hover:bg-purple-50 rounded-lg border border-slate-200 hover:border-purple-300 transition-colors disabled:opacity-50"
+                    >
+                      <p className="font-medium text-slate-900">{deal.title || deal.name}</p>
+                      {deal.stage && <p className="text-xs text-slate-500">{deal.stage}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkModalType === 'project' && (
+                <div className="space-y-2">
+                  {projects.map(project => (
+                    <button
+                      key={project.id}
+                      onClick={() => handleLinkEmail('project', project.id)}
+                      disabled={linkingEmail}
+                      className="w-full text-left p-3 bg-slate-50 hover:bg-amber-50 rounded-lg border border-slate-200 hover:border-amber-300 transition-colors disabled:opacity-50"
+                    >
+                      <p className="font-medium text-slate-900">{project.title || project.name}</p>
+                      {project.status && <p className="text-xs text-slate-500">{project.status}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkModalType === 'contract' && (
+                <div className="space-y-2">
+                  {contracts.map(contract => (
+                    <button
+                      key={contract.id}
+                      onClick={() => handleLinkEmail('contract', contract.id)}
+                      disabled={linkingEmail}
+                      className="w-full text-left p-3 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-colors disabled:opacity-50"
+                    >
+                      <p className="font-medium text-slate-900">{contract.title}</p>
+                      {contract.status && <p className="text-xs text-slate-500">{contract.status}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Task Modal (Phase 7.2) */}
+      {showCreateTaskModal && selectedEmail && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full flex flex-col">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Create Task from Email</h3>
+              <button
+                onClick={() => setShowCreateTaskModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
+                <input
+                  type="text"
+                  defaultValue={selectedEmail.subject || 'Task from Email'}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  id="task-title"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  id="task-priority"
+                  defaultValue="Medium"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Project (Optional)</label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  id="task-project"
+                  defaultValue=""
+                >
+                  <option value="">None</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}>{project.title || project.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Assign To (Optional)</label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  id="task-assignee"
+                  defaultValue=""
+                >
+                  <option value="">Unassigned</option>
+                  {users.map(user => (
+                    <option key={user.id} value={user.id}>{user.name || user.email}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => {
+                  const titleInput = document.getElementById('task-title') as HTMLInputElement;
+                  const priorityInput = document.getElementById('task-priority') as HTMLSelectElement;
+                  const projectInput = document.getElementById('task-project') as HTMLSelectElement;
+                  const assigneeInput = document.getElementById('task-assignee') as HTMLSelectElement;
+                  handleCreateTaskFromEmail({
+                    title: titleInput?.value,
+                    priority: priorityInput?.value,
+                    projectId: projectInput?.value || undefined,
+                    assigneeId: assigneeInput?.value || undefined
+                  });
+                }}
+                className="w-full px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Create Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Send Modal (Phase 8.2) */}
+      {showScheduleSendModal && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-indigo-500" />
+                Schedule Send
+              </h2>
+              <button
+                onClick={() => {
+                  setShowScheduleSendModal(false);
+                  setScheduleSendDateTime('');
+                }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Date & Time <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={scheduleSendDateTime}
+                  onChange={(e) => setScheduleSendDateTime(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Timezone
+                </label>
+                <select
+                  value={scheduleSendTimezone}
+                  onChange={(e) => setScheduleSendTimezone(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                >
+                  <option value="America/New_York">Eastern Time (ET)</option>
+                  <option value="America/Chicago">Central Time (CT)</option>
+                  <option value="America/Denver">Mountain Time (MT)</option>
+                  <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                  <option value="UTC">UTC</option>
+                  <option value={Intl.DateTimeFormat().resolvedOptions().timeZone}>
+                    {Intl.DateTimeFormat().resolvedOptions().timeZone} (Local)
+                  </option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2 pt-4">
+                <button
+                  onClick={() => {
+                    setShowScheduleSendModal(false);
+                    setScheduleSendDateTime('');
+                  }}
+                  className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!scheduleSendDateTime) {
+                      showError('Please select a date and time');
+                      return;
+                    }
+                    if (!userId || composeTo.length === 0 || !composeSubject || !composeBody) {
+                      showError('Please fill in all required fields');
+                      return;
+                    }
+                    
+                    try {
+                      // Convert attachments to base64
+                      const attachments = await Promise.all(
+                        composeAttachments
+                          .filter(att => !att.isDriveFile)
+                          .map(async (att) => {
+                            return new Promise<{ filename: string; content: string; type: string }>((resolve, reject) => {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                const base64 = (reader.result as string).split(',')[1];
+                                resolve({
+                                  filename: att.file.name,
+                                  content: base64,
+                                  type: att.file.type
+                                });
+                              };
+                              reader.onerror = reject;
+                              reader.readAsDataURL(att.file);
+                            });
+                          })
+                      );
+                      
+                      let finalBody = composeBody;
+                      if (composeSignature) {
+                        finalBody += `<br><br>${composeSignature}`;
+                      }
+                      
+                      await apiScheduleSendEmail({
+                        userId,
+                        accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
+                        to: composeTo,
+                        cc: composeCc.length > 0 ? composeCc : undefined,
+                        bcc: composeBcc.length > 0 ? composeBcc : undefined,
+                        subject: composeSubject,
+                        body: finalBody,
+                        scheduledDateTime: scheduleSendDateTime,
+                        timezone: scheduleSendTimezone,
+                        attachments: attachments.length > 0 ? attachments : undefined
+                      });
+                      
+                      showSuccess('Email scheduled successfully');
+                      setShowScheduleSendModal(false);
+                      setShowComposeModal(false);
+                      // Reset compose form
+                      setComposeTo([]);
+                      setComposeCc([]);
+                      setComposeBcc([]);
+                      setComposeSubject('');
+                      setComposeBody('');
+                      setComposeAttachments([]);
+                      setScheduleSendDateTime('');
+                    } catch (err: any) {
+                      const errorMsg = getSafeErrorMessage(err, 'Failed to schedule email');
+                      showError(errorMsg);
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  Schedule Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gmail Drafts Modal (Phase 8.2) */}
+      {showGmailDraftsModal && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                <File className="w-5 h-5 text-indigo-500" />
+                Gmail Drafts
+              </h2>
+              <button
+                onClick={() => {
+                  setShowGmailDraftsModal(false);
+                  setGmailDrafts([]);
+                }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingGmailDrafts ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                  <span className="ml-3 text-slate-600">Loading drafts...</span>
+                </div>
+              ) : gmailDrafts.length === 0 ? (
+                <div className="text-center py-12">
+                  <File className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 text-sm">No drafts found in Gmail</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {gmailDrafts.map((draft: any) => (
+                    <div
+                      key={draft.id}
+                      className="p-4 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/30 transition-all cursor-pointer"
+                      onClick={() => {
+                        // Load draft into compose form
+                        if (draft.payload?.headers) {
+                          const headers = draft.payload.headers;
+                          const toHeader = headers.find((h: any) => h.name === 'To');
+                          const ccHeader = headers.find((h: any) => h.name === 'Cc');
+                          const bccHeader = headers.find((h: any) => h.name === 'Bcc');
+                          const subjectHeader = headers.find((h: any) => h.name === 'Subject');
+                          
+                          if (toHeader?.value) {
+                            setComposeTo(toHeader.value.split(',').map((e: string) => e.trim()));
+                          }
+                          if (ccHeader?.value) {
+                            setComposeCc(ccHeader.value.split(',').map((e: string) => e.trim()));
+                          }
+                          if (bccHeader?.value) {
+                            setComposeBcc(bccHeader.value.split(',').map((e: string) => e.trim()));
+                          }
+                          if (subjectHeader?.value) {
+                            setComposeSubject(subjectHeader.value);
+                          }
+                        }
+                        
+                        // Extract body from draft (decode base64 in browser)
+                        if (draft.payload?.body?.data) {
+                          try {
+                            const decoded = atob(draft.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                            setComposeBody(decoded);
+                          } catch (e) {
+                            console.error('Failed to decode draft body:', e);
+                            showError('Failed to decode draft body');
+                          }
+                        } else if (draft.payload?.parts) {
+                          // Handle multipart messages
+                          const htmlPart = draft.payload.parts.find((p: any) => p.mimeType === 'text/html');
+                          if (htmlPart?.body?.data) {
+                            try {
+                              const decoded = atob(htmlPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                              setComposeBody(decoded);
+                            } catch (e) {
+                              console.error('Failed to decode draft body:', e);
+                              showError('Failed to decode draft body');
+                            }
+                          }
+                        }
+                        
+                        setShowGmailDraftsModal(false);
+                        showSuccess('Draft loaded');
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-slate-900 mb-1 truncate">
+                            {draft.payload?.headers?.find((h: any) => h.name === 'Subject')?.value || '(No subject)'}
+                          </h3>
+                          <p className="text-xs text-slate-500 mb-2">
+                            To: {draft.payload?.headers?.find((h: any) => h.name === 'To')?.value || 'No recipients'}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            Created {draft.message?.internalDate ? new Date(parseInt(draft.message.internalDate)).toLocaleString() : 'Unknown date'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Load draft
+                            if (draft.payload?.headers) {
+                              const headers = draft.payload.headers;
+                              const toHeader = headers.find((h: any) => h.name === 'To');
+                              const ccHeader = headers.find((h: any) => h.name === 'Cc');
+                              const bccHeader = headers.find((h: any) => h.name === 'Bcc');
+                              const subjectHeader = headers.find((h: any) => h.name === 'Subject');
+                              
+                              if (toHeader?.value) {
+                                setComposeTo(toHeader.value.split(',').map((e: string) => e.trim()));
+                              }
+                              if (ccHeader?.value) {
+                                setComposeCc(ccHeader.value.split(',').map((e: string) => e.trim()));
+                              }
+                              if (bccHeader?.value) {
+                                setComposeBcc(bccHeader.value.split(',').map((e: string) => e.trim()));
+                              }
+                              if (subjectHeader?.value) {
+                                setComposeSubject(subjectHeader.value);
+                              }
+                            }
+                            
+                            if (draft.payload?.body?.data) {
+                              try {
+                                const decoded = atob(draft.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                                setComposeBody(decoded);
+                              } catch (e) {
+                                console.error('Failed to decode draft body:', e);
+                                showError('Failed to decode draft body');
+                              }
+                            } else if (draft.payload?.parts) {
+                              const htmlPart = draft.payload.parts.find((p: any) => p.mimeType === 'text/html');
+                              if (htmlPart?.body?.data) {
+                                try {
+                                  const decoded = atob(htmlPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                                  setComposeBody(decoded);
+                                } catch (e) {
+                                  console.error('Failed to decode draft body:', e);
+                                  showError('Failed to decode draft body');
+                                }
+                              }
+                            }
+                            
+                            setShowGmailDraftsModal(false);
+                            showSuccess('Draft loaded');
+                          }}
+                          className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                        >
+                          Load
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

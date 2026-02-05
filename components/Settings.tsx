@@ -4,10 +4,11 @@ import {
   Bell, Mail, Smartphone, Shield, User, Save, Globe, 
   Link2, Calendar, RefreshCw, X, Plus, Trash2, Check,
   Mail as MailIcon, Layers, AlertCircle, ArrowRight, Loader2, Upload, Image as ImageIcon,
-  Users, UserPlus, Edit2, Ban, CheckCircle2, Search, MoreVertical, MapPin, Globe2, Briefcase
+  Users, UserPlus, Edit2, Ban, CheckCircle2, Search, MoreVertical, MapPin, Globe2, Briefcase,
+  Database, Archive, Download, Trash, Settings as SettingsIcon, FileText, Layout, Eye
 } from 'lucide-react';
 import { DEFAULT_NOTIFICATION_PREFERENCES, TIMEZONES, LANGUAGES, getSystemTimezone } from '../constants';
-import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences } from '../utils/api';
+import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences, apiGetRetentionPolicy, apiUpdateRetentionPolicy, apiGetRetentionStats, apiTriggerArchive, apiTriggerCleanup, apiExportArchivedEmails, apiGetSignatures, apiCreateSignature, apiUpdateSignature, apiDeleteSignature } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import ImageCropper from './ImageCropper';
@@ -17,9 +18,808 @@ interface SettingsProps {
   onUserUpdate: (user: any) => void;
 }
 
+interface WorkspaceSettingsTabProps {
+  currentUser: any;
+  showSuccess: (message: string) => void;
+  showError: (message: string) => void;
+}
+
+interface UserPreferencesTabProps {
+  currentUser: any;
+  showSuccess: (message: string) => void;
+  showError: (message: string) => void;
+}
+
+const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser, showSuccess, showError }) => {
+  const [retentionPolicy, setRetentionPolicy] = useState({
+    retentionYears: 7,
+    coldStorageYears: 1,
+    archiveEnabled: true,
+    autoCleanupEnabled: true
+  });
+  const [retentionStats, setRetentionStats] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    loadRetentionPolicy();
+    loadRetentionStats();
+  }, []);
+
+  const loadRetentionPolicy = async () => {
+    setIsLoading(true);
+    try {
+      const response = await apiGetRetentionPolicy('default');
+      if (response.success && response.data) {
+        setRetentionPolicy(response.data);
+      }
+    } catch (err: any) {
+      showError('Failed to load retention policy');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadRetentionStats = async () => {
+    setIsLoadingStats(true);
+    try {
+      const response = await apiGetRetentionStats('default');
+      if (response.success && response.data) {
+        setRetentionStats(response.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to load retention stats:', err);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
+  const handleSavePolicy = async () => {
+    setIsSaving(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      const response = await apiUpdateRetentionPolicy('default', {
+        ...retentionPolicy,
+        updatedBy: userId
+      });
+      if (response.success) {
+        showSuccess('Retention policy updated successfully');
+        await loadRetentionStats();
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to update retention policy');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTriggerArchive = async () => {
+    setIsArchiving(true);
+    try {
+      const response = await apiTriggerArchive('default', 50);
+      if (response.success) {
+        showSuccess(`Archive completed: ${response.data.archived} emails archived`);
+        await loadRetentionStats();
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to trigger archive');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  const handleTriggerCleanup = async () => {
+    setIsCleaning(true);
+    try {
+      const response = await apiTriggerCleanup('default', 50);
+      if (response.success) {
+        showSuccess(`Cleanup completed: ${response.data.deleted} emails deleted`);
+        await loadRetentionStats();
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to trigger cleanup');
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
+  const handleExportArchived = async () => {
+    setIsExporting(true);
+    try {
+      const response = await apiExportArchivedEmails('default', { format: 'csv' });
+      if (typeof response === 'string') {
+        // CSV format - create download
+        const blob = new Blob([response], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `archived-emails-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        showSuccess('Archived emails exported successfully');
+      } else {
+        showError('Unexpected export format');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to export archived emails');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Data Retention Policy */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+            <Database className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Data Retention Policy</h3>
+            <p className="text-xs text-slate-500">Configure how long emails are retained and archived</p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Retention Period (Years)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={retentionPolicy.retentionYears}
+                  onChange={(e) => setRetentionPolicy({ ...retentionPolicy, retentionYears: parseInt(e.target.value) || 7 })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                />
+                <p className="text-xs text-slate-500">Emails older than this will be permanently deleted</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Cold Storage Threshold (Years)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max={retentionPolicy.retentionYears}
+                  value={retentionPolicy.coldStorageYears}
+                  onChange={(e) => setRetentionPolicy({ ...retentionPolicy, coldStorageYears: parseInt(e.target.value) || 1 })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                />
+                <p className="text-xs text-slate-500">Emails older than this will be moved to cold storage</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                <div>
+                  <label className="text-sm font-semibold text-slate-900">Enable Automatic Archiving</label>
+                  <p className="text-xs text-slate-500 mt-1">Automatically move emails to cold storage</p>
+                </div>
+                <button
+                  onClick={() => setRetentionPolicy({ ...retentionPolicy, archiveEnabled: !retentionPolicy.archiveEnabled })}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    retentionPolicy.archiveEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      retentionPolicy.archiveEnabled ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                <div>
+                  <label className="text-sm font-semibold text-slate-900">Enable Automatic Cleanup</label>
+                  <p className="text-xs text-slate-500 mt-1">Automatically delete emails past retention period</p>
+                </div>
+                <button
+                  onClick={() => setRetentionPolicy({ ...retentionPolicy, autoCleanupEnabled: !retentionPolicy.autoCleanupEnabled })}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    retentionPolicy.autoCleanupEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      retentionPolicy.autoCleanupEnabled ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSavePolicy}
+              disabled={isSaving}
+              className="w-full px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save Retention Policy
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Retention Statistics */}
+      {retentionStats && (
+        <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+            <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+              <Archive className="w-5 h-5 text-slate-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-slate-900">Retention Statistics</h3>
+              <p className="text-xs text-slate-500">Current data retention status</p>
+            </div>
+          </div>
+
+          {isLoadingStats ? (
+            <div className="p-8 text-center">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-50 rounded-xl">
+                <div className="text-2xl font-bold text-slate-900">{retentionStats.totalEmails || 0}</div>
+                <div className="text-xs text-slate-500 mt-1">Total Emails</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl">
+                <div className="text-2xl font-bold text-indigo-600">{retentionStats.archivedEmails || 0}</div>
+                <div className="text-xs text-slate-500 mt-1">Archived Emails</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl">
+                <div className="text-2xl font-bold text-amber-600">{retentionStats.eligibleForArchive || 0}</div>
+                <div className="text-xs text-slate-500 mt-1">Eligible for Archive</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl">
+                <div className="text-2xl font-bold text-red-600">{retentionStats.eligibleForDeletion || 0}</div>
+                <div className="text-xs text-slate-500 mt-1">Eligible for Deletion</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual Actions */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+            <RefreshCw className="w-5 h-5 text-slate-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Manual Actions</h3>
+            <p className="text-xs text-slate-500">Manually trigger archive, cleanup, or export</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            onClick={handleTriggerArchive}
+            disabled={isArchiving}
+            className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors disabled:opacity-50 flex flex-col items-center gap-2"
+          >
+            {isArchiving ? (
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+            ) : (
+              <Archive className="w-5 h-5 text-indigo-600" />
+            )}
+            <span className="text-sm font-semibold text-indigo-900">Archive Emails</span>
+            <span className="text-xs text-indigo-600">Move to cold storage</span>
+          </button>
+
+          <button
+            onClick={handleTriggerCleanup}
+            disabled={isCleaning}
+            className="p-4 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors disabled:opacity-50 flex flex-col items-center gap-2"
+          >
+            {isCleaning ? (
+              <Loader2 className="w-5 h-5 animate-spin text-red-600" />
+            ) : (
+              <Trash className="w-5 h-5 text-red-600" />
+            )}
+            <span className="text-sm font-semibold text-red-900">Cleanup Emails</span>
+            <span className="text-xs text-red-600">Delete old emails</span>
+          </button>
+
+          <button
+            onClick={handleExportArchived}
+            disabled={isExporting}
+            className="p-4 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50 flex flex-col items-center gap-2"
+          >
+            {isExporting ? (
+              <Loader2 className="w-5 h-5 animate-spin text-green-600" />
+            ) : (
+              <Download className="w-5 h-5 text-green-600" />
+            )}
+            <span className="text-sm font-semibold text-green-900">Export Archived</span>
+            <span className="text-xs text-green-600">Download CSV</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const UserPreferencesTab: React.FC<UserPreferencesTabProps> = ({ currentUser, showSuccess, showError }) => {
+  const [signatures, setSignatures] = useState<any[]>([]);
+  const [isLoadingSignatures, setIsLoadingSignatures] = useState(false);
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [editingSignature, setEditingSignature] = useState<any | null>(null);
+  const [signatureForm, setSignatureForm] = useState({ name: '', content: '', isDefault: false });
+  const [isSavingSignature, setIsSavingSignature] = useState(false);
+  const [deletingSignatureId, setDeletingSignatureId] = useState<string | null>(null);
+
+  // Display preferences
+  const [displayPreferences, setDisplayPreferences] = useState({
+    layout: 'list', // 'list' | 'grid' | 'compact'
+    density: 'comfortable', // 'comfortable' | 'compact' | 'spacious'
+    emailFormat: 'html', // 'html' | 'plain' | 'rich'
+    showPreview: true,
+    previewLines: 3
+  });
+
+  useEffect(() => {
+    loadSignatures();
+    loadDisplayPreferences();
+  }, []);
+
+  const loadSignatures = async () => {
+    setIsLoadingSignatures(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      if (!userId) return;
+      
+      const response = await apiGetSignatures(userId);
+      setSignatures(response.data || []);
+    } catch (err: any) {
+      console.error('Failed to load signatures:', err);
+    } finally {
+      setIsLoadingSignatures(false);
+    }
+  };
+
+  const loadDisplayPreferences = () => {
+    try {
+      const saved = localStorage.getItem('user_display_preferences');
+      if (saved) {
+        setDisplayPreferences(JSON.parse(saved));
+      }
+    } catch (err) {
+      console.error('Failed to load display preferences:', err);
+    }
+  };
+
+  const saveDisplayPreferences = () => {
+    try {
+      localStorage.setItem('user_display_preferences', JSON.stringify(displayPreferences));
+      showSuccess('Display preferences saved successfully');
+    } catch (err) {
+      showError('Failed to save display preferences');
+    }
+  };
+
+  const handleSaveSignature = async () => {
+    if (!signatureForm.name || !signatureForm.content) {
+      showError('Name and content are required');
+      return;
+    }
+
+    setIsSavingSignature(true);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      if (!userId) {
+        showError('Please log in to save signature');
+        return;
+      }
+
+      if (editingSignature) {
+        await apiUpdateSignature(editingSignature.id, {
+          userId,
+          ...signatureForm
+        });
+        showSuccess('Signature updated successfully');
+      } else {
+        await apiCreateSignature({
+          userId,
+          ...signatureForm
+        });
+        showSuccess('Signature created successfully');
+      }
+
+      setIsSignatureModalOpen(false);
+      setEditingSignature(null);
+      setSignatureForm({ name: '', content: '', isDefault: false });
+      await loadSignatures();
+    } catch (err: any) {
+      showError(err.message || 'Failed to save signature');
+    } finally {
+      setIsSavingSignature(false);
+    }
+  };
+
+  const handleDeleteSignature = async (signatureId: string) => {
+    if (!confirm('Are you sure you want to delete this signature?')) return;
+
+    setDeletingSignatureId(signatureId);
+    try {
+      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+      await apiDeleteSignature(signatureId, userId);
+      showSuccess('Signature deleted successfully');
+      await loadSignatures();
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete signature');
+    } finally {
+      setDeletingSignatureId(null);
+    }
+  };
+
+  const openSignatureModal = (signature?: any) => {
+    if (signature) {
+      setEditingSignature(signature);
+      setSignatureForm({
+        name: signature.name || '',
+        content: signature.content || '',
+        isDefault: signature.isDefault || false
+      });
+    } else {
+      setEditingSignature(null);
+      setSignatureForm({ name: '', content: '', isDefault: false });
+    }
+    setIsSignatureModalOpen(true);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Signature Management */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+              <FileText className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-slate-900">Email Signatures</h3>
+              <p className="text-xs text-slate-500">Manage your email signatures for replies and new emails</p>
+            </div>
+          </div>
+          <button
+            onClick={() => openSignatureModal()}
+            className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Signature
+          </button>
+        </div>
+
+        {isLoadingSignatures ? (
+          <div className="p-8 text-center">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" />
+          </div>
+        ) : signatures.length === 0 ? (
+          <div className="text-center py-8 text-slate-500">
+            <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+            <p className="text-sm font-semibold">No signatures yet</p>
+            <p className="text-xs mt-1">Create your first signature to get started</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {signatures.map((sig) => (
+              <div
+                key={sig.id}
+                className="p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="font-bold text-slate-900">{sig.name}</h4>
+                      {sig.isDefault && (
+                        <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 text-xs font-bold rounded">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className="text-sm text-slate-600 prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: sig.content }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openSignatureModal(sig)}
+                      className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSignature(sig.id)}
+                      disabled={deletingSignatureId === sig.id}
+                      className="p-2 text-slate-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                    >
+                      {deletingSignatureId === sig.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Display Preferences */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+            <Layout className="w-5 h-5 text-slate-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Display Preferences</h3>
+            <p className="text-xs text-slate-500">Customize how content is displayed</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+              Layout Style
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {['list', 'grid', 'compact'].map((layout) => (
+                <button
+                  key={layout}
+                  onClick={() => setDisplayPreferences({ ...displayPreferences, layout })}
+                  className={`p-4 rounded-xl border-2 transition-all ${
+                    displayPreferences.layout === layout
+                      ? 'border-indigo-600 bg-indigo-50'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-slate-900 capitalize">{layout}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+              Density
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {['comfortable', 'compact', 'spacious'].map((density) => (
+                <button
+                  key={density}
+                  onClick={() => setDisplayPreferences({ ...displayPreferences, density })}
+                  className={`p-4 rounded-xl border-2 transition-all ${
+                    displayPreferences.density === density
+                      ? 'border-indigo-600 bg-indigo-50'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-slate-900 capitalize">{density}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={saveDisplayPreferences}
+            className="w-full px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg"
+          >
+            <Save className="w-4 h-4" />
+            Save Display Preferences
+          </button>
+        </div>
+      </div>
+
+      {/* Email Display Format Preferences */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+            <Eye className="w-5 h-5 text-slate-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Email Display Format</h3>
+            <p className="text-xs text-slate-500">Choose how emails are displayed</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+              Email Format
+            </label>
+            <select
+              value={displayPreferences.emailFormat}
+              onChange={(e) => setDisplayPreferences({ ...displayPreferences, emailFormat: e.target.value as any })}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+            >
+              <option value="html">HTML (Rich formatting)</option>
+              <option value="plain">Plain Text</option>
+              <option value="rich">Rich Text</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+            <div>
+              <label className="text-sm font-semibold text-slate-900">Show Email Preview</label>
+              <p className="text-xs text-slate-500 mt-1">Display email preview in list view</p>
+            </div>
+            <button
+              onClick={() => setDisplayPreferences({ ...displayPreferences, showPreview: !displayPreferences.showPreview })}
+              className={`relative w-12 h-6 rounded-full transition-colors ${
+                displayPreferences.showPreview ? 'bg-indigo-600' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                  displayPreferences.showPreview ? 'translate-x-6' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {displayPreferences.showPreview && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Preview Lines
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={displayPreferences.previewLines}
+                onChange={(e) => setDisplayPreferences({ ...displayPreferences, previewLines: parseInt(e.target.value) || 3 })}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+              />
+            </div>
+          )}
+
+          <button
+            onClick={saveDisplayPreferences}
+            className="w-full px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg"
+          >
+            <Save className="w-4 h-4" />
+            Save Email Format Preferences
+          </button>
+        </div>
+      </div>
+
+      {/* Signature Modal */}
+      {isSignatureModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 text-left my-8">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-900">
+                {editingSignature ? 'Edit Signature' : 'Create Signature'}
+              </h3>
+              <button
+                onClick={() => {
+                  setIsSignatureModalOpen(false);
+                  setEditingSignature(null);
+                  setSignatureForm({ name: '', content: '', isDefault: false });
+                }}
+                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Signature Name
+                </label>
+                <input
+                  type="text"
+                  value={signatureForm.name}
+                  onChange={(e) => setSignatureForm({ ...signatureForm, name: e.target.value })}
+                  placeholder="e.g. Professional, Personal"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Signature Content
+                </label>
+                <textarea
+                  value={signatureForm.content}
+                  onChange={(e) => setSignatureForm({ ...signatureForm, content: e.target.value })}
+                  placeholder="Enter your signature (HTML supported)"
+                  rows={8}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm resize-none font-mono"
+                />
+                <p className="text-xs text-slate-500">HTML is supported. Example: &lt;strong&gt;Name&lt;/strong&gt;&lt;br&gt;Title</p>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                <div>
+                  <label className="text-sm font-semibold text-slate-900">Set as Default</label>
+                  <p className="text-xs text-slate-500 mt-1">Use this signature by default when composing emails</p>
+                </div>
+                <button
+                  onClick={() => setSignatureForm({ ...signatureForm, isDefault: !signatureForm.isDefault })}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    signatureForm.isDefault ? 'bg-indigo-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      signatureForm.isDefault ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setIsSignatureModalOpen(false);
+                  setEditingSignature(null);
+                  setSignatureForm({ name: '', content: '', isDefault: false });
+                }}
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSignature}
+                disabled={isSavingSignature || !signatureForm.name || !signatureForm.content}
+                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+              >
+                {isSavingSignature ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {editingSignature ? 'Update' : 'Create'} Signature
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   const { showSuccess, showError } = useToast();
-  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'connections' | 'users'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'connections' | 'users' | 'workspace' | 'preferences'>('profile');
   const [preferences, setPreferences] = useState(DEFAULT_NOTIFICATION_PREFERENCES);
   const [isSyncing, setIsSyncing] = useState(false);
   const [excludedDomains, setExcludedDomains] = useState<any[]>([]);
@@ -395,8 +1195,10 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
           {[
             { id: 'profile', label: 'Profile Settings', icon: <User className="w-4 h-4" /> },
             { id: 'notifications', label: 'Notifications', icon: <Bell className="w-4 h-4" /> },
+            { id: 'preferences', label: 'User Preferences', icon: <SettingsIcon className="w-4 h-4" /> },
             { id: 'connections', label: 'Connections & Sync', icon: <Link2 className="w-4 h-4" /> },
             { id: 'users', label: 'Team Management', icon: <Users className="w-4 h-4" /> },
+            { id: 'workspace', label: 'Workspace Settings', icon: <Database className="w-4 h-4" /> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -856,6 +1658,22 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
               </div>
             </div>
           )}
+
+          {activeTab === 'preferences' && (
+            <UserPreferencesTab 
+              currentUser={currentUser}
+              showSuccess={showSuccess}
+              showError={showError}
+            />
+          )}
+
+          {activeTab === 'workspace' && (
+            <WorkspaceSettingsTab 
+              currentUser={currentUser}
+              showSuccess={showSuccess}
+              showError={showError}
+            />
+          )}
           
           {/* Other tabs remain largely the same, integrated with consistent design */}
         </div>
@@ -899,9 +1717,17 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
                   onChange={e => setUserFormData({...userFormData, role: e.target.value as any})} 
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                 >
-                  <option value="Admin">Admin</option>
-                  <option value="User">User</option>
+                  <option value="Viewer">Viewer - Read-only access</option>
+                  <option value="Collaborator">Collaborator - Can comment and draft</option>
+                  <option value="Admin">Admin - Full access</option>
+                  <option value="User">User (Legacy - maps to Collaborator)</option>
                 </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {userFormData.role === 'Viewer' && 'Read-only access to shared inbox'}
+                  {userFormData.role === 'Collaborator' && 'Can add notes, draft responses, manage own templates'}
+                  {userFormData.role === 'Admin' && 'Full configuration access, can assign emails, send, manage accounts'}
+                  {userFormData.role === 'User' && 'Legacy role - will be treated as Collaborator'}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Job Title</label>
