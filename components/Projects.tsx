@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, 
   ChevronRight, Loader2, Edit2, Trash2, X, AlertTriangle, CheckSquare, 
@@ -7,9 +7,20 @@ import {
   FileText, Image as ImageIcon, Eye, Download, Mail, History, ExternalLink
 } from 'lucide-react';
 import { Project, Company, User as UserType, Task } from '../types';
-import { apiGetProjects, apiGetCompanies, apiGetUsers, apiGetTasks, apiUpdateProject, apiDeleteProject, apiUpdateTask, apiGetActivityFeed } from '../utils/api';
+import { apiUpdateTask } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
+import { 
+  useProjects, 
+  useCompanies, 
+  useUsers, 
+  useTasks, 
+  useProjectActivities,
+  useUpdateProject, 
+  useDeleteProject, 
+  useArchiveProject,
+  useBulkDeleteProjects
+} from '../hooks/useProjectsData';
 
 interface ProjectsProps {
   onNavigate: (tab: string) => void;
@@ -19,74 +30,29 @@ interface ProjectsProps {
 
 const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, currentUser }) => {
   const { showSuccess, showError } = useToast();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [users, setUsers] = useState<UserType[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
+  
+  // React Query hooks for data fetching
+  const { data: projects = [], isLoading: isLoadingProjects } = useProjects(userId);
+  const { data: companies = [] } = useCompanies();
+  const { data: users = [] } = useUsers();
+  const { data: tasks = [] } = useTasks(userId);
+  
+  // Project detail view state
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const { data: projectActivities = [], isLoading: isLoadingActivities } = useProjectActivities(selectedProject?.id || null);
+  
+  // UI state
   const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
-
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      console.log('[PROJECTS] Fetching projects for userId:', userId);
-      const [projRes, compRes, userRes, taskRes] = await Promise.all([
-        apiGetProjects(userId),
-        apiGetCompanies(),
-        apiGetUsers(),
-        apiGetTasks(userId)
-      ]);
-      const projectsData = projRes.data || [];
-      console.log('[PROJECTS] Fetched projects:', projectsData.length, projectsData);
-      setProjects(projectsData);
-      setCompanies(compRes.data || []);
-      setUsers(userRes.data || []);
-      setTasks(taskRes.data || []);
-    } catch (err: any) { 
-      console.error('[PROJECTS] Failed to load projects:', err);
-      showError('Failed to load projects'); 
-    }
-    finally { setIsLoading(false); }
-  };
-
-  useEffect(() => { fetchData(); }, [currentUser]);
-
-  useEffect(() => {
-    const handleRefresh = () => {
-      console.log('[PROJECTS] Refresh event received, fetching data...');
-      // Use a small delay to ensure backend write is complete
-      setTimeout(() => {
-        fetchData();
-      }, 300);
-    };
-    window.addEventListener('refresh-projects', handleRefresh);
-    return () => window.removeEventListener('refresh-projects', handleRefresh);
-  }, [currentUser]); // Include currentUser to ensure fetchData has latest context
-
-  // Fetch activity feed for project
-  const fetchProjectActivities = async () => {
-    if (!selectedProject) return;
-    setIsLoadingActivities(true);
-    try {
-      const res = await apiGetActivityFeed('project', selectedProject.id);
-      setProjectActivities(res?.data || []);
-    } catch (err: any) {
-      console.error('[PROJECTS] Failed to fetch project activities:', err);
-      setProjectActivities([]);
-    } finally {
-      setIsLoadingActivities(false);
-    }
-  };
-
-  // Fetch activities when project is selected
-  useEffect(() => {
-    if (selectedProject) {
-      fetchProjectActivities();
-    } else {
-      setProjectActivities([]);
-    }
-  }, [selectedProject?.id]);
+  
+  // Loading state (true if any query is loading)
+  const isLoading = isLoadingProjects;
+  
+  // Mutation hooks
+  const updateProjectMutation = useUpdateProject();
+  const deleteProjectMutation = useDeleteProject();
+  const archiveProjectMutation = useArchiveProject();
+  const bulkDeleteMutation = useBulkDeleteProjects();
 
   const calculateProjectProgress = (projectId: string): number => {
     const projectTasks = tasks.filter(task => task.projectId === projectId);
@@ -105,8 +71,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   const [isBulkDeletingProjects, setIsBulkDeletingProjects] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   
-  // Project detail view state
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // Project detail view state (remaining state, selectedProject moved to top)
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
@@ -121,22 +86,20 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     endDate: ''
   });
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
-  
-  // Activity feed state
-  const [projectActivities, setProjectActivities] = useState<any[]>([]);
-  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   const handleArchiveProject = async (id: string) => {
     const project = projects.find(p => p.id === id);
     if (!project) return;
     setArchivingProjectId(id);
     try {
-      await apiUpdateProject(id, { archived: viewMode === 'active' });
-      setProjects(prev => prev.map(p => p.id === id ? { ...p, archived: viewMode === 'active' } : p));
+      await archiveProjectMutation.mutateAsync({ 
+        id, 
+        isArchived: viewMode === 'active' 
+      });
       setArchiveConfirmProject(null);
-      showSuccess(viewMode === 'active' ? 'Project archived' : 'Project restored');
-    } catch (err) { 
-      showError('Failed to update project status'); 
+      if (selectedProject?.id === id) {
+        setSelectedProject(null);
+      }
     } finally {
       setArchivingProjectId(null);
     }
@@ -145,12 +108,11 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   const handleDeleteProject = async (id: string) => {
     setDeletingProjectId(id);
     try {
-      await apiDeleteProject(id);
-      setProjects(prev => prev.filter(p => p.id !== id));
+      await deleteProjectMutation.mutateAsync(id);
       setDeleteConfirmProject(null);
-      showSuccess('Project deleted entirely');
-    } catch (err) { 
-      showError('Deletion failed'); 
+      if (selectedProject?.id === id) {
+        setSelectedProject(null);
+      }
     } finally {
       setDeletingProjectId(null);
     }
@@ -169,8 +131,7 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     setIsBulkDeletingProjects(true);
     try {
       const targetIds = [...selectedProjectIds];
-      await Promise.all(targetIds.map(id => apiDeleteProject(id)));
-      setProjects(prev => prev.filter(p => !targetIds.includes(p.id)));
+      await bulkDeleteMutation.mutateAsync(targetIds);
       setSelectedProjectIds([]);
       setBulkDeleteConfirmOpen(false);
       if (selectedProject && targetIds.includes(selectedProject.id)) {
@@ -232,19 +193,20 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
         companyId: editFormData.companyId && editFormData.companyId.trim() !== '' ? editFormData.companyId : null
       };
 
-      await apiUpdateProject(selectedProject.id, updateData);
+      await updateProjectMutation.mutateAsync({ 
+        id: selectedProject.id, 
+        data: updateData 
+      });
       
+      // Update local state to reflect changes immediately
       const updatedProject = {
         ...selectedProject,
         ...updateData
       };
-      
-      setProjects(prev => prev.map(p => p.id === selectedProject.id ? updatedProject : p));
       setSelectedProject(updatedProject);
       setIsEditingProject(false);
-      showSuccess('Project updated successfully');
     } catch (err: any) {
-      showError(err.message || 'Failed to update project');
+      // Error already handled by mutation
     } finally {
       setIsUpdatingProject(false);
     }
@@ -255,19 +217,20 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
     
     setIsUpdatingProject(true);
     try {
-      await apiUpdateProject(selectedProject.id, { status: newStatus });
+      await updateProjectMutation.mutateAsync({ 
+        id: selectedProject.id, 
+        data: { status: newStatus } 
+      });
       
+      // Update local state to reflect changes immediately
       const updatedProject = {
         ...selectedProject,
         status: newStatus
       };
-      
-      setProjects(prev => prev.map(p => p.id === selectedProject.id ? updatedProject : p));
       setSelectedProject(updatedProject);
       setEditFormData(prev => ({ ...prev, status: newStatus }));
-      showSuccess(`Project status updated to ${newStatus}`);
     } catch (err: any) {
-      showError(err.message || 'Failed to update project status');
+      // Error already handled by mutation
     } finally {
       setIsUpdatingProject(false);
     }
@@ -297,10 +260,13 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
 
   // Filter projects: show archived if viewMode is 'archived', otherwise show non-archived
   // Treat undefined/null archived as false (not archived)
-  const filteredProjects = projects.filter(p => {
-    const isArchived = p.archived === true;
-    return viewMode === 'archived' ? isArchived : !isArchived;
-  });
+  // Memoize filtered projects for performance
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      const isArchived = p.archived === true;
+      return viewMode === 'archived' ? isArchived : !isArchived;
+    });
+  }, [projects, viewMode]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-24 relative">

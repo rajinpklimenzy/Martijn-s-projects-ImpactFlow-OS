@@ -117,9 +117,13 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   // WebSocket connection for real-time notifications
+  // TEMPORARILY DISABLED: Backend /ws/notifications endpoint not implemented yet
   useEffect(() => {
     const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
     if (!storedUser?.id) return;
+
+    // TODO: Re-enable when backend WebSocket notification endpoint is implemented
+    return; // Disabled
 
     // Import WebSocket client dynamically
     import('./utils/notificationWebSocket').then(({ getNotificationWebSocket, disconnectNotificationWebSocket }) => {
