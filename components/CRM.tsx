@@ -717,10 +717,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 relative pb-24">
+    <div className="h-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">CRM</h1>
+          <h1 className="text-2xl font-bold tracking-tight">CRM</h1>
           <div className="flex gap-4 mt-2">
             <button 
               onClick={() => {
@@ -749,17 +749,22 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         </button>
       </div>
 
-      <div className="relative group">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
-        <input type="text" placeholder={`Search ${view}...`} value={localSearchQuery} onChange={(e) => setLocalSearchQuery(e.target.value)} className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
-      </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col gap-6 w-full max-w-6xl mx-auto">
+        {/* Search Bar */}
+        <div className="w-full">
+          <div className="relative group w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+            <input type="text" placeholder={`Search ${view}...`} value={localSearchQuery} onChange={(e) => setLocalSearchQuery(e.target.value)} className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
+          </div>
+        </div>
 
-      {/* Select All Header */}
-      {!isLoading && (
+        {/* Select All Header */}
         <div className="flex items-center gap-3 pb-2">
           <input 
             type="checkbox" 
             className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+            disabled={isLoading}
             checked={
               view === 'companies' 
                 ? filteredCompanies.length > 0 && selectedCompanyIds.length === filteredCompanies.length && filteredCompanies.every(c => selectedCompanyIds.includes(c.id))
@@ -771,22 +776,19 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             Select All {view === 'companies' ? 'Companies' : 'Contacts'}
           </span>
         </div>
-      )}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-      ) : (
-        <>
-          {/* Company Filters Button */}
-          {view === 'companies' && (
-            <div className="flex items-center justify-between mb-4">
+        {/* Filters and Count Section */}
+        <div className="flex items-center justify-between mb-4">
+          {view === 'companies' ? (
+            <>
               <button
                 onClick={() => setIsFilterPopupOpen(true)}
+                disabled={isLoading}
                 className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center gap-2 ${
                   hasActiveFilters
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                     : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300'
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Filter className="w-4 h-4" />
                 <span className="text-sm font-bold">Filters</span>
@@ -797,10 +799,18 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 )}
               </button>
               <div className="text-xs text-slate-400 font-bold">
-                Showing {filteredCompanies.length} of {companies.length} companies
+                {isLoading ? 'Loading...' : `Showing ${filteredCompanies.length} of ${companies.length} companies`}
               </div>
-            </div>
+            </>
+          ) : (
+            <>
+              <div></div>
+              <div className="text-xs text-slate-400 font-bold">
+                {isLoading ? 'Loading...' : `Showing ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`}
+              </div>
+            </>
           )}
+        </div>
 
           {/* Filter Popup Modal */}
           {isFilterPopupOpen && view === 'companies' && (
@@ -974,18 +984,26 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {view === 'companies' ? (
-              filteredCompanies.map(company => {
+        {/* Content Grid - Show loader only in this area */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[600px] w-full">
+            <div className="col-span-full flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[600px] w-full items-start">
+              {view === 'companies' ? (
+                filteredCompanies.map(company => {
               const owner = users.find(u => u.id === company.ownerId);
               const isSelected = selectedCompanyIds.includes(company.id);
               return (
                 <div 
                   key={company.id} 
                   onClick={() => setSelectedCompany(company)} 
-                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : company.isTargetAccount ? 'border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group flex flex-col h-full relative`}
+                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : company.isTargetAccount ? 'border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group flex flex-col relative`}
                 >
-                  {company.isTargetAccount && <div className="absolute -top-3 left-6 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black uppercase rounded shadow-sm flex items-center gap-1"><Target className="w-2.5 h-2.5" /> Target Account</div>}
+                  {company.isTargetAccount && <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black uppercase rounded shadow-sm flex items-center gap-1 whitespace-nowrap"><Target className="w-2.5 h-2.5" /> Target Account</div>}
                   <div className="absolute top-4 right-4" onClick={(e) => e.stopPropagation()}>
                     <input 
                       type="checkbox" 
@@ -1001,7 +1019,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       <p className="text-slate-500 text-xs font-bold uppercase">{company.industry}</p>
                     </div>
                   </div>
-                  <div className="space-y-3 mb-6 flex-1 text-sm text-slate-600">
+                  <div className="space-y-3 mb-6 text-sm text-slate-600">
                     <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-slate-400" /><span className="truncate">{company.website || 'No website'}</span></div>
                     <div className="flex items-center gap-2"><User className="w-4 h-4 text-slate-400" /><span className="truncate font-medium">{owner?.name || 'Unassigned'}</span></div>
                   </div>
@@ -1018,10 +1036,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               const isSelected = selectedContactIds.includes(contact.id);
               return (
                 <div 
-                  key={contact.id} 
-                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all group shadow-sm relative`}
+                  key={contact.id}
+                  onClick={() => setSelectedContact(contact)} 
+                  className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm relative flex flex-col`}
                 >
-                  <div className="absolute top-4 right-4">
+                  <div className="absolute top-4 right-4" onClick={(e) => e.stopPropagation()}>
                     <input 
                       type="checkbox" 
                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
@@ -1040,17 +1059,27 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /><span className="truncate text-indigo-600">{contact.email}</span></div>
                     <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /><span>{contact.phone}</span></div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setSelectedContact(contact)} className="flex-1 py-2.5 bg-slate-50 text-slate-600 text-[10px] font-black rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-colors uppercase tracking-widest">Open Profile</button>
-                    {contact.linkedin && <a href={contact.linkedin} target="_blank" rel="noreferrer" className="px-4 py-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"><Linkedin className="w-4 h-4" /></a>}
+                  <div className="pt-4 border-t border-slate-100 flex gap-2">
+                    {contact.linkedin && (
+                      <a 
+                        href={contact.linkedin} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 py-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
+                      >
+                        <Linkedin className="w-4 h-4" />
+                        LinkedIn
+                      </a>
+                    )}
                   </div>
                 </div>
               );
             })
-          )}
+        )}
           </div>
-        </>
-      )}
+        )}
+      </div>
 
       {/* Bulk Action Bar */}
       {((view === 'companies' && selectedCompanyIds.length > 0) || (view === 'contacts' && selectedContactIds.length > 0)) && (

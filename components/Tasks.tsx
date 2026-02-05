@@ -377,7 +377,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     // Create Excel template using xlsx with future date
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + 30); // 30 days from now
-    const futureDateStr = futureDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+    // Format as DD-M-YYYY (day-month-year format)
+    const day = futureDate.getDate();
+    const month = futureDate.getMonth() + 1; // getMonth() is 0-indexed
+    const year = futureDate.getFullYear();
+    const futureDateStr = `${day}-${month}-${year}`; // Format as "15-2-2026" style
     
     const ws = XLSX.utils.aoa_to_sheet([
       ['Title', 'Task Category', 'Due Date', 'Priority (Low/Medium/High)', 'Description', 'Owner (Name or Email)'],
@@ -469,6 +473,19 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             if (/^\d{4}-\d{2}-\d{2}$/.test(dueDateRaw)) {
               dueDate = dueDateRaw;
               parsedDate = new Date(0); // skip further parsing
+            }
+            // DD-M-YYYY or DD-MM-YYYY or D-M-YYYY format (day-month-year with hyphen)
+            else if (dueDateRaw.includes('-') && /^\d{1,2}-\d{1,2}-\d{4}$/.test(dueDateRaw)) {
+              const parts = dueDateRaw.split('-').map(p => p.trim());
+              if (parts.length === 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const year = parseInt(parts[2], 10);
+                if (!isNaN(day) && !isNaN(month) && !isNaN(year) && day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+                  parsedDate = new Date(year, month, day);
+                  console.log(`[IMPORT] Parsed hyphen-separated date "${dueDateRaw}" as day-month-year -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+                }
+              }
             }
             // DD/MM/YYYY or DD/MM/YY format
             else if (dueDateRaw.includes('/')) {
@@ -670,7 +687,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           sampleRowKeys: sampleRow ? Object.keys(sampleRow) : [],
           parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
         });
-        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (YYYY-MM-DD, February 15 2026, DD/MM/YYYY, or "Ongoing" for no date)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
+        showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (15-2-2026, DD-MM-YYYY, YYYY-MM-DD, February 15 2026, or "Ongoing" for no date)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
         setIsImporting(false);
         return;
       }
@@ -1712,7 +1729,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          </div>
+        </div>
       ) : filteredTasks.length === 0 ? (
         <div className="py-20 bg-white rounded-3xl border border-dashed border-slate-200 text-center">
           <Box className="w-12 h-12 text-slate-200 mx-auto mb-4" />
@@ -2196,7 +2217,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                            <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> Column: Due Date *
                            </p>
-                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">e.g. YYYY-MM-DD or February 15, 2026. Use &quot;Ongoing&quot; for no date.</p>
+                           <p className="text-[10px] text-slate-500 font-medium ml-3.5">e.g. 15-2-2026, YYYY-MM-DD, or February 15, 2026. Use &quot;Ongoing&quot; for no date.</p>
                          </div>
                          <div className="space-y-1">
                            <p className="text-xs font-black text-slate-700 uppercase tracking-tighter flex items-center gap-2">
