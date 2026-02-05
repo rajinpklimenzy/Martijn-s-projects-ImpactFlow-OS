@@ -490,6 +490,7 @@ export const apiUpdateSyncConfiguration = (data: { userId: string; syncScopeDays
   apiFetch('/shared-inbox/sync-config', { method: 'PUT', body: JSON.stringify(data) });
 
 /** Gmail Labels */
+
 export const apiGetGmailLabels = (userId: string) => 
   apiFetch(`/shared-inbox/labels?userId=${userId}`);
 export const apiCreateGmailLabel = (data: { userId: string; accountEmail: string; labelName: string; messageListVisibility?: string; labelListVisibility?: string }) => 
