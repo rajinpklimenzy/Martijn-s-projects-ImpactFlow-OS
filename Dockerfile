@@ -6,7 +6,12 @@ WORKDIR /app
 # Copy dependency files and .npmrc so install uses legacy-peer-deps
 COPY package.json package-lock.json .npmrc* ./
 
+# Remove package-lock.json to force npm to regenerate it with correct platform-specific optional deps
+# This fixes the @rollup/rollup-linux-x64-musl issue (npm bug with optional dependencies)
+RUN rm -f package-lock.json
+
 # Install with legacy-peer-deps to satisfy react-quill peer dependency
+# This will regenerate package-lock.json with correct Alpine Linux (musl) optional dependencies
 RUN npm install --legacy-peer-deps
 
 COPY . .
