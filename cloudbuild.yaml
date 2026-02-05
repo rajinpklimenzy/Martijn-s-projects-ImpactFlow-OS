@@ -1,18 +1,33 @@
 # Build with Dockerfile (uses npm install --legacy-peer-deps) and push to Artifact Registry.
 # In your Cloud Build trigger, set "Cloud Build configuration file" to: cloudbuild.yaml
 #
+# IMPORTANT: Ensure the Artifact Registry repository exists:
+#   gcloud artifacts repositories create ${REPO_NAME} \
+#     --repository-format=docker \
+#     --location=${LOCATION} \
+#     --project=${PROJECT_ID}
+#
 # Substitution variables:
 # - $PROJECT_ID, $SHORT_SHA, $LOCATION, $REPO_NAME are built-in (auto-provided)
 # - If your Artifact Registry repo name differs from GitHub repo name, replace ${REPO_NAME} 
 #   with ${_REPOSITORY} and set _REPOSITORY in trigger substitutions
 steps:
+  # Build with local tag first to avoid registry authentication during build
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
+      - 'impactflow-os:${SHORT_SHA}'
       - '.'
 
+  # Tag with Artifact Registry path
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'tag'
+      - 'impactflow-os:${SHORT_SHA}'
+      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
+
+  # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
