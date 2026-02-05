@@ -1,36 +1,41 @@
+
 {
   "name": "impactflow-os",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "server": "tsx server.ts",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "serve": "npx serve -s build -l 8080",
+    "server": "tsx server.ts",
+    "start": "tsx server.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.90.19",
-    "cors": "^2.8.5",
-    "dotenv": "^16.6.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lucide-react": "^0.460.0",
+    "recharts": "^2.13.0",
     "express": "^5.2.1",
+    "cors": "^2.8.5",
     "firebase-admin": "^13.6.0",
-    "jspdf": "^4.0.0",
-    "lucide-react": "0.460.0",
-    "path": "^0.12.7",
-    "quill": "^2.0.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-quill": "^2.0.0",
-    "recharts": "2.13.0",
     "resend": "^6.7.0",
-    "xlsx": "^0.18.5"
+    "dotenv": "^17.2.3",
+    "jspdf": "^2.5.1",
+    "@tanstack/react-query": "^5.62.7",
+    "xlsx": "^0.18.5",
+    "quill": "^2.0.3",
+    "react-quill": "^2.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.1",
+    "tsx": "^4.19.2"
   }
 }

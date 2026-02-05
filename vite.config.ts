@@ -6,14 +6,14 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     server: {
-      port: 3000,
+      port: 8080,
       host: '0.0.0.0',
       fs: {
         strict: false,
       },
     },
     preview: {
-      port: 3000,
+      port: 8080,
     },
     plugins: [
       react(),
@@ -65,7 +65,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
-      // Ensure proper SPA routing in production build
+      outDir: 'build',
       rollupOptions: {
         input: {
           main: path.resolve(__dirname, 'index.html'),

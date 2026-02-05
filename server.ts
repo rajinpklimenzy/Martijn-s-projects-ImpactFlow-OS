@@ -167,7 +167,7 @@ apiRouter.get('/me', async (req, res) => {
 
 // Determine the static directory (dist for production, current dir for dev)
 const isProduction = process.env.NODE_ENV === 'production';
-const staticDir = isProduction ? path.resolve(process.cwd(), 'dist') : process.cwd();
+const staticDir = isProduction ? path.resolve(process.cwd(), 'build') : process.cwd();
 const indexPath = path.resolve(staticDir, 'index.html');
 
 // Health check endpoint
