@@ -1,0 +1,16 @@
+# Build with Dockerfile (uses npm install --legacy-peer-deps) and push to Artifact Registry.
+# Use this file in your Cloud Run trigger: set "Cloud Build configuration file" to
+# impactflow-os/cloudbuild.yaml (if repo root is parent) or cloudbuild.yaml (if repo root is here).
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
+images:
+  - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
