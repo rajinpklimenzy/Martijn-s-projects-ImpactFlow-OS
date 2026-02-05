@@ -469,7 +469,7 @@ const App: React.FC = () => {
             }`}
           >
             <div
-              className={`h-full ${activeTab === 'inbox' ? 'min-h-0 flex flex-col' : 'max-w-7xl mx-auto'}`}
+              className={`h-full ${activeTab === 'inbox' ? 'min-h-0 flex flex-col max-w-7xl mx-auto w-full' : 'max-w-7xl mx-auto'}`}
             >
               {renderContent()}
             </div>
