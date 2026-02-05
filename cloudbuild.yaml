@@ -17,9 +17,7 @@ steps:
 images:
   - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
 
-# Required when the trigger uses a custom service account (option b).
-# IMPORTANT: In the trigger, set "Build configuration" to "Cloud Build configuration file (yaml or json)"
-# and set the path to: impactflow-os/cloudbuild.yaml (or cloudbuild.yaml if repo root is impactflow-os).
-# If the trigger is set to "Dockerfile", this file is never used and the error will persist.
+# Required when the trigger uses a custom service account. Satisfies (b) and (c).
 options:
   defaultLogsBucketBehavior: 'REGIONAL_USER_OWNED_BUCKET'
+  logging: 'CLOUD_LOGGING_ONLY'
