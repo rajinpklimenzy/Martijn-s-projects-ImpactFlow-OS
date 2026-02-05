@@ -52,7 +52,7 @@ const Integrations: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">Integrations</h1>
-          <p className="text-slate-500 text-sm font-medium">Connect your favorite tools to the ImpactFlow OS</p>
+          <p className="text-slate-500 text-sm font-medium">Connect your favorite tools to the ImpactFlow OS .</p>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-100">
           <ShieldCheck className="w-4 h-4" /> Secure Enterprise Sync
