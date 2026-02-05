@@ -17,7 +17,8 @@ steps:
 images:
   - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
 
-# Required when the trigger uses a custom service account. Satisfies (b) and (c).
+# Required when the trigger uses a custom service account (satisfies option c).
+# IMPORTANT: The trigger MUST be set to "Cloud Build configuration file" (not "Dockerfile")
+# and the path must be: impactflow-os/cloudbuild.yaml
 options:
-  defaultLogsBucketBehavior: 'REGIONAL_USER_OWNED_BUCKET'
   logging: 'CLOUD_LOGGING_ONLY'
