@@ -1,16 +1,22 @@
 # Build with Dockerfile (uses npm install --legacy-peer-deps) and push to Artifact Registry.
 # In your Cloud Build trigger, set "Cloud Build configuration file" to: cloudbuild.yaml
 #
-# IMPORTANT: Ensure the Artifact Registry repository exists:
-#   gcloud artifacts repositories create ${REPO_NAME} \
+# IMPORTANT: Ensure the Artifact Registry repository exists before running this build!
+# Create it with:
+#   gcloud artifacts repositories create docker-repo \
 #     --repository-format=docker \
 #     --location=${LOCATION} \
 #     --project=${PROJECT_ID}
 #
 # Substitution variables:
-# - $PROJECT_ID, $SHORT_SHA, $LOCATION, $REPO_NAME are built-in (auto-provided)
-# - If your Artifact Registry repo name differs from GitHub repo name, replace ${REPO_NAME} 
-#   with ${_REPOSITORY} and set _REPOSITORY in trigger substitutions
+# - $PROJECT_ID, $SHORT_SHA are built-in (auto-provided)
+# - $_ARTIFACT_REPO: Artifact Registry repository name (default: "docker-repo")
+# - $_LOCATION: Artifact Registry location/region (default: "us-west1")
+#   Set these in your Cloud Build trigger's "Substitution variables" section
+substitutions:
+  _ARTIFACT_REPO: 'docker-repo'
+  _LOCATION: 'us-west1'
+
 steps:
   # Build with local tag first to avoid registry authentication during build
   - name: 'gcr.io/cloud-builders/docker'
@@ -25,16 +31,16 @@ steps:
     args:
       - 'tag'
       - 'impactflow-os:${SHORT_SHA}'
-      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/impactflow-os:${SHORT_SHA}'
 
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/impactflow-os:${SHORT_SHA}'
 
 images:
-  - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
+  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/impactflow-os:${SHORT_SHA}'
 
 # Required when the trigger uses a custom service account (satisfies option c).
 # IMPORTANT: The trigger MUST be set to "Cloud Build configuration file" (not "Dockerfile")
