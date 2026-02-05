@@ -17,5 +17,7 @@ steps:
 images:
   - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
 
+# Required when the trigger uses a custom service account (satisfies logging requirement)
 options:
   logging: CLOUD_LOGGING_ONLY
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
