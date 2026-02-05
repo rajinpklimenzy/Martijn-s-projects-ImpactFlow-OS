@@ -1,20 +1,25 @@
 # Build with Dockerfile (uses npm install --legacy-peer-deps) and push to Artifact Registry.
 # In your Cloud Build trigger, set "Cloud Build configuration file" to: cloudbuild.yaml
+#
+# Substitution variables:
+# - $PROJECT_ID, $SHORT_SHA, $LOCATION, $REPO_NAME are built-in (auto-provided)
+# - If your Artifact Registry repo name differs from GitHub repo name, replace ${REPO_NAME} 
+#   with ${_REPOSITORY} and set _REPOSITORY in trigger substitutions
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
+      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
+      - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
 
 images:
-  - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPOSITORY}/impactflow-os:${SHORT_SHA}'
+  - '${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/impactflow-os:${SHORT_SHA}'
 
 # Required when the trigger uses a custom service account (satisfies option c).
 # IMPORTANT: The trigger MUST be set to "Cloud Build configuration file" (not "Dockerfile")
