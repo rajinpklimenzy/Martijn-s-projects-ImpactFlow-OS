@@ -362,12 +362,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       
       const updatedNotes = [...(selectedCompany.notes || []), newNote];
       
-      await apiUpdateCompany(selectedCompany.id, { notes: updatedNotes });
+      await updateCompanyMutation.mutateAsync({ 
+        id: selectedCompany.id, 
+        updates: { notes: updatedNotes } 
+      });
       
       setSelectedCompany({ ...selectedCompany, notes: updatedNotes });
-      setCompanies(prev => prev.map(c => 
-        c.id === selectedCompany.id ? { ...c, notes: updatedNotes } : c
-      ));
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
       
       // Send notifications
       const mentionedUserIds = extractMentionedUsers(companyNoteText);
@@ -407,8 +408,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
       const updatedNotes = selectedCompany.notes?.filter(note => note.id !== companyNoteToDelete) || [];
 
-      await apiUpdateCompany(selectedCompany.id, {
-        notes: updatedNotes
+      await updateCompanyMutation.mutateAsync({ 
+        id: selectedCompany.id, 
+        updates: { notes: updatedNotes } 
       });
 
       setSelectedCompany({
@@ -416,11 +418,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         notes: updatedNotes
       });
 
-      setCompanies(prev => prev.map(c => 
-        c.id === selectedCompany.id 
-          ? { ...c, notes: updatedNotes } 
-          : c
-      ));
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
 
       showSuccess('Note deleted successfully');
       setCompanyNoteToDelete(null);
@@ -492,12 +490,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       
       const updatedNotes = [...(selectedContact.notes || []), newNote];
       
-      await apiUpdateContact(selectedContact.id, { notes: updatedNotes });
+      await updateContactMutation.mutateAsync({ 
+        id: selectedContact.id, 
+        updates: { notes: updatedNotes } 
+      });
       
       setSelectedContact({ ...selectedContact, notes: updatedNotes });
-      setContacts(prev => prev.map(c => 
-        c.id === selectedContact.id ? { ...c, notes: updatedNotes } : c
-      ));
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
       
       // Send notifications
       const mentionedUserIds = extractMentionedUsers(contactNoteText);
@@ -537,8 +536,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
       const updatedNotes = selectedContact.notes?.filter(note => note.id !== contactNoteToDelete) || [];
 
-      await apiUpdateContact(selectedContact.id, {
-        notes: updatedNotes
+      await updateContactMutation.mutateAsync({ 
+        id: selectedContact.id, 
+        updates: { notes: updatedNotes } 
       });
 
       setSelectedContact({
@@ -546,11 +546,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         notes: updatedNotes
       });
 
-      setContacts(prev => prev.map(c => 
-        c.id === selectedContact.id 
-          ? { ...c, notes: updatedNotes } 
-          : c
-      ));
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
 
       showSuccess('Note deleted successfully');
       setContactNoteToDelete(null);
