@@ -46,8 +46,11 @@ import {
   FileText,
   CheckSquare,
   Link as LinkIcon,
+  Ban,
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSharedInboxEmails, useSharedInboxSenders, useSyncSharedInbox, sharedInboxKeys } from '../hooks/useSharedInboxEmails';
 import {
   apiSyncSharedInbox,
   apiGetSharedInboxEmails,
@@ -114,6 +117,9 @@ import {
   apiSaveDraft,
   apiLoadGmailDrafts,
   apiScheduleSendEmail,
+  apiGetExcludedDomains,
+  apiAddExcludedDomain,
+  apiRemoveExcludedDomain,
 } from '../utils/api';
 import ScheduleMeetingModal from './ScheduleMeetingModal';
 import { ImageWithFallback } from './common';
@@ -259,6 +265,7 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
 
 const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const { showSuccess, showError } = useToast();
+  const queryClient = useQueryClient();
   const currentUser = propUser || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user_data') || 'null') : null);
   const userId = currentUser?.id;
   const userRole = currentUser?.role || 'Viewer';
@@ -323,21 +330,16 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
-  const [emails, setEmails] = useState<SharedInboxEmail[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalEmails, setTotalEmails] = useState(0);
   const PAGE_SIZE = 50;
   const [search, setSearch] = useState('');
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   // Advanced filters (sent to API)
   const [filterFrom, setFilterFrom] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
+  const [filterSubjectOperator, setFilterSubjectOperator] = useState<'contains' | 'equals' | 'starts' | 'ends'>('contains');
   const [filterHasAttachment, setFilterHasAttachment] = useState<boolean | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
@@ -345,8 +347,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [filterIsStarred, setFilterIsStarred] = useState<boolean | undefined>(undefined);
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
-  const [senders, setSenders] = useState<Array<{ email: string; name: string }>>([]);
   const [senderDropdownOpen, setSenderDropdownOpen] = useState(false);
+  
+  // Use React Query for senders
+  const { data: senders = [] } = useSharedInboxSenders(userId, showAdvancedSearch ? 150 : undefined);
   const [savedSearches, setSavedSearches] = useState<Array<{ id: string; name: string; filters: SharedInboxFilters & { search?: string } }>>([]);
   const [showSaveSearchModal, setShowSaveSearchModal] = useState(false);
   const [savedSearchName, setSavedSearchName] = useState('');
@@ -442,6 +446,13 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     description?: string;
   } | null>(null);
   const [scheduleMeetingEmailId, setScheduleMeetingEmailId] = useState<string | null>(null);
+  
+  // Excluded domains state
+  const [excludedDomains, setExcludedDomains] = useState<Array<{ id: string; domain: string; createdAt?: string }>>([]);
+  const [newExcludedDomain, setNewExcludedDomain] = useState('');
+  const [isLoadingExcludedDomains, setIsLoadingExcludedDomains] = useState(false);
+  const [isAddingExcludedDomain, setIsAddingExcludedDomain] = useState(false);
+  const [showExcludedDomainsModal, setShowExcludedDomainsModal] = useState(false);
   
   // Compose/Reply state
   const [showComposeModal, setShowComposeModal] = useState(false);
@@ -559,74 +570,82 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     return result;
   }, []);
 
-  const loadEmails = useCallback(async (silent = false, page = 0, append = false) => {
-    if (!userId) return;
-    if (!silent && !append) {
-      setLoading(true);
-      setError(null);
+  // Build filters object from state
+  const filters = useMemo<SharedInboxFilters>(() => {
+    const parsed = parseGmailSearchSyntax(search);
+    const filterObj: SharedInboxFilters = {};
+    
+    if (parsed.searchText) filterObj.search = parsed.searchText;
+    if (filterStatus) filterObj.status = filterStatus;
+    const fromVal = parsed.from ?? filterFrom;
+    if (fromVal) filterObj.from = fromVal;
+    const subjectVal = parsed.subject ?? filterSubject;
+    if (subjectVal) {
+      filterObj.subject = subjectVal;
+      (filterObj as any).subjectOperator = filterSubjectOperator;
     }
-    if (append) {
-      setLoadingMore(true);
-    }
-    try {
-      const filters: SharedInboxFilters = {};
-      const parsed = parseGmailSearchSyntax(search);
-      if (parsed.searchText) filters.search = parsed.searchText;
-      if (filterStatus) filters.status = filterStatus;
-      const fromVal = parsed.from ?? filterFrom;
-      if (fromVal) filters.from = fromVal;
-      const subjectVal = parsed.subject ?? filterSubject;
-      if (subjectVal) filters.subject = subjectVal;
-      const hasAttachmentVal = parsed.hasAttachment !== undefined ? parsed.hasAttachment : filterHasAttachment;
-      if (hasAttachmentVal !== undefined) filters.hasAttachment = hasAttachmentVal;
-      if (filterDateFrom) filters.dateFrom = filterDateFrom;
-      if (filterDateTo) filters.dateTo = filterDateTo;
-      if (selectedLabelFilter) filters.labelId = selectedLabelFilter;
-      const isReadVal = parsed.isRead !== undefined ? parsed.isRead : filterIsRead;
-      if (isReadVal !== undefined) filters.isRead = isReadVal;
-      const isStarredVal = parsed.isStarred !== undefined ? parsed.isStarred : filterIsStarred;
-      if (isStarredVal !== undefined) filters.isStarred = isStarredVal;
-      filters.page = page;
-      filters.limit = PAGE_SIZE;
-      const res = await apiGetSharedInboxEmails(userId, Object.keys(filters).length ? filters : undefined);
-      const data = res?.data ?? res ?? [];
-      const emailsArray = Array.isArray(data) ? data : [];
-      if (append) {
-        setEmails(prev => [...prev, ...emailsArray]);
-      } else {
-        setEmails(emailsArray);
-      }
-      const hasMoreData = res?.hasMore ?? (emailsArray.length === PAGE_SIZE);
-      setHasMore(hasMoreData);
-      setTotalEmails(res?.total ?? emailsArray.length);
-      setCurrentPage(page);
-      console.log('[INBOX] Loaded emails - page:', page, 'count:', emailsArray.length, 'hasMore:', hasMoreData, 'total:', res?.total);
-    } catch (err: any) {
-      if (!append) {
-        setEmails([]);
-      }
-      const msg = err?.message || 'Failed to load inbox';
-      if (!silent) setError(msg);
-      if (err?.message?.toLowerCase().includes('google') || err?.message?.toLowerCase().includes('connected')) {
-        setGmailConnected(false);
-      }
-    } finally {
-      if (!silent && !append) {
-        setLoading(false);
-      }
-      if (append) {
-        setLoadingMore(false);
-      }
-    }
-  }, [userId, search, filterStatus, filterFrom, filterSubject, filterHasAttachment, filterDateFrom, filterDateTo, selectedLabelFilter, filterIsRead, filterIsStarred]);
-  
+    const hasAttachmentVal = parsed.hasAttachment !== undefined ? parsed.hasAttachment : filterHasAttachment;
+    if (hasAttachmentVal !== undefined) filterObj.hasAttachment = hasAttachmentVal;
+    if (filterDateFrom) filterObj.dateFrom = filterDateFrom;
+    if (filterDateTo) filterObj.dateTo = filterDateTo;
+    if (selectedLabelFilter) filterObj.labelId = selectedLabelFilter;
+    const isReadVal = parsed.isRead !== undefined ? parsed.isRead : filterIsRead;
+    if (isReadVal !== undefined) filterObj.isRead = isReadVal;
+    const isStarredVal = parsed.isStarred !== undefined ? parsed.isStarred : filterIsStarred;
+    if (isStarredVal !== undefined) filterObj.isStarred = isStarredVal;
+    
+    return filterObj;
+  }, [search, filterStatus, filterFrom, filterSubject, filterSubjectOperator, filterHasAttachment, filterDateFrom, filterDateTo, selectedLabelFilter, filterIsRead, filterIsStarred, parseGmailSearchSyntax]);
+
+  // Use React Query for email fetching
+  const {
+    data: emailsData,
+    isLoading: loading,
+    isFetchingNextPage: loadingMore,
+    hasNextPage: hasMore,
+    fetchNextPage,
+    error: emailsError,
+    refetch,
+  } = useSharedInboxEmails(userId, Object.keys(filters).length > 0 ? filters : undefined, {
+    staleTime: 30 * 1000, // 30 seconds
+    refetchInterval: 60 * 1000, // 60 seconds
+  });
+
+  // Flatten pages into single array and deduplicate
+  const emails = useMemo(() => {
+    if (!emailsData?.pages) return [];
+    const allEmails = emailsData.pages.flatMap(page => page.data || []);
+    // Deduplicate by ID
+    const uniqueEmails = allEmails.filter((email, index, self) => 
+      email.id && index === self.findIndex(e => e.id === email.id)
+    );
+    return uniqueEmails;
+  }, [emailsData]);
+
+  const totalEmails = emailsData?.pages[0]?.total ?? emails.length;
+
+  // Sync mutation
+  const syncMutation = useSyncSharedInbox();
+
   const loadMoreEmails = useCallback(() => {
     if (!loadingMore && hasMore && userId) {
-      const nextPage = currentPage + 1;
-      console.log('[INBOX] Loading more emails - page:', nextPage, 'hasMore:', hasMore, 'loadingMore:', loadingMore);
-      loadEmails(true, nextPage, true);
+      console.log('[INBOX] Loading more emails - hasMore:', hasMore, 'loadingMore:', loadingMore);
+      fetchNextPage();
     }
-  }, [loadingMore, hasMore, currentPage, loadEmails, userId]);
+  }, [loadingMore, hasMore, fetchNextPage, userId]);
+
+  // Update error state from React Query
+  useEffect(() => {
+    if (emailsError) {
+      const msg = (emailsError as any)?.message || 'Failed to load inbox';
+      setError(msg);
+      if (msg.toLowerCase().includes('google') || msg.toLowerCase().includes('connected')) {
+        setGmailConnected(false);
+      }
+    } else {
+      setError(null);
+    }
+  }, [emailsError]);
 
   // Infinite scroll observer with scroll event fallback
   useEffect(() => {
@@ -703,6 +722,54 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   }, [userId]);
 
+  const loadExcludedDomains = useCallback(async () => {
+    if (!userId) return;
+    setIsLoadingExcludedDomains(true);
+    try {
+      const res = await apiGetExcludedDomains(userId);
+      const data = res?.data ?? res ?? [];
+      setExcludedDomains(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      console.error('[INBOX] Failed to load excluded domains:', err);
+      showError(getSafeErrorMessage(err, 'Failed to load excluded domains'));
+      setExcludedDomains([]);
+    } finally {
+      setIsLoadingExcludedDomains(false);
+    }
+  }, [userId, showError]);
+
+  const handleAddExcludedDomain = useCallback(async () => {
+    if (!userId || !newExcludedDomain.trim()) return;
+    setIsAddingExcludedDomain(true);
+    try {
+      await apiAddExcludedDomain(userId, newExcludedDomain.trim());
+      setNewExcludedDomain('');
+      await loadExcludedDomains();
+      showSuccess('Domain added to exclusion list');
+      // Reload emails to apply the filter
+      refetch();
+    } catch (err: any) {
+      console.error('[INBOX] Failed to add excluded domain:', err);
+      showError(getSafeErrorMessage(err, 'Failed to add excluded domain'));
+    } finally {
+      setIsAddingExcludedDomain(false);
+    }
+  }, [userId, newExcludedDomain, loadExcludedDomains, refetch, showSuccess, showError]);
+
+  const handleRemoveExcludedDomain = useCallback(async (id: string) => {
+    if (!userId) return;
+    try {
+      await apiRemoveExcludedDomain(userId, id);
+      await loadExcludedDomains();
+      showSuccess('Domain removed from exclusion list');
+      // Reload emails to apply the filter
+      refetch();
+    } catch (err: any) {
+      console.error('[INBOX] Failed to remove excluded domain:', err);
+      showError(getSafeErrorMessage(err, 'Failed to remove excluded domain'));
+    }
+  }, [userId, loadExcludedDomains, refetch, showSuccess, showError]);
+
   const loadConnectedAccounts = useCallback(async () => {
     if (!userId) return;
     try {
@@ -748,7 +815,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       await apiDisconnectGmailAccount(userId, accountEmail);
       showSuccess(`Disconnected ${accountEmail}`);
       await loadConnectedAccounts();
-      await loadEmails(); // Reload emails after disconnecting
+      await refetch(); // Reload emails after disconnecting
     } catch (err: any) {
       showError(err?.message || 'Failed to disconnect account');
     } finally {
@@ -758,13 +825,13 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
   useEffect(() => {
     if (!userId) {
-      setLoading(false);
       setGmailConnected(false);
       return;
     }
     checkGmailConnection();
     loadConnectedAccounts();
-  }, [userId, checkGmailConnection, loadConnectedAccounts]);
+    loadExcludedDomains();
+  }, [userId, checkGmailConnection, loadConnectedAccounts, loadExcludedDomains]);
 
   // Update compose account email when accounts change
   useEffect(() => {
@@ -773,17 +840,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   }, [connectedAccounts]);
 
-  useEffect(() => {
-    if (!userId) return;
-    loadEmails();
-    
-    // Periodic refresh every 60 seconds (silent: no loader)
-    const intervalId = setInterval(() => {
-      loadEmails(true);
-    }, 60000); // 60 seconds
-    
-    return () => clearInterval(intervalId);
-  }, [userId, loadEmails]);
+  // React Query handles refetching automatically - no manual useEffect needed
 
   // Load saved searches from localStorage on mount
   useEffect(() => {
@@ -803,19 +860,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     } catch (_) { /* ignore */ }
   }, [savedSearches]);
 
-  // Fetch senders for From autocomplete when advanced search is open
-  useEffect(() => {
-    if (!userId || !showAdvancedSearch) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiGetSharedInboxSenders(userId, 150);
-        const data = res?.data ?? res ?? [];
-        if (!cancelled && Array.isArray(data)) setSenders(data);
-      } catch (_) { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
-  }, [userId, showAdvancedSearch]);
+  // Senders are automatically fetched via React Query when showAdvancedSearch is true
 
   // Load users for mentions
   useEffect(() => {
@@ -915,9 +960,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setSyncing(true);
     setError(null);
     try {
-      const res = await apiSyncSharedInbox(userId, undefined, 24);
-      showSuccess(res?.message || 'Synced new mail from last 24 hours');
-      await loadEmails();
+      await syncMutation.mutateAsync({ userId, scopeHours: 24 });
+      showSuccess('Synced new mail from last 24 hours');
+      // React Query will automatically refetch emails after sync mutation invalidates the cache
     } catch (err: any) {
       const msg = err?.message || 'Sync failed';
       showError(msg);
@@ -1084,8 +1129,21 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         body: data.body ?? email.lastMessage,
         gmailThreadId: data.gmailThreadId ?? email.gmailThreadId,
       });
-      setEmails(prev =>
-        prev.map(e => (e.id === email.id ? { ...e, isRead: true } : e))
+      // Update cache optimistically
+      queryClient.setQueryData(
+        sharedInboxKeys.emailsList(userId || '', filters),
+        (oldData: any) => {
+          if (!oldData?.pages) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page: any) => ({
+              ...page,
+              data: page.data.map((e: SharedInboxEmail) => 
+                e.id === email.id ? { ...e, isRead: true } : e
+              ),
+            })),
+          };
+        }
       );
       
       // Load suggested links and related items
@@ -1149,15 +1207,28 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiMarkSharedInboxEmailRead(emailId, markAsRead, userId);
-      setEmails(prev =>
-        prev.map(e => (e.id === emailId ? { 
-          ...e, 
-          isRead: markAsRead,
-          syncStatus: {
-            ...(e.syncStatus || {}),
-            readStatus: 'pending'
-          }
-        } : e))
+      // Update cache optimistically
+      queryClient.setQueryData(
+        sharedInboxKeys.emailsList(userId, filters),
+        (oldData: any) => {
+          if (!oldData?.pages) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page: any) => ({
+              ...page,
+              data: page.data.map((e: SharedInboxEmail) => 
+                e.id === emailId ? { 
+                  ...e, 
+                  isRead: markAsRead,
+                  syncStatus: {
+                    ...(e.syncStatus || {}),
+                    readStatus: 'pending'
+                  }
+                } : e
+              ),
+            })),
+          };
+        }
       );
       if (selectedEmail?.id === emailId) {
         setSelectedEmail((prev) => (prev ? { 
@@ -1172,21 +1243,36 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       showSuccess(markAsRead ? 'Marked as read' : 'Marked as unread');
     } catch (err: any) {
       showError(err?.message || 'Update failed');
+      // Refetch on error to revert optimistic update
+      refetch();
     }
   };
 
   const handleToggleStar = async (emailId: string, isStarred: boolean) => {
     try {
       await apiToggleSharedInboxEmailStarred(emailId, isStarred);
-      setEmails(prev =>
-        prev.map(e => (e.id === emailId ? { 
-          ...e, 
-          isStarred,
-          syncStatus: {
-            ...(e.syncStatus || {}),
-            starredStatus: 'pending'
-          }
-        } : e))
+      // Update cache optimistically
+      queryClient.setQueryData(
+        sharedInboxKeys.emailsList(userId || '', filters),
+        (oldData: any) => {
+          if (!oldData?.pages) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page: any) => ({
+              ...page,
+              data: page.data.map((e: SharedInboxEmail) => 
+                e.id === emailId ? { 
+                  ...e, 
+                  isStarred,
+                  syncStatus: {
+                    ...(e.syncStatus || {}),
+                    starredStatus: 'pending'
+                  }
+                } : e
+              ),
+            })),
+          };
+        }
       );
       if (selectedEmail?.id === emailId) {
         setSelectedEmail((prev) => (prev ? { 
@@ -1201,6 +1287,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       showSuccess(isStarred ? 'Starred' : 'Unstarred');
     } catch (err: any) {
       showError(err?.message || 'Update failed');
+      // Refetch on error to revert optimistic update
+      refetch();
     }
   };
 
@@ -1224,31 +1312,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     try {
       await apiUpdateEmailLabels(emailId, { addLabelIds, removeLabelIds, trackAccuracy, suggestionId });
       
-      // Update local state
-      setEmails(prev =>
-        prev.map(e => {
-          if (e.id === emailId) {
-            const currentLabels = e.labels || [];
-            const updatedLabels = [...currentLabels];
-            addLabelIds.forEach(id => {
-              if (!updatedLabels.includes(id)) updatedLabels.push(id);
-            });
-            removeLabelIds.forEach(id => {
-              const index = updatedLabels.indexOf(id);
-              if (index > -1) updatedLabels.splice(index, 1);
-            });
-            return {
-              ...e,
-              labels: updatedLabels,
-              syncStatus: {
-                ...(e.syncStatus || {}),
-                labelsStatus: 'pending'
-              }
-            };
-          }
-          return e;
-        })
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       
       if (selectedEmail?.id === emailId) {
         const currentLabels = selectedEmail.labels || [];
@@ -1319,9 +1384,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiUpdateEmailMetadata(emailId, { userId, ...updates });
-      setEmails(prev =>
-        prev.map(e => (e.id === emailId ? { ...e, ...updates } : e))
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail((prev) => (prev ? { ...prev, ...updates } : null));
       }
@@ -1367,9 +1431,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           apiMarkSharedInboxEmailRead(emailId, true, userId)
         )
       );
-      setEmails(prev =>
-        prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: true } : e)
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`${selectedEmailIds.size} email(s) marked as read`);
       setSelectedEmailIds(new Set());
     } catch (err: any) {
@@ -1384,9 +1447,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiArchiveEmail(emailId, userId);
-      setEmails(prev =>
-        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'archived' as const } : e)
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'archived' as const } : null);
       }
@@ -1403,7 +1465,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
     try {
       await apiDeleteEmail(emailId, userId);
-      setEmails(prev => prev.filter(e => e.id !== emailId));
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(null);
       }
@@ -1417,9 +1480,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiRestoreEmail(emailId, userId);
-      setEmails(prev =>
-        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'active' as const } : e)
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'active' as const } : null);
       }
@@ -1433,9 +1495,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'resolved' });
-      setEmails(prev =>
-        prev.map(e => e.id === emailId ? { ...e, threadStatus: 'resolved' as const } : e)
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'resolved' as const } : null);
       }
@@ -1454,9 +1515,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           apiArchiveEmail(emailId, userId)
         )
       );
-      setEmails(prev =>
-        prev.map(e => selectedEmailIds.has(e.id) ? { ...e, threadStatus: 'archived' as const } : e)
-      );
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`${selectedEmailIds.size} email(s) archived`);
       setSelectedEmailIds(new Set());
     } catch (err: any) {
@@ -1479,7 +1539,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         )
       );
       const deletedIds = Array.from(selectedEmailIds);
-      setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+      // Invalidate queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) {
         setSelectedEmail(null);
       }
@@ -2377,7 +2438,11 @@ ${currentUser?.name || 'Team'}`;
 
   // Filter and sort emails (Phase 8.1)
   const filteredEmails = useMemo(() => {
-    let result = [...emails];
+    // Deduplicate emails by ID first to prevent duplicate keys
+    const uniqueEmails = emails.filter((email, index, self) => 
+      email.id && index === self.findIndex(e => e.id === email.id)
+    );
+    let result = [...uniqueEmails];
     
     // Apply threadStatus filter (Phase 8.3: Archive view)
     if (filterStatus === 'archived') {
@@ -2446,6 +2511,33 @@ ${currentUser?.name || 'Team'}`;
     
     return result;
   }, [emails, selectedLabelFilter, filterAssignedToMe, filterAssignedToTeamMember, userId, sortBy, sortOrder]);
+
+  // Clear selected email if it's filtered out from the list
+  // This handles cases where filters change (including domain exclusions) and the selected email is no longer visible
+  useEffect(() => {
+    if (selectedEmail?.id) {
+      // Check if the selected email is still in the filtered emails list
+      const isEmailInFilteredList = filteredEmails.some(email => email.id === selectedEmail.id);
+      
+      if (!isEmailInFilteredList) {
+        // Email is not in filtered list anymore (could be due to domain exclusion, status filter, etc.)
+        // Clear the selection
+        setSelectedEmail(null);
+        // Also clear related state
+        setSuggestedLabels([]);
+        setCurrentSuggestionId(null);
+        setAiDraft(null);
+        setAiDraftVariations([]);
+        setSelectedVariationIndex(null);
+        setLinkedCalendarEvents([]);
+        setInternalThreads(prev => {
+          const updated = { ...prev };
+          delete updated[selectedEmail.id];
+          return updated;
+        });
+      }
+    }
+  }, [filteredEmails, selectedEmail?.id]);
 
   const unreadCount = filteredEmails.filter(e => !e.isRead).length;
 
@@ -2557,7 +2649,7 @@ ${currentUser?.name || 'Team'}`;
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300 h-full overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 shrink-0">
         <div>
@@ -2719,7 +2811,7 @@ ${currentUser?.name || 'Team'}`;
       )}
 
       {/* Search + Filters */}
-      <div className="mt-4 shrink-0 space-y-2">
+      <div className="mt-4 shrink-0 space-y-2 px-1">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -2728,7 +2820,7 @@ ${currentUser?.name || 'Team'}`;
               placeholder="Search or use from: subject: has:attachment is:read"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loadEmails()}
+              onKeyDown={e => e.key === 'Enter' && refetch()}
               className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
@@ -2748,170 +2840,220 @@ ${currentUser?.name || 'Team'}`;
           </button>
         </div>
         {showAdvancedSearch && (
-          <div className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 space-y-3">
-            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Advanced filters</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="relative">
-                <label className="block text-xs text-slate-500 mb-1">From (sender)</label>
-                <input
-                  type="text"
-                  placeholder="email or name"
-                  value={filterFrom}
-                  onChange={e => { setFilterFrom(e.target.value); setSenderDropdownOpen(true); }}
-                  onFocus={() => setSenderDropdownOpen(true)}
-                  onBlur={() => setTimeout(() => setSenderDropdownOpen(false), 180)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-                {senderDropdownOpen && senders.length > 0 && (
-                  <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
-                    {senders
-                      .filter(s => !filterFrom || [s.email, s.name].some(t => t?.toLowerCase().includes(filterFrom.toLowerCase())))
-                      .slice(0, 20)
-                      .map(s => (
-                        <button
-                          key={s.email}
-                          type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex flex-col"
-                          onMouseDown={e => { e.preventDefault(); setFilterFrom(s.email || s.name); setSenderDropdownOpen(false); }}
-                        >
-                          <span className="font-medium text-slate-800">{s.name || s.email}</span>
-                          {s.email !== s.name && <span className="text-xs text-slate-500">{s.email}</span>}
-                        </button>
-                      ))}
+          <div className="p-4 border border-slate-200 rounded-xl bg-white shadow-sm space-y-4">
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">ADVANCED FILTERS</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Column 1 */}
+              <div className="space-y-4">
+                <div className="relative">
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">From (sender)</label>
+                  <input
+                    type="text"
+                    placeholder="email or name"
+                    value={filterFrom}
+                    onChange={e => { setFilterFrom(e.target.value); setSenderDropdownOpen(true); }}
+                    onFocus={() => setSenderDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setSenderDropdownOpen(false), 180)}
+                    className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all hover:border-slate-300"
+                  />
+                  {senderDropdownOpen && senders.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                      {senders
+                        .filter(s => !filterFrom || [s.email, s.name].some(t => t?.toLowerCase().includes(filterFrom.toLowerCase())))
+                        .slice(0, 20)
+                        .map(s => (
+                          <button
+                            key={s.email}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex flex-col"
+                            onMouseDown={e => { e.preventDefault(); setFilterFrom(s.email || s.name); setSenderDropdownOpen(false); }}
+                          >
+                            <span className="font-medium text-slate-800">{s.name || s.email}</span>
+                            {s.email !== s.name && <span className="text-xs text-slate-500">{s.email}</span>}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Read</label>
+                  <div className="relative">
+                    <select
+                      value={filterIsRead === undefined ? '' : String(filterIsRead)}
+                      onChange={e => setFilterIsRead(e.target.value === '' ? undefined : e.target.value === 'true')}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                    >
+                      <option value="">Any</option>
+                      <option value="false">Unread</option>
+                      <option value="true">Read</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Date from</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={filterDateFrom}
+                      onChange={e => setFilterDateFrom(e.target.value)}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all hover:border-slate-300 pr-10"
+                    />
+                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2 */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Date to</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={filterDateTo}
+                      onChange={e => setFilterDateTo(e.target.value)}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all hover:border-slate-300 pr-10"
+                    />
+                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Subject</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder=""
+                      value={filterSubject}
+                      onChange={e => setFilterSubject(e.target.value)}
+                      className="flex-1 px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all hover:border-slate-300"
+                    />
+                    <div className="relative w-32">
+                      <select
+                        value={filterSubjectOperator}
+                        onChange={e => setFilterSubjectOperator(e.target.value as 'contains' | 'equals' | 'starts' | 'ends')}
+                        className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-8 hover:border-slate-300"
+                      >
+                        <option value="contains">contains</option>
+                        <option value="equals">equals</option>
+                        <option value="starts">starts with</option>
+                        <option value="ends">ends with</option>
+                      </select>
+                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Attachment</label>
+                  <div className="relative">
+                    <select
+                      value={filterHasAttachment === undefined ? '' : String(filterHasAttachment)}
+                      onChange={e => setFilterHasAttachment(e.target.value === '' ? undefined : e.target.value === 'true')}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                    >
+                      <option value="">Any</option>
+                      <option value="true">Has attachment</option>
+                      <option value="false">No attachment</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 3 */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Status</label>
+                  <div className="relative">
+                    <select
+                      value={filterStatus}
+                      onChange={e => setFilterStatus(e.target.value)}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                    >
+                      <option value="">Any</option>
+                      <option value="open">Open</option>
+                      <option value="assigned">Assigned to me</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Starred</label>
+                  <div className="relative">
+                    <select
+                      value={filterIsStarred === undefined ? '' : String(filterIsStarred)}
+                      onChange={e => setFilterIsStarred(e.target.value === '' ? undefined : e.target.value === 'true')}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                    >
+                      <option value="">Any</option>
+                      <option value="true">Starred</option>
+                      <option value="false">Not starred</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                {gmailLabels.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1.5">Label</label>
+                    <div className="relative">
+                      <select
+                        value={selectedLabelFilter || ''}
+                        onChange={e => setSelectedLabelFilter(e.target.value || null)}
+                        className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                      >
+                        <option value="">All labels</option>
+                        {gmailLabels.map(label => (
+                          <option key={label.id} value={label.id}>{label.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
                   </div>
                 )}
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Subject</label>
-                <input
-                  type="text"
-                  placeholder="contains"
-                  value={filterSubject}
-                  onChange={e => setFilterSubject(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Attachment</label>
-                <select
-                  value={filterHasAttachment === undefined ? '' : String(filterHasAttachment)}
-                  onChange={e => setFilterHasAttachment(e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="">Any</option>
-                  <option value="true">Has attachment</option>
-                  <option value="false">No attachment</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Status</label>
-                <select
-                  value={filterStatus}
-                  onChange={e => setFilterStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="">Any</option>
-                  <option value="open">Open</option>
-                  <option value="assigned">Assigned to me</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Read</label>
-                <select
-                  value={filterIsRead === undefined ? '' : String(filterIsRead)}
-                  onChange={e => setFilterIsRead(e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="">Any</option>
-                  <option value="false">Unread</option>
-                  <option value="true">Read</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Starred</label>
-                <select
-                  value={filterIsStarred === undefined ? '' : String(filterIsStarred)}
-                  onChange={e => setFilterIsStarred(e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                >
-                  <option value="">Any</option>
-                  <option value="true">Starred</option>
-                  <option value="false">Not starred</option>
-                </select>
-              </div>
-              {/* Advanced Filters: Assigned to me, Assigned to team member (Phase 8.1) */}
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Assigned To</label>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={filterAssignedToMe}
-                      onChange={(e) => {
-                        setFilterAssignedToMe(e.target.checked);
-                        if (e.target.checked) setFilterAssignedToTeamMember(null);
-                      }}
-                      className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
-                    />
-                    <span className="text-xs text-slate-700">Assigned to me</span>
-                  </label>
-                  <select
-                    value={filterAssignedToTeamMember || ''}
-                    onChange={(e) => {
-                      const value = e.target.value || null;
-                      setFilterAssignedToTeamMember(value);
-                      if (value) setFilterAssignedToMe(false);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                  >
-                    <option value="">Any team member</option>
-                    {users.map(user => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Date from</label>
-                <input
-                  type="date"
-                  value={filterDateFrom}
-                  onChange={e => setFilterDateFrom(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Date to</label>
-                <input
-                  type="date"
-                  value={filterDateTo}
-                  onChange={e => setFilterDateTo(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-              {gmailLabels.length > 0 && (
+                {/* Advanced Filters: Assigned to me, Assigned to team member (Phase 8.1) */}
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Label</label>
-                  <select
-                    value={selectedLabelFilter || ''}
-                    onChange={e => setSelectedLabelFilter(e.target.value || null)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                  >
-                    <option value="">All labels</option>
-                    {gmailLabels.map(label => (
-                      <option key={label.id} value={label.id}>{label.name}</option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Assigned To</label>
+                  <div className="space-y-2.5">
+                    <label className="flex items-center gap-2.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={filterAssignedToMe}
+                        onChange={(e) => {
+                          setFilterAssignedToMe(e.target.checked);
+                          if (e.target.checked) setFilterAssignedToTeamMember(null);
+                        }}
+                        className="w-4 h-4 text-indigo-600 border-2 border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0 focus:border-indigo-500 cursor-pointer transition-colors"
+                      />
+                      <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">Assigned to me</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={filterAssignedToTeamMember || ''}
+                        onChange={(e) => {
+                          const value = e.target.value || null;
+                          setFilterAssignedToTeamMember(value);
+                          if (value) setFilterAssignedToMe(false);
+                        }}
+                        className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer appearance-none pr-10 hover:border-slate-300"
+                      >
+                        <option value="">Any team member</option>
+                        {users.map(user => (
+                          <option key={user.id} value={user.id}>
+                            {user.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => loadEmails()}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+                onClick={() => refetch()}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Apply filters
               </button>
@@ -2920,6 +3062,7 @@ ${currentUser?.name || 'Team'}`;
                 onClick={() => {
                   setFilterFrom('');
                   setFilterSubject('');
+                  setFilterSubjectOperator('contains');
                   setFilterHasAttachment(undefined);
                   setFilterDateFrom('');
                   setFilterDateTo('');
@@ -2927,17 +3070,19 @@ ${currentUser?.name || 'Team'}`;
                   setFilterIsStarred(undefined);
                   setFilterStatus('');
                   setSelectedLabelFilter(null);
+                  setFilterAssignedToMe(false);
+                  setFilterAssignedToTeamMember(null);
                   setSearch('');
-                  loadEmails();
+                  refetch();
                 }}
-                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100"
+                className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
               >
                 Clear all
               </button>
               <button
                 type="button"
                 onClick={() => setShowSaveSearchModal(true)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
               >
                 <Bookmark className="w-4 h-4" />
                 Save search
@@ -2946,7 +3091,7 @@ ${currentUser?.name || 'Team'}`;
                 <button
                   type="button"
                   onClick={() => setShowSavedSearchesDropdown(prev => !prev)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                  className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
                 >
                   <Bookmark className="w-4 h-4" />
                   Saved ({savedSearches.length})
@@ -2965,6 +3110,7 @@ ${currentUser?.name || 'Team'}`;
                               setSearch(s.filters.search ?? '');
                               setFilterFrom(s.filters.from ?? '');
                               setFilterSubject(s.filters.subject ?? '');
+                              setFilterSubjectOperator((s.filters as any).subjectOperator ?? 'contains');
                               setFilterHasAttachment(s.filters.hasAttachment);
                               setFilterDateFrom(s.filters.dateFrom ?? '');
                               setFilterDateTo(s.filters.dateTo ?? '');
@@ -2973,7 +3119,7 @@ ${currentUser?.name || 'Team'}`;
                               setFilterStatus(s.filters.status ?? '');
                               setSelectedLabelFilter(s.filters.labelId ?? null);
                               setShowSavedSearchesDropdown(false);
-                              loadEmails();
+                              refetch();
                             }}
                           >
                             {s.name}
@@ -3006,7 +3152,7 @@ ${currentUser?.name || 'Team'}`;
                     }).catch(() => setCategorizationRules([]));
                   }
                 }}
-                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
                 title="Auto-labeling rules (domain or keyword → label)"
               >
                 <FilterIcon className="w-4 h-4" />
@@ -3023,10 +3169,24 @@ ${currentUser?.name || 'Team'}`;
                     }).catch(() => setFolderMappings([]));
                   }
                 }}
-                className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
+                className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
                 title="Map Gmail labels to Impact OS views"
               >
                 Folder mapping
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExcludedDomainsModal(true);
+                  if (excludedDomains.length === 0) {
+                    loadExcludedDomains();
+                  }
+                }}
+                className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
+                title="Manage excluded email domains"
+              >
+                <Ban className="w-4 h-4" />
+                Excluded Domains {excludedDomains.length > 0 && `(${excludedDomains.length})`}
               </button>
             </div>
           </div>
@@ -3085,7 +3245,7 @@ ${currentUser?.name || 'Team'}`;
             )}
             {(filterDateFrom || filterDateTo) && (
               <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">
-                Date {filterDateFrom && filterDateTo ? `${filterDateFrom} – ${filterDateTo}` : filterDateFrom || filterDateTo}
+                Date {filterDateFrom && filterDateTo ? `${filterDateFrom} – ${filterDateTo}` : (filterDateFrom || filterDateTo)}
                 <button type="button" onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }} className="hover:bg-slate-300 rounded p-0.5" aria-label="Clear">×</button>
               </span>
             )}
@@ -3227,11 +3387,12 @@ ${currentUser?.name || 'Team'}`;
                 type="button"
                 onClick={() => {
                   const name = savedSearchName.trim() || 'Saved search';
-                  const filters: SharedInboxFilters & { search?: string } = {
+                  const filters: SharedInboxFilters & { search?: string; subjectOperator?: string } = {
                     search: search || undefined,
                     status: filterStatus || undefined,
                     from: filterFrom || undefined,
                     subject: filterSubject || undefined,
+                    subjectOperator: filterSubjectOperator,
                     hasAttachment: filterHasAttachment,
                     dateFrom: filterDateFrom || undefined,
                     dateTo: filterDateTo || undefined,
@@ -3405,6 +3566,124 @@ ${currentUser?.name || 'Team'}`;
         </div>
       )}
 
+      {/* Excluded Domains Modal */}
+      {showExcludedDomainsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowExcludedDomainsModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-red-50 to-pink-50">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-600 rounded-xl text-white shadow-lg shadow-red-100">
+                    <Ban className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Excluded Email Domains</h3>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Email Filtering</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowExcludedDomainsModal(false)}
+                  className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm border border-transparent hover:border-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-600 mt-2">
+                Emails from these domains will not sync or appear in your shared inbox
+              </p>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {/* Add Domain Section */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. wx.agency"
+                  value={newExcludedDomain}
+                  onChange={e => setNewExcludedDomain(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newExcludedDomain.trim()) {
+                      handleAddExcludedDomain();
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 border-2 border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 focus:outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddExcludedDomain}
+                  disabled={!newExcludedDomain.trim() || isAddingExcludedDomain}
+                  className="px-4 py-2.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+                >
+                  {isAddingExcludedDomain ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Domains List */}
+              {isLoadingExcludedDomains ? (
+                <div className="p-8 text-center">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
+                  <p className="text-sm text-slate-500">Loading excluded domains...</p>
+                </div>
+              ) : excludedDomains.length === 0 ? (
+                <div className="p-8 text-center bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                  <Ban className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500 font-medium">No excluded domains</p>
+                  <p className="text-xs text-slate-400 mt-1">Add domains above to prevent emails from syncing</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {excludedDomains.map(domain => (
+                    <div
+                      key={domain.id}
+                      className="flex items-center justify-between p-4 bg-white rounded-lg border-2 border-slate-200 hover:border-red-300 transition-all shadow-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                          <Ban className="w-4 h-4 text-red-600" />
+                        </div>
+                        <span className="text-sm font-medium text-slate-900">{domain.domain}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveExcludedDomain(domain.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Remove domain"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowExcludedDomainsModal(false)}
+                className="px-4 py-2 bg-slate-600 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Folder mapping modal (Phase 3.3) */}
       {showFolderMappingModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setShowFolderMappingModal(false)}>
@@ -3488,8 +3767,8 @@ ${currentUser?.name || 'Team'}`;
         </div>
       )}
 
-      {/* Two-column layout: list | detail — no page scroll; list scrolls in card */}
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 overflow-hidden">
+      {/* Two-column layout: list | detail — page scrolls */}
+      <div className="flex-1 min-h-[400px] flex flex-col lg:flex-row gap-4 mt-4">
         {/* Email list — scrolls inside this card only */}
         <div
           className={`flex flex-col min-h-0 border border-slate-200 rounded-xl bg-white overflow-hidden ${
@@ -3553,7 +3832,7 @@ ${currentUser?.name || 'Team'}`;
                   <li key={thread.threadId}>
                     {/* Thread header */}
                     <div
-                      className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 ${
+                      className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${
                         selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                       }`}
                     >
@@ -3564,7 +3843,7 @@ ${currentUser?.name || 'Team'}`;
                           checked={selectedEmailIds.has(latest.id)}
                           onChange={() => handleToggleEmailSelection(latest.id)}
                           onClick={(e) => e.stopPropagation()}
-                          className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                          className="mt-0.5 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                         />
                       )}
                       {/* Sender Avatar (Phase 8.1) */}
@@ -3574,7 +3853,7 @@ ${currentUser?.name || 'Team'}`;
                           alt={latest.sender || latest.email || ''}
                           fallbackText={latest.sender || latest.email || ''}
                           isAvatar={true}
-                          className="w-10 h-10 rounded-full"
+                          className="w-8 h-8 rounded-full"
                         />
                       </div>
                       {hasMultiple && (
@@ -3607,7 +3886,7 @@ ${currentUser?.name || 'Team'}`;
                         className="flex-1 min-w-0 text-left"
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span
                               className={`truncate font-medium ${
                                 thread.unreadCount > 0 ? 'text-slate-900' : 'text-slate-600'
@@ -3657,7 +3936,7 @@ ${currentUser?.name || 'Team'}`;
                               </span>
                             )}
                           </div>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                        <p className="text-xs text-slate-500 mt-0 truncate">
                           {latest.sender || latest.email}
                           {hasMultiple && ` · ${thread.emails.length} messages`}
                         </p>
@@ -3679,7 +3958,7 @@ ${currentUser?.name || 'Team'}`;
                         const participantsList = Array.from(allParticipants).slice(0, 5);
                         if (participantsList.length > 0) {
                           return (
-                            <p className="text-xs text-slate-400 mt-0.5 truncate">
+                            <p className="text-xs text-slate-400 mt-0 truncate">
                               <span className="text-slate-500">To: </span>
                               {participantsList.map((p, idx) => (
                                 <span key={p}>
@@ -3694,12 +3973,12 @@ ${currentUser?.name || 'Team'}`;
                         return null;
                       })()}
                       {(latest.accountEmail || latest.accountOwnerName) && (
-                        <p className="text-xs text-slate-400 mt-0.5 truncate">
+                        <p className="text-xs text-slate-400 mt-0 truncate">
                           {latest.accountOwnerName && (
                             <span className="text-slate-500">via {latest.accountOwnerName}</span>
                           )}
                           {latest.accountEmail && (
-                            <span className="ml-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-medium rounded">
+                            <span className="ml-1 px-1 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-medium rounded">
                               {latest.accountEmail}
                             </span>
                           )}
@@ -3707,8 +3986,8 @@ ${currentUser?.name || 'Team'}`;
                       )}
                         {/* Improved Preview Text Truncation (Phase 8.1) */}
                         {latest.lastMessage && (
-                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                            {truncatePreview(latest.lastMessage, 100)}
+                          <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+                            {truncatePreview(latest.lastMessage, 80)}
                           </p>
                         )}
                       </div>
@@ -3718,11 +3997,11 @@ ${currentUser?.name || 'Team'}`;
                           {latest.timestamp}
                         </span>
                         {thread.unreadCount > 0 && (
-                          <span className="w-2 h-2 rounded-full bg-indigo-500 mt-1" />
+                          <span className="w-2 h-2 rounded-full bg-indigo-500 mt-0.5" />
                         )}
                       </div>
                       {!isBulkMode && (
-                        <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
+                        <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
                       )}
                     </div>
                     
@@ -3754,7 +4033,7 @@ ${currentUser?.name || 'Team'}`;
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className={`text-xs font-medium ${!email.isRead ? 'text-slate-900' : 'text-slate-600'}`}>
                                       {email.sender || email.email}
                                     </span>
@@ -3849,7 +4128,7 @@ ${currentUser?.name || 'Team'}`;
               {filteredEmails.map(email => (
                 <li key={email.id}>
                   <div
-                    className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 ${
+                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${
                       selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                     }`}
                   >
@@ -3860,7 +4139,7 @@ ${currentUser?.name || 'Team'}`;
                         checked={selectedEmailIds.has(email.id)}
                         onChange={() => handleToggleEmailSelection(email.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                        className="mt-0.5 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                       />
                     )}
                     {/* Sender Avatar (Phase 8.1) */}
@@ -3870,7 +4149,7 @@ ${currentUser?.name || 'Team'}`;
                         alt={email.sender || email.email || ''}
                         fallbackText={email.sender || email.email || ''}
                         isAvatar={true}
-                        className="w-10 h-10 rounded-full"
+                        className="w-8 h-8 rounded-full"
                       />
                     </div>
                     <button
@@ -3879,7 +4158,7 @@ ${currentUser?.name || 'Team'}`;
                       className="flex-1 min-w-0 text-left"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span
                             className={`truncate font-medium ${
                               !email.isRead ? 'text-slate-900' : 'text-slate-600'
@@ -3947,16 +4226,16 @@ ${currentUser?.name || 'Team'}`;
                             </>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                        <p className="text-xs text-slate-500 mt-0 truncate">
                           {email.sender || email.email}
                         </p>
                         {(email.accountEmail || email.accountOwnerName) && (
-                          <p className="text-xs text-slate-400 mt-0.5 truncate">
+                          <p className="text-xs text-slate-400 mt-0 truncate">
                             {email.accountOwnerName && (
                               <span className="text-slate-500">via {email.accountOwnerName}</span>
                             )}
                             {email.accountEmail && (
-                              <span className="ml-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-medium rounded">
+                              <span className="ml-1 px-1 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-medium rounded">
                                 {email.accountEmail}
                               </span>
                             )}
@@ -3964,8 +4243,8 @@ ${currentUser?.name || 'Team'}`;
                         )}
                         {/* Improved Preview Text Truncation (Phase 8.1) */}
                         {email.lastMessage && (
-                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                            {truncatePreview(email.lastMessage, 100)}
+                          <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+                            {truncatePreview(email.lastMessage, 80)}
                           </p>
                         )}
                       </div>
@@ -3975,11 +4254,11 @@ ${currentUser?.name || 'Team'}`;
                         {email.timestamp}
                       </span>
                       {!email.isRead && (
-                        <span className="w-2 h-2 rounded-full bg-indigo-500 mt-1" />
+                        <span className="w-2 h-2 rounded-full bg-indigo-500 mt-0.5" />
                       )}
                     </div>
                     {!isBulkMode && (
-                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-1" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
                     )}
                   </div>
                 </li>
@@ -4002,7 +4281,7 @@ ${currentUser?.name || 'Team'}`;
         </div>
 
         {/* Email detail — height by content; body scrolls inside panel */}
-        <div className="flex-1 min-h-0 flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0 max-h-full">
+        <div className="flex-1 min-h-[400px] flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0 max-h-full">
           {detailLoading ? (
             <div className="flex-1 flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -6812,7 +7091,7 @@ ${currentUser?.name || 'Team'}`;
                         setCcInput('');
                         setBccInput('');
                         setShowDrivePicker(false);
-                        await loadEmails();
+                        await refetch();
                       } catch (err: any) {
                         const errorMsg = getSafeErrorMessage(err, 'Failed to send email');
                         showError(errorMsg);

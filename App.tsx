@@ -544,12 +544,10 @@ const App: React.FC = () => {
           </header>
 
           <section
-            className={`flex-1 min-h-0 flex flex-col p-4 lg:p-8 pb-20 lg:pb-8 ${
-              activeTab === 'inbox' ? 'overflow-hidden' : 'overflow-y-auto'
-            }`}
+            className={`flex-1 min-h-0 flex flex-col p-4 lg:p-8 pb-20 lg:pb-8 overflow-y-auto`}
           >
             <div
-              className={`h-full ${activeTab === 'inbox' ? 'min-h-0 flex flex-col max-w-7xl mx-auto w-full' : 'max-w-7xl mx-auto'}`}
+              className={`${activeTab === 'inbox' ? 'min-h-0 flex flex-col max-w-7xl mx-auto w-full' : 'max-w-7xl mx-auto'}`}
             >
               {renderContent()}
             </div>

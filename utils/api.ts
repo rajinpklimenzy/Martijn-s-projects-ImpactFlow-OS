@@ -450,6 +450,7 @@ export interface SharedInboxFilters {
   status?: string;
   from?: string;
   subject?: string;
+  subjectOperator?: 'contains' | 'equals' | 'starts' | 'ends';
   hasAttachment?: boolean;
   dateFrom?: string; // ISO or timestamp
   dateTo?: string;
@@ -466,6 +467,7 @@ export const apiGetSharedInboxEmails = (userId: string, filters?: SharedInboxFil
   if (filters.status) params.append('status', filters.status);
   if (filters.from) params.append('from', filters.from);
   if (filters.subject) params.append('subject', filters.subject);
+  if (filters.subjectOperator) params.append('subjectOperator', filters.subjectOperator);
   if (filters.hasAttachment !== undefined) params.append('hasAttachment', String(filters.hasAttachment));
   if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
   if (filters.dateTo) params.append('dateTo', filters.dateTo);
@@ -596,9 +598,9 @@ export const apiLoadGmailDrafts = (userId: string, accountEmail: string) =>
 export const apiScheduleSendEmail = (data: { userId: string; accountEmail: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; scheduledDateTime: string; timezone: string; attachments?: Array<{ filename: string; content: string; type: string }> }) =>
   apiFetch('/shared-inbox/schedule-send', { method: 'POST', body: JSON.stringify(data) });
 
-export const apiGetExcludedDomains = () => apiFetch('/settings/excluded-domains');
-export const apiAddExcludedDomain = (domain: string) => apiFetch('/settings/excluded-domains', { method: 'POST', body: JSON.stringify({ domain }) });
-export const apiRemoveExcludedDomain = (id: string) => apiFetch(`/settings/excluded-domains/${id}`, { method: 'DELETE' });
+export const apiGetExcludedDomains = (userId: string) => apiFetch(`/email-sync-filter?userId=${userId}`);
+export const apiAddExcludedDomain = (userId: string, domain: string) => apiFetch('/email-sync-filter', { method: 'POST', body: JSON.stringify({ userId, domain }) });
+export const apiRemoveExcludedDomain = (userId: string, id: string) => apiFetch(`/email-sync-filter/${id}?userId=${userId}`, { method: 'DELETE' });
 
 /** Sync Queue */
 export const apiProcessSyncQueue = (limit?: number) => 
