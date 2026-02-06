@@ -78,8 +78,8 @@ export const useSyncSharedInbox = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ userId, accountEmail, scopeHours }: { userId: string; accountEmail?: string; scopeHours?: number }) => {
-      const response = await apiSyncSharedInbox(userId, accountEmail, scopeHours);
+    mutationFn: async ({ userId, accountEmail, scopeHours, scopeDays }: { userId: string; accountEmail?: string; scopeHours?: number; scopeDays?: number }) => {
+      const response = await apiSyncSharedInbox(userId, accountEmail, scopeHours, scopeDays);
       return response;
     },
     onSuccess: () => {

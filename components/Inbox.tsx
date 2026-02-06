@@ -32,6 +32,7 @@ import {
   Download,
   File,
   Eye,
+  EyeOff,
   CheckCircle2 as CheckCircle,
   Clock,
   AlertCircle as AlertCircleIcon,
@@ -62,6 +63,9 @@ import {
   apiGetUsers,
   apiGetConnectedGmailAccounts,
   apiDisconnectGmailAccount,
+  apiGetFilteredAccounts,
+  apiAddFilteredAccount,
+  apiRemoveFilteredAccount,
   apiGetGoogleCalendarAuthUrl,
   apiAddEmailNote,
   apiGetEmailNotes,
@@ -198,14 +202,14 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
   const containerRef = useRef<HTMLDivElement>(null);
   const raw = content || 'No content';
   const looksLikeHtml = /<[a-z][\s\S]*>/i.test(raw);
-  
+
   // Lazy load images when they come into view
   useEffect(() => {
     if (!containerRef.current) return;
-    
+
     const images = containerRef.current.querySelectorAll('img[data-src]');
     if (images.length === 0) return;
-    
+
     const imageObserver = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -222,12 +226,12 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
     }, { rootMargin: '50px' });
 
     images.forEach(img => imageObserver.observe(img));
-    
+
     return () => {
       images.forEach(img => imageObserver.unobserve(img));
     };
   }, [content]);
-  
+
   if (highlightTerm && highlightTerm.trim()) {
     const term = highlightTerm.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(`(${term})`, 'gi');
@@ -238,11 +242,11 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
       <div ref={containerRef} className="prose prose-slate max-w-none text-sm break-words email-body-content" style={{ whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: sanitized }} />
     );
   }
-  const sanitized = looksLikeHtml ? DOMPurify.sanitize(raw, { 
-    ADD_ATTR: ['target', 'loading'], 
-    ADD_TAGS: ['img'] 
+  const sanitized = looksLikeHtml ? DOMPurify.sanitize(raw, {
+    ADD_ATTR: ['target', 'loading'],
+    ADD_TAGS: ['img']
   }) : '';
-  
+
   // Add lazy loading to images in HTML content
   let processedHtml = sanitized;
   if (looksLikeHtml && sanitized) {
@@ -251,7 +255,7 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
       return `<img${before}data-src="${src}" loading="lazy"${after}>`;
     });
   }
-  
+
   return (
     <div
       ref={containerRef}
@@ -269,7 +273,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const currentUser = propUser || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user_data') || 'null') : null);
   const userId = currentUser?.id;
   const userRole = currentUser?.role || 'Viewer';
-  
+
   // Permission checks
   const canAddNote = hasPermission(userRole, 'shared-inbox:add-note');
   const canAssignEmail = hasPermission(userRole, 'shared-inbox:assign-email');
@@ -288,10 +292,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const getSafeErrorMessage = (err: any, defaultMsg: string = 'An error occurred'): string => {
     // Immediately return default if err is falsy
     if (!err) return defaultMsg;
-    
+
     // Handle string errors directly
     if (typeof err === 'string') return err;
-    
+
     // For objects, ONLY access known safe string properties
     // NEVER call JSON.stringify, String(), or any method that might serialize the object
     if (typeof err === 'object') {
@@ -306,7 +310,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // If we can't safely extract, return default - don't try to stringify!
       return defaultMsg;
     }
-    
+
     // For non-object, non-string types, return default to avoid serialization
     return defaultMsg;
   };
@@ -333,6 +337,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const backgroundSyncInProgress = useRef(false);
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const PAGE_SIZE = 50;
   const [search, setSearch] = useState('');
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
@@ -348,7 +355,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [senderDropdownOpen, setSenderDropdownOpen] = useState(false);
-  
+
   // Use React Query for senders
   const { data: senders = [] } = useSharedInboxSenders(userId, showAdvancedSearch ? 150 : undefined);
   const [savedSearches, setSavedSearches] = useState<Array<{ id: string; name: string; filters: SharedInboxFilters & { search?: string } }>>([]);
@@ -356,8 +363,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [savedSearchName, setSavedSearchName] = useState('');
   const [showSavedSearchesDropdown, setShowSavedSearchesDropdown] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<Array<{ email: string; userId: string; ownerName: string; connectedAt: string; lastSyncedAt: string; isCurrentUser?: boolean }>>([]);
-  const [showAccountsList, setShowAccountsList] = useState(false);
+  const [filteredAccounts, setFilteredAccounts] = useState<Array<{ id: string; accountEmail: string; createdAt: string }>>([]);
+  const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [accountSearchFilter, setAccountSearchFilter] = useState('');
   const [disconnectingAccount, setDisconnectingAccount] = useState<string | null>(null);
+  const [filteringAccount, setFilteringAccount] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'threads'>('list');
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
@@ -396,7 +406,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   });
   const [attachmentPreviewModal, setAttachmentPreviewModal] = useState<{ isOpen: boolean; emailId: string; attachmentId: string; filename: string; mimeType: string; url?: string } | null>(null);
   const [attachmentLoading, setAttachmentLoading] = useState<{ [key: string]: boolean }>({});
-  
+
   // Labels state
   const [gmailLabels, setGmailLabels] = useState<Array<{ id: string; name: string; type: string; accountEmail: string }>>([]);
   const [loadingLabels, setLoadingLabels] = useState(false);
@@ -422,7 +432,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [selectedAccountForLabel, setSelectedAccountForLabel] = useState<string>('');
   const [accuracyStats, setAccuracyStats] = useState<{ summary: { total: number; accepted: number; rejected: number; changed: number; pending: number; accuracyRate: number }; bySource: any; periodDays: number } | null>(null);
   const [loadingAccuracyStats, setLoadingAccuracyStats] = useState(false);
-  
+
   // Calendar integration state (Phase 5)
   const [linkedCalendarEvents, setLinkedCalendarEvents] = useState<Array<{
     id: string;
@@ -446,14 +456,14 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     description?: string;
   } | null>(null);
   const [scheduleMeetingEmailId, setScheduleMeetingEmailId] = useState<string | null>(null);
-  
+
   // Excluded domains state
   const [excludedDomains, setExcludedDomains] = useState<Array<{ id: string; domain: string; createdAt?: string }>>([]);
   const [newExcludedDomain, setNewExcludedDomain] = useState('');
   const [isLoadingExcludedDomains, setIsLoadingExcludedDomains] = useState(false);
   const [isAddingExcludedDomain, setIsAddingExcludedDomain] = useState(false);
   const [showExcludedDomainsModal, setShowExcludedDomainsModal] = useState(false);
-  
+
   // Compose/Reply state
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [composeMode, setComposeMode] = useState<'compose' | 'reply' | 'replyAll' | 'forward'>('compose');
@@ -482,7 +492,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
   const [driveSearchQuery, setDriveSearchQuery] = useState('');
   const [driveNextPageToken, setDriveNextPageToken] = useState<string | null>(null);
-  
+
   // CRM Integration state (Phase 7.1 & 7.2)
   const [companies, setCompanies] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
@@ -498,11 +508,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [linkModalType, setLinkModalType] = useState<'contact' | 'company' | 'deal' | 'project' | 'contract' | null>(null);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
   const [linkingEmail, setLinkingEmail] = useState(false);
-  
+
   // Confirmation modals state
   const [showDeleteTemplateConfirm, setShowDeleteTemplateConfirm] = useState<string | null>(null);
   const [showDiscardEmailConfirm, setShowDiscardEmailConfirm] = useState(false);
-  
+
   // Compose enhancements state (Phase 8.2)
   const [composeSelectedTemplate, setComposeSelectedTemplate] = useState<string | null>(null);
   const [showAIDraftPanel, setShowAIDraftPanel] = useState(false);
@@ -516,20 +526,20 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [gmailDrafts, setGmailDrafts] = useState<any[]>([]);
   const [loadingGmailDrafts, setLoadingGmailDrafts] = useState(false);
   const [showGmailDraftsModal, setShowGmailDraftsModal] = useState(false);
-  
+
   // Bulk selection state (Phase 8.1)
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
-  
+
   // Sort state (Phase 8.1)
   const [sortBy, setSortBy] = useState<'date' | 'sender' | 'subject' | 'unread'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  
+
   // Advanced filters state (Phase 8.1)
   const [filterAssignedToMe, setFilterAssignedToMe] = useState(false);
   const [filterAssignedToTeamMember, setFilterAssignedToTeamMember] = useState<string | null>(null);
-  
+
   const quillEditorRef = useRef<any>(null);
   const quillInstanceRef = useRef<any>(null); // Store the actual Quill editor instance
   const noteImageInputRef = useRef<HTMLInputElement>(null);
@@ -574,7 +584,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const filters = useMemo<SharedInboxFilters>(() => {
     const parsed = parseGmailSearchSyntax(search);
     const filterObj: SharedInboxFilters = {};
-    
+
     if (parsed.searchText) filterObj.search = parsed.searchText;
     if (filterStatus) filterObj.status = filterStatus;
     const fromVal = parsed.from ?? filterFrom;
@@ -593,7 +603,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (isReadVal !== undefined) filterObj.isRead = isReadVal;
     const isStarredVal = parsed.isStarred !== undefined ? parsed.isStarred : filterIsStarred;
     if (isStarredVal !== undefined) filterObj.isStarred = isStarredVal;
-    
+
     return filterObj;
   }, [search, filterStatus, filterFrom, filterSubject, filterSubjectOperator, filterHasAttachment, filterDateFrom, filterDateTo, selectedLabelFilter, filterIsRead, filterIsStarred, parseGmailSearchSyntax]);
 
@@ -616,7 +626,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!emailsData?.pages) return [];
     const allEmails = emailsData.pages.flatMap(page => page.data || []);
     // Deduplicate by ID
-    const uniqueEmails = allEmails.filter((email, index, self) => 
+    const uniqueEmails = allEmails.filter((email, index, self) =>
       email.id && index === self.findIndex(e => e.id === email.id)
     );
     return uniqueEmails;
@@ -651,9 +661,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   useEffect(() => {
     const loadMoreElement = loadMoreRef.current;
     const scrollContainer = emailListContainerRef.current;
-    
+
     if (!loadMoreElement || !scrollContainer || !hasMore || loadingMore) return;
-    
+
     let observer: IntersectionObserver | null = null;
     let scrollHandler: ((e: Event) => void) | null = null;
 
@@ -666,8 +676,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             loadMoreEmails();
           }
         },
-        { 
-          threshold: 0.1, 
+        {
+          threshold: 0.1,
           rootMargin: '300px',
           root: scrollContainer // Use the scrollable container as root
         }
@@ -681,18 +691,18 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     // Fallback: Scroll event listener
     scrollHandler = () => {
       if (loadingMore || !hasMore) return;
-      
+
       const container = scrollContainer;
       const element = loadMoreElement;
-      
+
       if (!container || !element) return;
-      
+
       const containerRect = container.getBoundingClientRect();
       const elementRect = element.getBoundingClientRect();
-      
+
       // Check if loadMore element is within 500px of the bottom of the scroll container
       const distanceFromBottom = containerRect.bottom - elementRect.top;
-      
+
       if (distanceFromBottom < 500 && distanceFromBottom > -100) {
         console.log('[INBOX] Scroll handler triggered - loading more');
         loadMoreEmails();
@@ -775,11 +785,16 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     try {
       const res = await apiGetConnectedGmailAccounts(userId);
       const accounts = res?.data ?? res ?? [];
-      // Deduplicate accounts by email + userId combination
-      const uniqueAccounts = Array.isArray(accounts) 
-        ? accounts.filter((account, index, self) => 
-            self.findIndex(a => a.email === account.email && a.userId === account.userId) === index
-          )
+      // Deduplicate accounts by email (case-insensitive) + userId combination
+      // This ensures we show all unique account/user combinations
+      const uniqueAccounts = Array.isArray(accounts)
+        ? accounts.filter((account, index, self) => {
+            const accountEmailLower = (account.email || '').toLowerCase();
+            return self.findIndex(a => 
+              (a.email || '').toLowerCase() === accountEmailLower && 
+              a.userId === account.userId
+            ) === index;
+          })
         : [];
       setConnectedAccounts(uniqueAccounts);
       setGmailConnected(uniqueAccounts.length > 0);
@@ -788,6 +803,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         setComposeAccountEmail(uniqueAccounts[0].email);
       }
     } catch (err: any) {
+      console.error('[INBOX] Failed to load connected accounts:', err);
       setConnectedAccounts([]);
       setGmailConnected(false);
     }
@@ -823,6 +839,64 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  const loadFilteredAccounts = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await apiGetFilteredAccounts(userId);
+      const data = res?.data ?? res ?? [];
+      setFilteredAccounts(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      console.error('[INBOX] Failed to load filtered accounts:', err);
+      setFilteredAccounts([]);
+    }
+  }, [userId]);
+
+  const handleFilterAccount = async (accountEmail: string) => {
+    if (!userId) return;
+    setFilteringAccount(accountEmail);
+    try {
+      await apiAddFilteredAccount(userId, accountEmail);
+      await loadFilteredAccounts();
+      
+      // Invalidate all email queries - this will automatically trigger refetch for active queries
+      await queryClient.invalidateQueries({ 
+        queryKey: sharedInboxKeys.emails()
+      });
+      
+      // Also explicitly refetch to ensure immediate update
+      await refetch();
+      
+      showSuccess(`Emails from ${accountEmail} will be hidden`);
+    } catch (err: any) {
+      showError(err?.message || 'Failed to filter account');
+    } finally {
+      setFilteringAccount(null);
+    }
+  };
+
+  const handleUnfilterAccount = async (filterId: string, accountEmail: string) => {
+    if (!userId) return;
+    setFilteringAccount(accountEmail);
+    try {
+      await apiRemoveFilteredAccount(userId, filterId);
+      await loadFilteredAccounts();
+      
+      // Invalidate all email queries - this will automatically trigger refetch for active queries
+      await queryClient.invalidateQueries({ 
+        queryKey: sharedInboxKeys.emails()
+      });
+      
+      // Also explicitly refetch to ensure immediate update
+      await refetch();
+      
+      showSuccess(`Emails from ${accountEmail} will now be visible`);
+    } catch (err: any) {
+      showError(err?.message || 'Failed to unfilter account');
+    } finally {
+      setFilteringAccount(null);
+    }
+  };
+
   useEffect(() => {
     if (!userId) {
       setGmailConnected(false);
@@ -831,7 +905,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     checkGmailConnection();
     loadConnectedAccounts();
     loadExcludedDomains();
-  }, [userId, checkGmailConnection, loadConnectedAccounts, loadExcludedDomains]);
+    loadFilteredAccounts();
+  }, [userId, checkGmailConnection, loadConnectedAccounts, loadExcludedDomains, loadFilteredAccounts]);
 
   // Update compose account email when accounts change
   useEffect(() => {
@@ -972,6 +1047,95 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
+  // Automatic background sync every 25 minutes for past 90 days (no loader)
+  // Use refs to store stable references and prevent multiple sync calls
+  const syncMutationRef = useRef(syncMutation);
+  const queryClientRef = useRef(queryClient);
+  
+  // Update refs when they change (but don't trigger effect re-run)
+  useEffect(() => {
+    syncMutationRef.current = syncMutation;
+    queryClientRef.current = queryClient;
+  }, [syncMutation, queryClient]);
+
+  useEffect(() => {
+    if (!userId || !canSyncEmails) {
+      // Clean up if conditions are not met
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Clean up any existing timers first to prevent duplicates
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
+    }
+
+    const performBackgroundSync = () => {
+      // Prevent concurrent background syncs (both local and global check)
+      if (backgroundSyncInProgress.current) {
+        console.log('[INBOX] Background sync already in progress, skipping...');
+        return;
+      }
+
+      backgroundSyncInProgress.current = true;
+      
+      // Silent sync - don't set syncing state or show notifications
+      // The mutation hook's onSuccess will automatically invalidate queries
+      syncMutationRef.current.mutate(
+        { userId, scopeDays: 90 },
+        {
+          onSuccess: () => {
+            // Mutation hook already invalidates queries, just reset the flag
+            backgroundSyncInProgress.current = false;
+          },
+          // Don't show errors for background syncs - fail silently
+          onError: (err: any) => {
+            console.log('[INBOX] Background sync failed:', err?.message || 'Unknown error');
+            backgroundSyncInProgress.current = false;
+          },
+        }
+      );
+    };
+
+    // Initial sync after component mounts (wait 5 seconds to avoid immediate sync on page load)
+    syncTimeoutRef.current = setTimeout(() => {
+      performBackgroundSync();
+      syncTimeoutRef.current = null;
+    }, 5000);
+
+    // Set up interval for every 25 minutes (25 * 60 * 1000 = 1500000 ms)
+    syncIntervalRef.current = setInterval(() => {
+      performBackgroundSync();
+    }, 25 * 60 * 1000); // 25 minutes
+
+    return () => {
+      // Clean up timers on unmount or dependency change
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+      backgroundSyncInProgress.current = false;
+    };
+    // Only depend on userId and canSyncEmails - stable values that should trigger re-setup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, canSyncEmails]);
+
   // Load suggested links for email (Phase 7.1)
   const loadSuggestedLinks = async (emailId: string) => {
     if (!userId) return;
@@ -1039,7 +1203,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     try {
       const emailId = selectedEmail.id;
       let linkedRecordKey: 'contactId' | 'companyId' | 'dealId' | 'projectId' | 'contractId';
-      
+
       // Call appropriate API function based on type
       switch (type) {
         case 'contact':
@@ -1065,9 +1229,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         default:
           throw new Error(`Unknown link type: ${type}`);
       }
-      
+
       showSuccess(`Email linked to ${type} successfully`);
-      
+
       // Update selected email's linkedRecords
       setSelectedEmail(prev => prev ? {
         ...prev,
@@ -1076,7 +1240,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           [linkedRecordKey]: entityId
         }
       } : null);
-      
+
       // Reload related items
       loadRelatedItems(emailId);
       setShowLinkModal(false);
@@ -1120,38 +1284,87 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setAiDraftVariations([]);
     setSelectedVariationIndex(null);
     setDetailLoading(true);
-    try {
-      const res = await apiGetSharedInboxEmailDetails(email.id, userId);
-      const data = res?.data ?? res ?? {};
-      setSelectedEmail({
-        ...email,
-        ...data,
-        body: data.body ?? email.lastMessage,
-        gmailThreadId: data.gmailThreadId ?? email.gmailThreadId,
-      });
-      // Update cache optimistically
-      queryClient.setQueryData(
-        sharedInboxKeys.emailsList(userId || '', filters),
+    
+    // Check if email is unread before loading details
+    const isUnread = !email.isRead;
+    
+    // Update cache IMMEDIATELY to remove blue dot right away (optimistic update)
+    // Update all email queries to ensure UI updates immediately
+    if (isUnread) {
+      // Update all queries matching the emails pattern
+      queryClient.setQueriesData(
+        { queryKey: sharedInboxKeys.emails() },
         (oldData: any) => {
           if (!oldData?.pages) return oldData;
+          // Create completely new objects to ensure React detects the change
+          const newPages = oldData.pages.map((page: any) => {
+            const updatedData = page.data.map((e: SharedInboxEmail) =>
+              e.id === email.id ? { ...e, isRead: true } : e
+            );
+            return {
+              ...page,
+              data: updatedData,
+            };
+          });
+          // Return new object with new pages array
           return {
             ...oldData,
-            pages: oldData.pages.map((page: any) => ({
-              ...page,
-              data: page.data.map((e: SharedInboxEmail) => 
-                e.id === email.id ? { ...e, isRead: true } : e
-              ),
-            })),
+            pages: newPages,
           };
         }
       );
       
+      // Force React Query to recognize the update by notifying observers
+      // This ensures the useMemo recalculates and UI updates immediately
+      // Note: invalidateQueries will trigger a refetch, but since we've already updated the cache,
+      // React Query will use the updated cache data
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
+    }
+    
+    try {
+      const res = await apiGetSharedInboxEmailDetails(email.id, userId);
+      const data = res?.data ?? res ?? {};
+      const emailDetails = {
+        ...email,
+        ...data,
+        body: data.body ?? email.lastMessage,
+        gmailThreadId: data.gmailThreadId ?? email.gmailThreadId,
+        isRead: true, // Ensure it's marked as read in the details view
+      };
+      setSelectedEmail(emailDetails);
+      
+      // Automatically mark as read if unread and sync to Gmail
+      if (isUnread) {
+        // Mark as read and sync to Gmail (silently, no notification)
+        // Pass silent=true to avoid showing success/error notifications
+        handleMarkRead(email.id, true, true).catch((readErr: any) => {
+          // Log error but don't show notification - email details are still loaded
+          console.error('[INBOX] Failed to mark email as read:', readErr?.message);
+          // Revert optimistic update on error
+          queryClient.setQueryData(
+            sharedInboxKeys.emailsList(userId || '', filters),
+            (oldData: any) => {
+              if (!oldData?.pages) return oldData;
+              return {
+                ...oldData,
+                pages: oldData.pages.map((page: any) => ({
+                  ...page,
+                  data: page.data.map((e: SharedInboxEmail) =>
+                    e.id === email.id ? { ...e, isRead: false } : e
+                  ),
+                })),
+              };
+            }
+          );
+        });
+      }
+
       // Load suggested links and related items
       if (email.id) {
         loadSuggestedLinks(email.id);
         loadRelatedItems(email.id);
       }
-      
+
       // Load notes for this email
       try {
         const notesRes = await apiGetEmailNotes(email.id);
@@ -1178,7 +1391,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           [email.id]: [],
         }));
       }
-      
+
       // Load calendar events linked to this email (Phase 5)
       if (userId) {
         try {
@@ -1203,36 +1416,37 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
-  const handleMarkRead = async (emailId: string, markAsRead: boolean) => {
+  const handleMarkRead = async (emailId: string, markAsRead: boolean, silent: boolean = false) => {
     if (!userId) return;
     try {
       await apiMarkSharedInboxEmailRead(emailId, markAsRead, userId);
-      // Update cache optimistically
-      queryClient.setQueryData(
-        sharedInboxKeys.emailsList(userId, filters),
+      // Update cache optimistically - update all email queries
+      queryClient.setQueriesData(
+        { queryKey: sharedInboxKeys.emails() },
         (oldData: any) => {
           if (!oldData?.pages) return oldData;
+          const newPages = oldData.pages.map((page: any) => ({
+            ...page,
+            data: page.data.map((e: SharedInboxEmail) =>
+              e.id === emailId ? {
+                ...e,
+                isRead: markAsRead,
+                syncStatus: {
+                  ...(e.syncStatus || {}),
+                  readStatus: 'pending'
+                }
+              } : e
+            ),
+          }));
           return {
             ...oldData,
-            pages: oldData.pages.map((page: any) => ({
-              ...page,
-              data: page.data.map((e: SharedInboxEmail) => 
-                e.id === emailId ? { 
-                  ...e, 
-                  isRead: markAsRead,
-                  syncStatus: {
-                    ...(e.syncStatus || {}),
-                    readStatus: 'pending'
-                  }
-                } : e
-              ),
-            })),
+            pages: newPages,
           };
         }
       );
       if (selectedEmail?.id === emailId) {
-        setSelectedEmail((prev) => (prev ? { 
-          ...prev, 
+        setSelectedEmail((prev) => (prev ? {
+          ...prev,
           isRead: markAsRead,
           syncStatus: {
             ...(prev.syncStatus || {}),
@@ -1240,11 +1454,20 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           }
         } : null));
       }
-      showSuccess(markAsRead ? 'Marked as read' : 'Marked as unread');
+      // Only show success notification if not silent (for manual actions)
+      if (!silent) {
+        showSuccess(markAsRead ? 'Marked as read' : 'Marked as unread');
+      }
     } catch (err: any) {
-      showError(err?.message || 'Update failed');
-      // Refetch on error to revert optimistic update
-      refetch();
+      // Only show error notification if not silent
+      if (!silent) {
+        showError(err?.message || 'Update failed');
+        // Refetch on error to revert optimistic update
+        refetch();
+      } else {
+        // Still log error even if silent
+        console.error('[INBOX] Failed to mark email as read:', err?.message);
+      }
     }
   };
 
@@ -1260,9 +1483,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             ...oldData,
             pages: oldData.pages.map((page: any) => ({
               ...page,
-              data: page.data.map((e: SharedInboxEmail) => 
-                e.id === emailId ? { 
-                  ...e, 
+              data: page.data.map((e: SharedInboxEmail) =>
+                e.id === emailId ? {
+                  ...e,
                   isStarred,
                   syncStatus: {
                     ...(e.syncStatus || {}),
@@ -1275,8 +1498,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         }
       );
       if (selectedEmail?.id === emailId) {
-        setSelectedEmail((prev) => (prev ? { 
-          ...prev, 
+        setSelectedEmail((prev) => (prev ? {
+          ...prev,
           isStarred,
           syncStatus: {
             ...(prev.syncStatus || {}),
@@ -1311,10 +1534,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const handleUpdateEmailLabels = async (emailId: string, addLabelIds: string[] = [], removeLabelIds: string[] = [], trackAccuracy: boolean = false, suggestionId?: string) => {
     try {
       await apiUpdateEmailLabels(emailId, { addLabelIds, removeLabelIds, trackAccuracy, suggestionId });
-      
+
       // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
-      
+
       if (selectedEmail?.id === emailId) {
         const currentLabels = selectedEmail.labels || [];
         const updatedLabels = [...currentLabels];
@@ -1334,7 +1557,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           }
         });
       }
-      
+
       showSuccess('Labels updated');
     } catch (err: any) {
       showError(err?.message || 'Failed to update labels');
@@ -1639,7 +1862,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     });
 
     setComposeAttachments([...composeAttachments, ...newAttachments]);
-    
+
     // Reset input
     if (composeFileInputRef.current) {
       composeFileInputRef.current.value = '';
@@ -1681,11 +1904,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   // Handle Drive file selection
   const handleAttachDriveFile = async (file: any) => {
     if (!userId || !showComposeModal) return;
-    
+
     try {
       // Check if we're replying/forwarding (need emailId)
       const emailId = composeMode !== 'compose' && selectedEmail?.id ? selectedEmail.id : `draft_${Date.now()}`;
-      
+
       // For compose mode, we'll attach it locally first, then attach when sending
       // For reply/forward, attach immediately
       if (composeMode === 'compose') {
@@ -1747,7 +1970,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       showError('Please fill in subject and message to save draft');
       return;
     }
-    
+
     setSavingDraft(true);
     try {
       await apiSaveDraft({
@@ -1771,7 +1994,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   // Load Gmail Drafts Handler (Phase 8.2)
   const loadGmailDrafts = async () => {
     if (!userId || !composeAccountEmail) return;
-    
+
     setLoadingGmailDrafts(true);
     try {
       const res = await apiLoadGmailDrafts(userId, composeAccountEmail || connectedAccounts[0]?.email);
@@ -1880,11 +2103,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlContent;
     const textContent = tempDiv.textContent || tempDiv.innerText || '';
-    
+
     const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
     const mentions: string[] = [];
     let match;
-    
+
     while ((match = mentionRegex.exec(textContent)) !== null) {
       const mentionedName = match[1].trim();
       const user = users.find((u: any) => u.name.toLowerCase() === mentionedName.toLowerCase());
@@ -1892,7 +2115,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         mentions.push(user.id);
       }
     }
-    
+
     return [...new Set(mentions)]; // Remove duplicates
   };
 
@@ -1901,7 +2124,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     toolbar: [
       [{ 'header': [1, 2, 3, false] }],
       ['bold', 'italic', 'underline', 'strike'],
-      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
       ['link'],
       ['clean']
     ],
@@ -1932,7 +2155,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setNewThreadMessage(content);
     // Store the Quill editor instance for later use
     quillInstanceRef.current = editor;
-    
+
     // Only check for mentions on user input (not on programmatic changes)
     if (source === 'user') {
       // Get cursor position from Quill
@@ -1941,11 +2164,11 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         const text = editor.getText();
         const textUpToCursor = text.substring(0, selection.index);
         const lastAtSymbol = textUpToCursor.lastIndexOf('@');
-        
+
         if (lastAtSymbol !== -1) {
           const searchQuery = textUpToCursor.substring(lastAtSymbol + 1);
           const charBeforeAt = lastAtSymbol > 0 ? textUpToCursor[lastAtSymbol - 1] : ' ';
-          
+
           // Check if @ is at start of word or line
           if (charBeforeAt === ' ' || charBeforeAt === '\n' || lastAtSymbol === 0) {
             // Only show dropdown if query doesn't contain space or newline
@@ -1953,7 +2176,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
               // Save the index where @ starts for mention insertion
               setMentionStartIndex(lastAtSymbol);
               setMentionSearchQuery(searchQuery);
-              const filtered = users.filter((u: any) => 
+              const filtered = users.filter((u: any) =>
                 u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 u.email?.toLowerCase().includes(searchQuery.toLowerCase())
               );
@@ -1979,31 +2202,31 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const handleMentionSelect = useCallback((user: any) => {
     // Get the Quill editor instance from stored reference
     const quill = quillInstanceRef.current;
-    
+
     if (!quill) {
       console.error('[INBOX] Quill editor not available');
       return;
     }
-    
+
     // Focus editor first to ensure we can get selection
     quill.focus();
-    
+
     // Get current text and find @ symbol
     const text = quill.getText();
     let atIndex = mentionStartIndex;
-    
+
     // If we don't have saved index, find the last @ symbol
     if (atIndex === null || atIndex < 0) {
       atIndex = text.lastIndexOf('@');
     }
-    
+
     if (atIndex === -1) {
       console.error('[INBOX] Could not find @ symbol for mention');
       setShowMentionDropdown(false);
       setMentionStartIndex(null);
       return;
     }
-    
+
     // Find where the search query ends (current cursor position or end of query)
     const textAfterAt = text.substring(atIndex + 1);
     const spaceIndex = textAfterAt.indexOf(' ');
@@ -2011,12 +2234,12 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     let queryEndIndex = textAfterAt.length;
     if (spaceIndex !== -1) queryEndIndex = Math.min(queryEndIndex, spaceIndex);
     if (newlineIndex !== -1) queryEndIndex = Math.min(queryEndIndex, newlineIndex);
-    
+
     // Calculate positions
     const deleteStartIndex = atIndex;
     const deleteEndIndex = atIndex + 1 + queryEndIndex; // +1 for @, +queryEndIndex for query
     const deleteLength = deleteEndIndex - deleteStartIndex;
-    
+
     console.log('[INBOX] Inserting mention:', {
       atIndex,
       deleteStartIndex,
@@ -2025,29 +2248,29 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       textAfterAt: textAfterAt.substring(0, queryEndIndex),
       mentionText: `@${user.name} `
     });
-    
+
     // Set selection to delete (@ and search query)
     quill.setSelection(deleteStartIndex, deleteLength, 'api');
     quill.deleteText(deleteStartIndex, deleteLength, 'api');
-    
+
     // Insert mention with styling
     const mentionText = `@${user.name} `;
     quill.insertText(deleteStartIndex, mentionText, 'api');
-    
+
     // Apply styling to mention
     quill.formatText(deleteStartIndex, mentionText.length - 1, {
       'bold': true,
       'color': '#4338ca'
     }, 'api');
-    
+
     // Move cursor after mention
     const newPosition = deleteStartIndex + mentionText.length;
     quill.setSelection(newPosition, 0, 'api');
-    
+
     // Update content state
     const newContent = quill.root.innerHTML;
     setNewThreadMessage(newContent);
-    
+
     setShowMentionDropdown(false);
     setMentionStartIndex(null);
   }, [mentionStartIndex]);
@@ -2059,7 +2282,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       }
       return;
     }
-    
+
     setIsAddingThread(true);
     try {
       const threadId = selectedEmail.id;
@@ -2069,7 +2292,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       tempDiv.innerHTML = newThreadMessage;
       const textContent = tempDiv.textContent || tempDiv.innerText || '';
       const messageText = textContent.trim() ? newThreadMessage.trim() : '';
-      
+
       // Prepare note data - only include imageUrl if it exists and is not empty
       const notePayload: any = {
         emailId: threadId,
@@ -2077,12 +2300,12 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         userName: userName,
         message: messageText,
       };
-      
+
       // Add markedFor if any team members are selected
       if (markedForUsers.length > 0) {
         notePayload.markedFor = markedForUsers;
       }
-      
+
       // Only add image fields if image exists
       if (noteImagePreview && noteImagePreview.trim()) {
         // Check if base64 string is too large (Firestore limit is ~1MB per field)
@@ -2097,20 +2320,20 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           notePayload.imageName = noteImageFile.name;
         }
       }
-      
+
       // Save note to database
       const res = await apiAddEmailNote(notePayload);
-      
+
       // Handle response - apiFetch returns the JSON response object directly
       // Backend returns: { success: true, data: { id, ...noteData }, message: "..." }
       // So res = { success: true, data: {...}, message: "..." }
       const noteData = res?.data || {};
-      
+
       if (!noteData.id && !noteData.emailId) {
         console.error('[INBOX] Invalid note response:', res);
         throw new Error('Invalid response from server. Note was not created.');
       }
-      
+
       const newMessage = {
         id: noteData.id || `thread-${Date.now()}`,
         userId: userId,
@@ -2121,13 +2344,13 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         imageName: noteImageFile?.name || undefined,
         markedFor: noteData.markedFor || [],
       };
-      
+
       // Update local state - add new note at the beginning (newest first)
       setInternalThreads(prev => ({
         ...prev,
         [threadId]: [newMessage, ...(prev[threadId] || [])],
       }));
-      
+
       // Extract mentioned users and send notifications
       const mentionedUserIds = extractMentionedUsers(messageText);
       if (mentionedUserIds.length > 0) {
@@ -2147,7 +2370,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           }
         }
       }
-      
+
       // Clear form
       setNewThreadMessage('');
       setNoteImagePreview('');
@@ -2158,9 +2381,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       if (quillInstanceRef.current) {
         quillInstanceRef.current.setText('');
       }
-      
+
       // Show success message
-      const successMsg = res?.message || (mentionedUserIds.length > 0 
+      const successMsg = res?.message || (mentionedUserIds.length > 0
         ? `Note added and ${mentionedUserIds.length} user(s) notified`
         : 'Internal note added');
       showSuccess(successMsg);
@@ -2176,12 +2399,12 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
   const handleDeleteThreadMessage = async (emailId: string, noteId: string) => {
     if (!userId || !currentUser) return;
-    
+
     setDeletingNoteId(noteId);
     try {
       // Delete from database
       await apiDeleteEmailNote(noteId, userId);
-      
+
       // Update local state
       setInternalThreads(prev => ({
         ...prev,
@@ -2198,17 +2421,17 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
   const handleGenerateAIDraft = async (templateId?: string) => {
     if (!selectedEmail || !userId) return;
-    
+
     setIsGeneratingDraft(true);
     setAiDraftVariations([]);
     setSelectedVariationIndex(null);
     setAiDraft(null);
-    
+
     try {
       // Call real AI draft API with optional template
       const res = await apiGenerateAIDraft(selectedEmail.id, userId, templateId);
       const draftData = res?.data ?? res ?? {};
-      
+
       // Handle new format with variations
       if (draftData.variations && Array.isArray(draftData.variations) && draftData.variations.length > 0) {
         setAiDraftVariations(draftData.variations);
@@ -2242,10 +2465,10 @@ ${currentUser?.name || 'Team'}`;
     } catch (err: any) {
       // Extract error message immediately - NEVER log or serialize the error object
       const errorMsg = getSafeErrorMessage(err, 'Failed to generate draft');
-      
+
       // Update state first to exit React's error handling context
       setIsGeneratingDraft(false);
-      
+
       // Then handle error asynchronously to prevent React from serializing error context
       setTimeout(() => {
         console.error('[INBOX] Error generating draft:', errorMsg);
@@ -2262,10 +2485,10 @@ ${currentUser?.name || 'Team'}`;
       showError('Please enter a subject and recipient to generate AI draft');
       return;
     }
-    
+
     setIsGeneratingComposeDraft(true);
     setComposeAIDraft(null);
-    
+
     try {
       // For compose mode, we'll generate a draft based on subject and recipient
       // This is a simplified version - in production, you'd call an API endpoint
@@ -2278,10 +2501,10 @@ ${composeSubject ? `Regarding: ${composeSubject}` : ''}
 
 Best regards,
 ${currentUser?.name || 'Team'}`;
-      
+
       // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       setComposeAIDraft(plainTextToHtmlForQuill(draft));
       showSuccess('AI draft generated');
     } catch (err: any) {
@@ -2294,7 +2517,7 @@ ${currentUser?.name || 'Team'}`;
 
   const handleUseDraft = () => {
     if (!aiDraft) return;
-    
+
     // Get text content from Quill editor instance or use HTML content
     let textContent = '';
     try {
@@ -2316,7 +2539,7 @@ ${currentUser?.name || 'Team'}`;
       const errorMsg = err?.message || 'Error extracting text';
       console.error('[INBOX] Error extracting draft text:', errorMsg);
     }
-    
+
     // Copy to clipboard
     navigator.clipboard.writeText(textContent).then(() => {
       showSuccess('Draft copied to clipboard! You can paste it into your email client.');
@@ -2349,11 +2572,11 @@ ${currentUser?.name || 'Team'}`;
       showError('Please enter a template name');
       return;
     }
-    
+
     try {
       // Ensure content is a string, not a DOM element
       const templateContent = typeof aiDraft === 'string' ? aiDraft : String(aiDraft || '');
-      
+
       await apiCreateEmailTemplate({
         name: templateNameInput.trim(),
         content: templateContent,
@@ -2410,12 +2633,12 @@ ${currentUser?.name || 'Team'}`;
       .replace(/&#39;/g, "'")
       .replace(/\s+/g, ' ')
       .trim();
-    
+
     // Remove common email signature patterns and URLs that might be concatenated
     // This helps clean up previews that include signatures, websites, etc.
     plainText = plainText.replace(/https?:\/\/[^\s]+/g, '').trim();
     plainText = plainText.replace(/\s+/g, ' ').trim();
-    
+
     if (plainText.length <= maxLength) return plainText;
     // Truncate at word boundary if possible
     const truncated = plainText.substring(0, maxLength);
@@ -2439,11 +2662,11 @@ ${currentUser?.name || 'Team'}`;
   // Filter and sort emails (Phase 8.1)
   const filteredEmails = useMemo(() => {
     // Deduplicate emails by ID first to prevent duplicate keys
-    const uniqueEmails = emails.filter((email, index, self) => 
+    const uniqueEmails = emails.filter((email, index, self) =>
       email.id && index === self.findIndex(e => e.id === email.id)
     );
     let result = [...uniqueEmails];
-    
+
     // Apply threadStatus filter (Phase 8.3: Archive view)
     if (filterStatus === 'archived') {
       result = result.filter(email => email.threadStatus === 'archived');
@@ -2454,7 +2677,7 @@ ${currentUser?.name || 'Team'}`;
       // By default, exclude archived emails unless specifically viewing archived
       result = result.filter(email => email.threadStatus !== 'archived');
     }
-    
+
     // Apply label filter
     if (selectedLabelFilter) {
       result = result.filter(email => {
@@ -2462,20 +2685,20 @@ ${currentUser?.name || 'Team'}`;
         return emailLabels.includes(selectedLabelFilter);
       });
     }
-    
+
     // Apply advanced filters
     if (filterAssignedToMe && userId) {
       result = result.filter(email => email.owner === userId);
     }
-    
+
     if (filterAssignedToTeamMember) {
       result = result.filter(email => email.owner === filterAssignedToTeamMember);
     }
-    
+
     // Apply sorting
     result.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortBy) {
         case 'date':
           const dateA = parseInt(a.internalDate || '0') || 0;
@@ -2505,10 +2728,10 @@ ${currentUser?.name || 'Team'}`;
           }
           break;
       }
-      
+
       return sortOrder === 'asc' ? -comparison : comparison;
     });
-    
+
     return result;
   }, [emails, selectedLabelFilter, filterAssignedToMe, filterAssignedToTeamMember, userId, sortBy, sortOrder]);
 
@@ -2518,7 +2741,7 @@ ${currentUser?.name || 'Team'}`;
     if (selectedEmail?.id) {
       // Check if the selected email is still in the filtered emails list
       const isEmailInFilteredList = filteredEmails.some(email => email.id === selectedEmail.id);
-      
+
       if (!isEmailInFilteredList) {
         // Email is not in filtered list anymore (could be due to domain exclusion, status filter, etc.)
         // Clear the selection
@@ -2544,7 +2767,7 @@ ${currentUser?.name || 'Team'}`;
   // Group emails by thread (gmailThreadId) - respects sortBy and sortOrder (Phase 8.1)
   const threadedEmails = useMemo(() => {
     if (viewMode === 'list') return null;
-    
+
     const threads = new Map<string, SharedInboxEmail[]>();
     filteredEmails.forEach(email => {
       const threadId = email.gmailThreadId || email.id; // Fallback to email.id if no threadId
@@ -2553,7 +2776,7 @@ ${currentUser?.name || 'Team'}`;
       }
       threads.get(threadId)!.push(email);
     });
-    
+
     // Sort emails within each thread by date (most recent first)
     const threadArray = Array.from(threads.entries())
       .map(([threadId, threadEmails]) => {
@@ -2570,13 +2793,13 @@ ${currentUser?.name || 'Team'}`;
           unreadCount: sortedThreadEmails.filter(e => !e.isRead).length,
         };
       });
-    
+
     // Sort threads based on sortBy and sortOrder
     threadArray.sort((a, b) => {
       let comparison = 0;
       const latestA = a.latestEmail;
       const latestB = b.latestEmail;
-      
+
       switch (sortBy) {
         case 'date':
           const dateA = parseInt(latestA.internalDate || '0') || 0;
@@ -2608,10 +2831,10 @@ ${currentUser?.name || 'Team'}`;
           }
           break;
       }
-      
+
       return sortOrder === 'asc' ? -comparison : comparison;
     });
-    
+
     return threadArray;
   }, [filteredEmails, viewMode, sortBy, sortOrder]);
 
@@ -2649,7 +2872,7 @@ ${currentUser?.name || 'Team'}`;
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300">
+    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300 pb-8 min-w-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 shrink-0">
         <div>
@@ -2675,7 +2898,7 @@ ${currentUser?.name || 'Team'}`;
                 onChange={(e) => {
                   const newFilter = e.target.value || null;
                   setSelectedLabelFilter(newFilter);
-                  
+
                   // Scroll to top of email list when filter changes
                   const emailListContainer = document.querySelector('.overflow-y-auto');
                   if (emailListContainer) {
@@ -2711,85 +2934,21 @@ ${currentUser?.name || 'Team'}`;
               {syncing ? 'Syncing…' : 'Sync from Gmail'}
             </button>
           )}
+          {/* Connected Accounts Button - Compact design */}
+          {connectedAccounts.length > 0 && (
+            <button
+              onClick={() => setShowAccountsModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-700 transition-colors"
+              title={`${connectedAccounts.length} connected account${connectedAccounts.length !== 1 ? 's' : ''}`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">Accounts</span>
+              <span className="px-1.5 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded-full">{connectedAccounts.length}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Connected Accounts Section - Shows ALL team accounts */}
-      {/* {connectedAccounts.length > 0 && (
-        <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <p className="text-sm font-semibold text-slate-900">
-                Team Connected Accounts ({connectedAccounts.length})
-              </p>
-            </div>
-            <button
-              onClick={() => setShowAccountsList(!showAccountsList)}
-              className="text-xs text-slate-500 hover:text-slate-700 font-medium"
-            >
-              {showAccountsList ? 'Hide' : 'Show'} Accounts
-            </button>
-          </div>
-          
-          {showAccountsList && (
-            <div className="space-y-2 mt-3">
-              {connectedAccounts
-                .filter((account, index, self) => 
-                  self.findIndex(a => a.email === account.email && a.userId === account.userId) === index
-                )
-                .map((account, idx) => (
-                <div
-                  key={`${account.email}-${account.userId}-${idx}`}
-                  className={`flex items-center justify-between p-3 bg-white border rounded-lg ${
-                    account.isCurrentUser ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
-                      {account.email.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-slate-900">{account.email}</p>
-                        {account.isCurrentUser && (
-                          <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-medium rounded">
-                            You
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        {account.ownerName} · Connected {new Date(account.connectedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  {account.isCurrentUser && (
-                    <button
-                      onClick={() => handleDisconnectAccount(account.email)}
-                      disabled={disconnectingAccount === account.email}
-                      className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors disabled:opacity-50"
-                      title="Disconnect your account"
-                    >
-                      {disconnectingAccount === account.email ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <DisconnectIcon className="w-4 h-4" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={handleConnectAccount}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-300 text-slate-600 text-sm font-medium rounded-lg hover:border-indigo-300 hover:bg-indigo-50/30 hover:text-indigo-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Connect Your Gmail Account
-              </button>
-            </div>
-          )}
-        </div>
-      )} */}
 
       {gmailConnected === false && connectedAccounts.length === 0 && (
         <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
@@ -2827,9 +2986,8 @@ ${currentUser?.name || 'Team'}`;
           <button
             type="button"
             onClick={() => setShowAdvancedSearch(prev => !prev)}
-            className={`px-3 py-2.5 border rounded-xl text-sm font-medium flex items-center gap-2 shrink-0 ${
-              showAdvancedSearch ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
+            className={`px-3 py-2.5 border rounded-xl text-sm font-medium flex items-center gap-2 shrink-0 ${showAdvancedSearch ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
             title="Advanced filters"
           >
             <FilterIcon className="w-4 h-4" />
@@ -3264,11 +3422,10 @@ ${currentUser?.name || 'Team'}`;
               setFilterStatus('archived');
             }
           }}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-            filterStatus === 'archived'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${filterStatus === 'archived'
+            ? 'bg-indigo-600 text-white'
+            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <InboxIcon className="w-4 h-4 inline mr-1.5" />
           {filterStatus === 'archived' ? 'Show Active' : 'Show Archived'}
@@ -3442,7 +3599,7 @@ ${currentUser?.name || 'Team'}`;
               </button>
             </div>
             <p className="text-xs text-slate-500 mb-3">When an email matches a rule (sender domain or keyword in subject/body), &quot;Suggest labels&quot; will recommend the label. Add rules below.</p>
-            
+
             {/* Accuracy Stats Section */}
             {accuracyStats && (
               <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -3767,13 +3924,14 @@ ${currentUser?.name || 'Team'}`;
         </div>
       )}
 
-      {/* Two-column layout: list | detail — page scrolls */}
-      <div className="flex-1 min-h-[400px] flex flex-col lg:flex-row gap-4 mt-4">
-        {/* Email list — scrolls inside this card only */}
+      {/* Two-column layout: list | detail — on mobile stack with list always visible and scrollable */}
+      <div className="flex-1 min-h-[50vh] lg:min-h-[400px] flex flex-col lg:flex-row gap-4 mt-4 min-w-0">
+        {/* Email list — scrolls inside this card only; on mobile ensure min height so list is never hidden */}
         <div
-          className={`flex flex-col min-h-0 border border-slate-200 rounded-xl bg-white overflow-hidden ${
-            selectedEmail ? 'lg:w-[380px] lg:flex-shrink-0' : 'flex-1'
-          }`}
+          className={`flex flex-col min-h-0 border border-slate-200 rounded-xl bg-white overflow-hidden ${selectedEmail
+            ? 'min-h-[35vh] flex-1 lg:min-h-0 lg:w-[380px] lg:max-w-[380px] lg:flex-shrink-0'
+            : 'flex-1 min-h-[35vh] lg:min-h-0'
+            }`}
         >
           {loading ? (
             <div className="flex-1 overflow-y-auto">
@@ -3799,7 +3957,7 @@ ${currentUser?.name || 'Team'}`;
                 {selectedLabelFilter ? 'No emails with this label' : 'No emails yet'}
               </p>
               <p className="text-slate-400 text-sm mt-1">
-                {selectedLabelFilter 
+                {selectedLabelFilter
                   ? 'Try selecting a different label or clear the filter to see all emails.'
                   : 'Connect Gmail and tap "Sync new mail (24 hrs)" to pull in recent inbox.'}
               </p>
@@ -3827,14 +3985,13 @@ ${currentUser?.name || 'Team'}`;
                 const isExpanded = expandedThreads.has(thread.threadId);
                 const latest = thread.latestEmail;
                 const hasMultiple = thread.emails.length > 1;
-                
+
                 return (
                   <li key={thread.threadId}>
                     {/* Thread header */}
                     <div
-                      className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${
-                        selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
-                      }`}
+                      className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
+                        }`}
                     >
                       {/* Bulk Selection Checkbox (Phase 8.1) */}
                       {isBulkMode && (
@@ -3888,9 +4045,8 @@ ${currentUser?.name || 'Team'}`;
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span
-                              className={`truncate font-medium ${
-                                thread.unreadCount > 0 ? 'text-slate-900' : 'text-slate-600'
-                              }`}
+                              className={`truncate font-medium ${thread.unreadCount > 0 ? 'text-slate-900' : 'text-slate-600'
+                                }`}
                             >
                               {latest.subject || '(No subject)'}
                             </span>
@@ -3906,21 +4062,19 @@ ${currentUser?.name || 'Team'}`;
                             )}
                             {/* Priority Badge */}
                             {latest.priority && (
-                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                                latest.priority === 'high' ? 'bg-red-100 text-red-700' :
+                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${latest.priority === 'high' ? 'bg-red-100 text-red-700' :
                                 latest.priority === 'low' ? 'bg-blue-100 text-blue-700' :
-                                'bg-slate-100 text-slate-700'
-                              }`}>
+                                  'bg-slate-100 text-slate-700'
+                                }`}>
                                 {latest.priority === 'high' ? 'High' : latest.priority === 'low' ? 'Low' : 'Medium'}
                               </span>
                             )}
                             {/* Thread Status Badge */}
                             {latest.threadStatus && latest.threadStatus !== 'active' && (
-                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                                latest.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
+                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${latest.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
                                 latest.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
-                                latest.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
-                              }`}>
+                                  latest.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
+                                }`}>
                                 {latest.threadStatus.charAt(0).toUpperCase() + latest.threadStatus.slice(1)}
                               </span>
                             )}
@@ -3936,61 +4090,61 @@ ${currentUser?.name || 'Team'}`;
                               </span>
                             )}
                           </div>
-                        <p className="text-xs text-slate-500 mt-0 truncate">
-                          {latest.sender || latest.email}
-                          {hasMultiple && ` · ${thread.emails.length} messages`}
-                        </p>
-                      {/* Participants display */}
-                      {(() => {
-                        // Collect all unique participants from thread
-                        const allParticipants = new Set<string>();
-                        thread.emails.forEach(email => {
-                          if (email.participants && Array.isArray(email.participants)) {
-                            email.participants.forEach(p => allParticipants.add(p.toLowerCase()));
-                          }
-                          if (email.to && Array.isArray(email.to)) {
-                            email.to.forEach(p => allParticipants.add(p.toLowerCase()));
-                          }
-                          if (email.cc && Array.isArray(email.cc)) {
-                            email.cc.forEach(p => allParticipants.add(p.toLowerCase()));
-                          }
-                        });
-                        const participantsList = Array.from(allParticipants).slice(0, 5);
-                        if (participantsList.length > 0) {
-                          return (
-                            <p className="text-xs text-slate-400 mt-0 truncate">
-                              <span className="text-slate-500">To: </span>
-                              {participantsList.map((p, idx) => (
-                                <span key={p}>
-                                  {p.split('@')[0]}
-                                  {idx < participantsList.length - 1 && ', '}
-                                </span>
-                              ))}
-                              {allParticipants.size > 5 && ` +${allParticipants.size - 5} more`}
-                            </p>
-                          );
-                        }
-                        return null;
-                      })()}
-                      {(latest.accountEmail || latest.accountOwnerName) && (
-                        <p className="text-xs text-slate-400 mt-0 truncate">
-                          {latest.accountOwnerName && (
-                            <span className="text-slate-500">via {latest.accountOwnerName}</span>
-                          )}
-                          {latest.accountEmail && (
-                            <span className="ml-1 px-1 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-medium rounded">
-                              {latest.accountEmail}
-                            </span>
-                          )}
-                        </p>
-                      )}
-                        {/* Improved Preview Text Truncation (Phase 8.1) */}
-                        {latest.lastMessage && (
-                          <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
-                            {truncatePreview(latest.lastMessage, 80)}
+                          <p className="text-xs text-slate-500 mt-0 truncate">
+                            {latest.sender || latest.email}
+                            {hasMultiple && ` · ${thread.emails.length} messages`}
                           </p>
-                        )}
-                      </div>
+                          {/* Participants display */}
+                          {(() => {
+                            // Collect all unique participants from thread
+                            const allParticipants = new Set<string>();
+                            thread.emails.forEach(email => {
+                              if (email.participants && Array.isArray(email.participants)) {
+                                email.participants.forEach(p => allParticipants.add(p.toLowerCase()));
+                              }
+                              if (email.to && Array.isArray(email.to)) {
+                                email.to.forEach(p => allParticipants.add(p.toLowerCase()));
+                              }
+                              if (email.cc && Array.isArray(email.cc)) {
+                                email.cc.forEach(p => allParticipants.add(p.toLowerCase()));
+                              }
+                            });
+                            const participantsList = Array.from(allParticipants).slice(0, 5);
+                            if (participantsList.length > 0) {
+                              return (
+                                <p className="text-xs text-slate-400 mt-0 truncate">
+                                  <span className="text-slate-500">To: </span>
+                                  {participantsList.map((p, idx) => (
+                                    <span key={p}>
+                                      {p.split('@')[0]}
+                                      {idx < participantsList.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                                  {allParticipants.size > 5 && ` +${allParticipants.size - 5} more`}
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {(latest.accountEmail || latest.accountOwnerName) && (
+                            <p className="text-xs text-slate-400 mt-0 truncate">
+                              {latest.accountOwnerName && (
+                                <span className="text-slate-500">via {latest.accountOwnerName}</span>
+                              )}
+                              {latest.accountEmail && (
+                                <span className="ml-1 px-1 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-medium rounded">
+                                  {latest.accountEmail}
+                                </span>
+                              )}
+                            </p>
+                          )}
+                          {/* Improved Preview Text Truncation (Phase 8.1) */}
+                          {latest.lastMessage && (
+                            <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+                              {truncatePreview(latest.lastMessage, 80)}
+                            </p>
+                          )}
+                        </div>
                       </button>
                       <div className="flex flex-col items-end flex-shrink-0">
                         <span className="text-xs text-slate-400 whitespace-nowrap">
@@ -4004,7 +4158,7 @@ ${currentUser?.name || 'Team'}`;
                         <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
                       )}
                     </div>
-                    
+
                     {/* Thread emails (when expanded) */}
                     {isExpanded && hasMultiple && (
                       <div className="bg-slate-50/50 border-l-4 border-indigo-200 pl-4">
@@ -4015,9 +4169,8 @@ ${currentUser?.name || 'Team'}`;
                               <button
                                 type="button"
                                 onClick={() => toggleMessage(email.id)}
-                                className={`w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex items-start gap-3 ${
-                                  selectedEmail?.id === email.id ? 'bg-indigo-50' : ''
-                                }`}
+                                className={`w-full text-left px-4 py-2.5 hover:bg-slate-100 transition-colors flex items-start gap-3 ${selectedEmail?.id === email.id ? 'bg-indigo-50' : ''
+                                  }`}
                               >
                                 <div
                                   className="p-1 hover:bg-slate-200 rounded flex-shrink-0 mt-0.5 cursor-pointer"
@@ -4128,9 +4281,8 @@ ${currentUser?.name || 'Team'}`;
               {filteredEmails.map(email => (
                 <li key={email.id}>
                   <div
-                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${
-                      selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
-                    }`}
+                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
+                      }`}
                   >
                     {/* Bulk Selection Checkbox (Phase 8.1) */}
                     {isBulkMode && (
@@ -4160,9 +4312,8 @@ ${currentUser?.name || 'Team'}`;
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span
-                            className={`truncate font-medium ${
-                              !email.isRead ? 'text-slate-900' : 'text-slate-600'
-                            }`}
+                            className={`truncate font-medium ${!email.isRead ? 'text-slate-900' : 'text-slate-600'
+                              }`}
                           >
                             {email.subject || '(No subject)'}
                           </span>
@@ -4178,21 +4329,19 @@ ${currentUser?.name || 'Team'}`;
                           )}
                           {/* Priority Badge */}
                           {email.priority && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                              email.priority === 'high' ? 'bg-red-100 text-red-700' :
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${email.priority === 'high' ? 'bg-red-100 text-red-700' :
                               email.priority === 'low' ? 'bg-blue-100 text-blue-700' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
+                                'bg-slate-100 text-slate-700'
+                              }`}>
                               {email.priority === 'high' ? 'High' : email.priority === 'low' ? 'Low' : 'Medium'}
                             </span>
                           )}
                           {/* Thread Status Badge */}
                           {email.threadStatus && email.threadStatus !== 'active' && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                              email.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${email.threadStatus === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
                               email.threadStatus === 'pending' ? 'bg-amber-100 text-amber-700' :
-                              email.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
-                            }`}>
+                                email.threadStatus === 'archived' ? 'bg-slate-100 text-slate-700' : ''
+                              }`}>
                               {email.threadStatus.charAt(0).toUpperCase() + email.threadStatus.slice(1)}
                             </span>
                           )}
@@ -4281,7 +4430,7 @@ ${currentUser?.name || 'Team'}`;
         </div>
 
         {/* Email detail — height by content; body scrolls inside panel */}
-        <div className="flex-1 min-h-[400px] flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0 max-h-full">
+        <div className="flex-1 min-h-[200px] lg:min-h-[400px] flex flex-col border border-slate-200 rounded-xl bg-white overflow-hidden min-w-0 max-h-full">
           {detailLoading ? (
             <div className="flex-1 flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -4299,12 +4448,11 @@ ${currentUser?.name || 'Team'}`;
                       <span>·</span>
                       <span>{selectedEmail.timestamp}</span>
                       {(selectedEmail as EmailDetail).senderClassification && (
-                        <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 ${
-                          (selectedEmail as EmailDetail).senderClassification === 'internal' ? 'bg-slate-100 text-slate-700' :
+                        <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 ${(selectedEmail as EmailDetail).senderClassification === 'internal' ? 'bg-slate-100 text-slate-700' :
                           (selectedEmail as EmailDetail).senderClassification === 'system' ? 'bg-slate-200 text-slate-600' : 'bg-indigo-50 text-indigo-700'
-                        }`}>
+                          }`}>
                           {(selectedEmail as EmailDetail).senderClassification === 'internal' ? 'Internal' :
-                           (selectedEmail as EmailDetail).senderClassification === 'system' ? 'System' : 'Customer'}
+                            (selectedEmail as EmailDetail).senderClassification === 'system' ? 'System' : 'Customer'}
                         </span>
                       )}
                     </p>
@@ -4323,282 +4471,282 @@ ${currentUser?.name || 'Team'}`;
                   </div>
                   {/* Action buttons moved to separate row */}
                 </div>
-                
+
                 {/* CRM Integration - Contact/Company Info & Linking (Phase 7.1) */}
                 {selectedEmail.linkedRecords && (
                   <div className="flex flex-wrap items-center gap-2">
-                      {selectedEmail.linkedRecords.contactId && (() => {
-                        const contact = contacts.find(c => c.id === selectedEmail.linkedRecords?.contactId);
-                        return contact ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg">
-                            <User className="w-3 h-3" />
-                            {contact.name}
-                          </span>
-                        ) : null;
-                      })()}
-                      {selectedEmail.linkedRecords.companyId && (() => {
-                        const company = companies.find(c => c.id === selectedEmail.linkedRecords?.companyId);
-                        return company ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg">
-                            <Building2 className="w-3 h-3" />
-                            {company.name}
-                          </span>
-                        ) : null;
-                      })()}
-                      {selectedEmail.linkedRecords.dealId && (() => {
-                        const deal = deals.find(d => d.id === selectedEmail.linkedRecords?.dealId);
-                        return deal ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-lg">
-                            <Briefcase className="w-3 h-3" />
-                            {deal.title || deal.name}
-                          </span>
-                        ) : null;
-                      })()}
-                      {selectedEmail.linkedRecords.projectId && (() => {
-                        const project = projects.find(p => p.id === selectedEmail.linkedRecords?.projectId);
-                        return project ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-lg">
-                            <FolderKanban className="w-3 h-3" />
-                            {project.title || project.name}
-                          </span>
-                        ) : null;
-                      })()}
-                      {selectedEmail.linkedRecords.contractId && (() => {
-                        const contract = contracts.find(c => c.id === selectedEmail.linkedRecords?.contractId);
-                        return contract ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-lg">
-                            <FileText className="w-3 h-3" />
-                            {contract.title}
-                          </span>
-                        ) : null;
-                      })()}
-                    </div>
-                  )}
-                  {/* Suggested Links (Phase 7.1) */}
-                  {loadingSuggestedLinks ? (
-                    <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Finding matches...
-                    </div>
-                  ) : (suggestedLinks.contacts.length > 0 || suggestedLinks.companies.length > 0) && (
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-slate-500 font-medium">Suggested links:</span>
-                      {suggestedLinks.contacts.map(contact => (
-                        <button
-                          key={contact.id}
-                          onClick={() => handleLinkEmail('contact', contact.id)}
-                          disabled={linkingEmail}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
-                        >
+                    {selectedEmail.linkedRecords.contactId && (() => {
+                      const contact = contacts.find(c => c.id === selectedEmail.linkedRecords?.contactId);
+                      return contact ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg">
                           <User className="w-3 h-3" />
                           {contact.name}
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      ))}
-                      {suggestedLinks.companies.map(company => (
-                        <button
-                          key={company.id}
-                          onClick={() => handleLinkEmail('company', company.id)}
-                          disabled={linkingEmail}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
-                        >
+                        </span>
+                      ) : null;
+                    })()}
+                    {selectedEmail.linkedRecords.companyId && (() => {
+                      const company = companies.find(c => c.id === selectedEmail.linkedRecords?.companyId);
+                      return company ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg">
                           <Building2 className="w-3 h-3" />
                           {company.name}
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {/* Linking Buttons (Phase 7.1 & 7.2) */}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 max-w-full">
-                    <button
-                      type="button"
-                      onClick={() => { setLinkModalType('contact'); setShowLinkModal(true); }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                      Link Contact
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setLinkModalType('company'); setShowLinkModal(true); }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                      Link Company
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setLinkModalType('deal'); setShowLinkModal(true); }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                      Link Deal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setLinkModalType('project'); setShowLinkModal(true); }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                      Link Project
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setLinkModalType('contract'); setShowLinkModal(true); }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                      Link Contract
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateTaskModal(true)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
-                    >
-                      <CheckSquare className="w-3 h-3 flex-shrink-0" />
-                      Create Task
-                    </button>
+                        </span>
+                      ) : null;
+                    })()}
+                    {selectedEmail.linkedRecords.dealId && (() => {
+                      const deal = deals.find(d => d.id === selectedEmail.linkedRecords?.dealId);
+                      return deal ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-lg">
+                          <Briefcase className="w-3 h-3" />
+                          {deal.title || deal.name}
+                        </span>
+                      ) : null;
+                    })()}
+                    {selectedEmail.linkedRecords.projectId && (() => {
+                      const project = projects.find(p => p.id === selectedEmail.linkedRecords?.projectId);
+                      return project ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-lg">
+                          <FolderKanban className="w-3 h-3" />
+                          {project.title || project.name}
+                        </span>
+                      ) : null;
+                    })()}
+                    {selectedEmail.linkedRecords.contractId && (() => {
+                      const contract = contracts.find(c => c.id === selectedEmail.linkedRecords?.contractId);
+                      return contract ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-lg">
+                          <FileText className="w-3 h-3" />
+                          {contract.title}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
-                  {/* Labels Display */}
-                  {selectedEmail.labels && selectedEmail.labels.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 mt-1 max-w-full">
-                      {selectedEmail.labels.map(labelId => {
-                        const label = gmailLabels.find(l => l.id === labelId);
-                        if (!label) return null;
-                        return (
-                          <span
-                            key={labelId}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
-                          >
-                            <span className="truncate max-w-[200px]">{label.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveEmailLabel(selectedEmail.id, labelId)}
-                              className="hover:text-purple-900 flex-shrink-0"
-                              title="Remove label"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {/* Suggest labels (Phase 3.3) */}
-                  <div className="mt-1 flex flex-wrap items-center gap-2 max-w-full">
-                    <button
-                      type="button"
-                      disabled={categorizingLoading || !userId}
-                      onClick={async () => {
-                        if (!selectedEmail?.id || !userId) return;
-                        setCategorizingLoading(true);
-                        setSuggestedLabels([]);
-                        try {
-                          const res = await apiCategorizeEmail({
-                            emailId: selectedEmail.id,
-                            userId,
-                            useAi: true,
-                            availableLabels: gmailLabels.map(l => ({ id: l.id, name: l.name }))
-                          });
-                          const data = (res as any)?.data;
-                          if (data?.suggestedLabels?.length) {
-                            setSuggestedLabels(data.suggestedLabels);
-                            setCurrentSuggestionId(data.suggestionId || null);
-                          }
-                        } catch (_) {
-                          setSuggestedLabels([]);
-                        } finally {
-                          setCategorizingLoading(false);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                    >
-                      {categorizingLoading ? <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" /> : <Sparkles className="w-3 h-3 flex-shrink-0" />}
-                      Suggest labels
-                    </button>
-                    {suggestedLabels.length > 0 && (
-                      <span className="text-xs text-slate-500 flex-shrink-0">Suggested:</span>
-                    )}
-                    {suggestedLabels.map((s, i) => (
-                      <span
-                        key={s.labelId || i}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
+                )}
+                {/* Suggested Links (Phase 7.1) */}
+                {loadingSuggestedLinks ? (
+                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Finding matches...
+                  </div>
+                ) : (suggestedLinks.contacts.length > 0 || suggestedLinks.companies.length > 0) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Suggested links:</span>
+                    {suggestedLinks.contacts.map(contact => (
+                      <button
+                        key={contact.id}
+                        onClick={() => handleLinkEmail('contact', contact.id)}
+                        disabled={linkingEmail}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
                       >
-                        <span className="truncate max-w-[150px]">{s.labelName}</span>
-                        <span className="text-amber-600 text-[10px] flex-shrink-0">({s.source})</span>
-                        {s.labelId && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleUpdateEmailLabels(selectedEmail.id, [s.labelId!], [], true, currentSuggestionId || undefined);
-                              setSuggestedLabels(prev => prev.filter((_, j) => j !== i));
-                            }}
-                            className="hover:bg-amber-100 rounded px-0.5 flex-shrink-0"
-                            title="Add to email"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
-                        )}
-                      </span>
+                        <User className="w-3 h-3" />
+                        {contact.name}
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    ))}
+                    {suggestedLinks.companies.map(company => (
+                      <button
+                        key={company.id}
+                        onClick={() => handleLinkEmail('company', company.id)}
+                        disabled={linkingEmail}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
+                      >
+                        <Building2 className="w-3 h-3" />
+                        {company.name}
+                        <Plus className="w-3 h-3" />
+                      </button>
                     ))}
                   </div>
-                  {/* Add Labels Button */}
-                  <div className="mt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLabelSelectorEmailId(selectedEmail.id);
-                        setShowLabelSelector(true);
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                      {selectedEmail.labels && selectedEmail.labels.length > 0 ? 'Manage Labels' : 'Add Labels'}
-                    </button>
-                  </div>
-                  {/* Custom tags (Phase 3.3) */}
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-slate-500">Tags:</span>
-                    {((selectedEmail as any).customTags || []).map((tag: string, i: number) => (
+                )}
+                {/* Linking Buttons (Phase 7.1 & 7.2) */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 max-w-full">
+                  <button
+                    type="button"
+                    onClick={() => { setLinkModalType('contact'); setShowLinkModal(true); }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                    Link Contact
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLinkModalType('company'); setShowLinkModal(true); }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                    Link Company
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLinkModalType('deal'); setShowLinkModal(true); }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                    Link Deal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLinkModalType('project'); setShowLinkModal(true); }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                    Link Project
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLinkModalType('contract'); setShowLinkModal(true); }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                    Link Contract
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateTaskModal(true)}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <CheckSquare className="w-3 h-3 flex-shrink-0" />
+                    Create Task
+                  </button>
+                </div>
+                {/* Labels Display */}
+                {selectedEmail.labels && selectedEmail.labels.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mt-1 max-w-full">
+                    {selectedEmail.labels.map(labelId => {
+                      const label = gmailLabels.find(l => l.id === labelId);
+                      if (!label) return null;
+                      return (
                         <span
-                          key={i}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded-lg"
+                          key={labelId}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
                         >
-                          {tag}
+                          <span className="truncate max-w-[200px]">{label.name}</span>
                           <button
                             type="button"
-                            onClick={() => {
-                              const next = ((selectedEmail as any).customTags || []).filter((_: string, j: number) => j !== i);
-                              apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
-                                setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
-                              }).catch(() => {});
-                            }}
-                            className="hover:text-red-600"
+                            onClick={() => handleRemoveEmailLabel(selectedEmail.id, labelId)}
+                            className="hover:text-purple-900 flex-shrink-0"
+                            title="Remove label"
                           >
                             <X className="w-3 h-3" />
                           </button>
                         </span>
-                      ))}
-                      <input
-                        type="text"
-                        placeholder="Add tag"
-                        value={newTagInput}
-                        onChange={e => setNewTagInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && newTagInput.trim()) {
-                            const current = (selectedEmail as any).customTags || [];
-                            const next = [...current, newTagInput.trim()];
-                            apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
-                              setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
-                              setNewTagInput('');
-                            }).catch(() => {});
-                          }
-                        }}
-                        className="w-24 px-2 py-0.5 text-xs border border-slate-200 rounded-lg"
-                      />
+                      );
+                    })}
                   </div>
-                
+                )}
+                {/* Suggest labels (Phase 3.3) */}
+                <div className="mt-1 flex flex-wrap items-center gap-2 max-w-full">
+                  <button
+                    type="button"
+                    disabled={categorizingLoading || !userId}
+                    onClick={async () => {
+                      if (!selectedEmail?.id || !userId) return;
+                      setCategorizingLoading(true);
+                      setSuggestedLabels([]);
+                      try {
+                        const res = await apiCategorizeEmail({
+                          emailId: selectedEmail.id,
+                          userId,
+                          useAi: true,
+                          availableLabels: gmailLabels.map(l => ({ id: l.id, name: l.name }))
+                        });
+                        const data = (res as any)?.data;
+                        if (data?.suggestedLabels?.length) {
+                          setSuggestedLabels(data.suggestedLabels);
+                          setCurrentSuggestionId(data.suggestionId || null);
+                        }
+                      } catch (_) {
+                        setSuggestedLabels([]);
+                      } finally {
+                        setCategorizingLoading(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  >
+                    {categorizingLoading ? <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" /> : <Sparkles className="w-3 h-3 flex-shrink-0" />}
+                    Suggest labels
+                  </button>
+                  {suggestedLabels.length > 0 && (
+                    <span className="text-xs text-slate-500 flex-shrink-0">Suggested:</span>
+                  )}
+                  {suggestedLabels.map((s, i) => (
+                    <span
+                      key={s.labelId || i}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 text-xs font-medium rounded-lg whitespace-nowrap flex-shrink-0"
+                    >
+                      <span className="truncate max-w-[150px]">{s.labelName}</span>
+                      <span className="text-amber-600 text-[10px] flex-shrink-0">({s.source})</span>
+                      {s.labelId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateEmailLabels(selectedEmail.id, [s.labelId!], [], true, currentSuggestionId || undefined);
+                            setSuggestedLabels(prev => prev.filter((_, j) => j !== i));
+                          }}
+                          className="hover:bg-amber-100 rounded px-0.5 flex-shrink-0"
+                          title="Add to email"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {/* Add Labels Button */}
+                <div className="mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLabelSelectorEmailId(selectedEmail.id);
+                      setShowLabelSelector(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    {selectedEmail.labels && selectedEmail.labels.length > 0 ? 'Manage Labels' : 'Add Labels'}
+                  </button>
+                </div>
+                {/* Custom tags (Phase 3.3) */}
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">Tags:</span>
+                  {((selectedEmail as any).customTags || []).map((tag: string, i: number) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded-lg"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = ((selectedEmail as any).customTags || []).filter((_: string, j: number) => j !== i);
+                          apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
+                            setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
+                          }).catch(() => { });
+                        }}
+                        className="hover:text-red-600"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    placeholder="Add tag"
+                    value={newTagInput}
+                    onChange={e => setNewTagInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newTagInput.trim()) {
+                        const current = (selectedEmail as any).customTags || [];
+                        const next = [...current, newTagInput.trim()];
+                        apiUpdateEmailMetadata(selectedEmail.id, { userId: userId!, customTags: next }).then(() => {
+                          setSelectedEmail(prev => prev ? { ...prev, customTags: next } : null);
+                          setNewTagInput('');
+                        }).catch(() => { });
+                      }
+                    }}
+                    className="w-24 px-2 py-0.5 text-xs border border-slate-200 rounded-lg"
+                  />
+                </div>
+
                 {/* Action Bar - Separate row for better layout */}
                 <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-100">
                   {/* Email Metadata Controls - Admin only */}
@@ -4615,7 +4763,7 @@ ${currentUser?.name || 'Team'}`;
                         <option value="medium">Medium</option>
                         <option value="high">High</option>
                       </select>
-                      
+
                       {/* Thread Status Selector */}
                       <select
                         value={selectedEmail.threadStatus || 'active'}
@@ -4628,7 +4776,7 @@ ${currentUser?.name || 'Team'}`;
                         <option value="resolved">Resolved</option>
                         <option value="archived">Archived</option>
                       </select>
-                      
+
                       {/* Owner Selector - Admin only */}
                       {canAssignEmail && (
                         <select
@@ -4647,7 +4795,7 @@ ${currentUser?.name || 'Team'}`;
                       )}
                     </div>
                   )}
-                  
+
                   {/* Star button - Collaborator+ */}
                   {canStarEmail && (
                     <div className="flex items-center gap-1">
@@ -4671,144 +4819,144 @@ ${currentUser?.name || 'Team'}`;
                     </div>
                   )}
                   <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
-                    className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
-                  >
-                    {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
-                  </button>
-                  {selectedEmail.syncStatus?.readStatus && (
-                    <div className="flex-shrink-0">
-                      {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
-                    </div>
-                  )}
-                </div>
-                {/* Archive & Organization Actions - Admin only */}
-                {canArchiveEmail && (
-                  <>
-                    {selectedEmail.threadStatus === 'archived' ? (
-                      <button
-                        type="button"
-                        onClick={() => handleRestoreEmail(selectedEmail.id)}
-                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                        title="Restore from archive"
-                      >
-                        <InboxIcon className="w-3 h-3" />
-                        Restore
-                      </button>
-                    ) : (
-                      <>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkRead(selectedEmail.id, !selectedEmail.isRead)}
+                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-medium"
+                    >
+                      {selectedEmail.isRead ? 'Mark unread' : 'Mark read'}
+                    </button>
+                    {selectedEmail.syncStatus?.readStatus && (
+                      <div className="flex-shrink-0">
+                        {getSyncStatusIcon(selectedEmail.syncStatus.readStatus)}
+                      </div>
+                    )}
+                  </div>
+                  {/* Archive & Organization Actions - Admin only */}
+                  {canArchiveEmail && (
+                    <>
+                      {selectedEmail.threadStatus === 'archived' ? (
                         <button
                           type="button"
-                          onClick={() => handleArchiveEmail(selectedEmail.id)}
-                          className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
-                          title="Archive email"
+                          onClick={() => handleRestoreEmail(selectedEmail.id)}
+                          className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                          title="Restore from archive"
                         >
                           <InboxIcon className="w-3 h-3" />
-                          Archive
+                          Restore
                         </button>
-                        {selectedEmail.threadStatus !== 'resolved' && canUpdateMetadata && (
+                      ) : (
+                        <>
                           <button
                             type="button"
-                            onClick={() => handleResolveConversation(selectedEmail.id)}
-                            className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                            title="Mark as resolved"
+                            onClick={() => handleArchiveEmail(selectedEmail.id)}
+                            className="px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+                            title="Archive email"
                           >
-                            <CheckCircle className="w-3 h-3" />
-                            Resolve
+                            <InboxIcon className="w-3 h-3" />
+                            Archive
                           </button>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-                {/* Delete - Admin only */}
-                {canDeleteEmail && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteEmail(selectedEmail.id)}
-                    className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-                    title="Delete email"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete
-                  </button>
-                )}
-                {/* Reply/Forward - Admin only (Collaborators can draft but not send) */}
-                {canReplyEmail && (
-                  <>
+                          {selectedEmail.threadStatus !== 'resolved' && canUpdateMetadata && (
+                            <button
+                              type="button"
+                              onClick={() => handleResolveConversation(selectedEmail.id)}
+                              className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                              title="Mark as resolved"
+                            >
+                              <CheckCircle className="w-3 h-3" />
+                              Resolve
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                  {/* Delete - Admin only */}
+                  {canDeleteEmail && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteEmail(selectedEmail.id)}
+                      className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                      title="Delete email"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete
+                    </button>
+                  )}
+                  {/* Reply/Forward - Admin only (Collaborators can draft but not send) */}
+                  {canReplyEmail && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setComposeMode('reply');
+                          setComposeTo([selectedEmail.email]);
+                          setComposeCc([]);
+                          setComposeBcc([]);
+                          setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                          setComposeBody('');
+                          setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                          setShowCc(false);
+                          setShowBcc(false);
+                          setShowComposeModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                      >
+                        <Send className="w-3 h-3" />
+                        Reply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setComposeMode('replyAll');
+                          const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
+                          const allRecipients = [
+                            selectedEmail.email,
+                            ...(selectedEmail.to || []),
+                            ...(selectedEmail.cc || [])
+                          ].filter((email, index, self) => {
+                            const emailLower = email.toLowerCase();
+                            return self.findIndex(e => e.toLowerCase() === emailLower) === index &&
+                              emailLower !== accountEmailLower;
+                          });
+                          setComposeTo([selectedEmail.email]);
+                          setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
+                          setComposeBcc([]);
+                          setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
+                          setComposeBody('');
+                          setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
+                          setShowCc(true);
+                          setShowBcc(false);
+                          setShowComposeModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+                      >
+                        Reply All
+                      </button>
+                    </>
+                  )}
+                  {/* Forward - Admin only */}
+                  {canForwardEmail && (
                     <button
                       type="button"
                       onClick={() => {
-                        setComposeMode('reply');
-                        setComposeTo([selectedEmail.email]);
+                        setComposeMode('forward');
+                        setComposeTo([]);
                         setComposeCc([]);
                         setComposeBcc([]);
-                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                        setComposeBody('');
+                        setComposeSubject(selectedEmail.subject?.startsWith('Fwd:') || selectedEmail.subject?.startsWith('Fw:') ? selectedEmail.subject : `Fwd: ${selectedEmail.subject || ''}`);
+                        const forwardedContent = selectedEmail.body || selectedEmail.lastMessage || '';
+                        setComposeBody(`\n\n--- Forwarded message ---\nFrom: ${selectedEmail.sender || selectedEmail.email}\nDate: ${selectedEmail.timestamp}\nSubject: ${selectedEmail.subject}\nTo: ${selectedEmail.to?.join(', ') || selectedEmail.email}\n\n${forwardedContent}`);
                         setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
                         setShowCc(false);
                         setShowBcc(false);
                         setShowComposeModal(true);
                       }}
-                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                      className="px-3 py-1.5 bg-white text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors border border-slate-200"
                     >
-                      <Send className="w-3 h-3" />
-                      Reply
+                      Forward
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setComposeMode('replyAll');
-                        const accountEmailLower = (selectedEmail.accountEmail || '').toLowerCase();
-                        const allRecipients = [
-                          selectedEmail.email,
-                          ...(selectedEmail.to || []),
-                          ...(selectedEmail.cc || [])
-                        ].filter((email, index, self) => {
-                          const emailLower = email.toLowerCase();
-                          return self.findIndex(e => e.toLowerCase() === emailLower) === index && 
-                                 emailLower !== accountEmailLower;
-                        });
-                        setComposeTo([selectedEmail.email]);
-                        setComposeCc(allRecipients.filter(e => e.toLowerCase() !== selectedEmail.email.toLowerCase()));
-                        setComposeBcc([]);
-                        setComposeSubject(selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject || ''}`);
-                        setComposeBody('');
-                        setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                        setShowCc(true);
-                        setShowBcc(false);
-                        setShowComposeModal(true);
-                      }}
-                      className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
-                    >
-                      Reply All
-                    </button>
-                  </>
-                )}
-                {/* Forward - Admin only */}
-                {canForwardEmail && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComposeMode('forward');
-                      setComposeTo([]);
-                      setComposeCc([]);
-                      setComposeBcc([]);
-                      setComposeSubject(selectedEmail.subject?.startsWith('Fwd:') || selectedEmail.subject?.startsWith('Fw:') ? selectedEmail.subject : `Fwd: ${selectedEmail.subject || ''}`);
-                      const forwardedContent = selectedEmail.body || selectedEmail.lastMessage || '';
-                      setComposeBody(`\n\n--- Forwarded message ---\nFrom: ${selectedEmail.sender || selectedEmail.email}\nDate: ${selectedEmail.timestamp}\nSubject: ${selectedEmail.subject}\nTo: ${selectedEmail.to?.join(', ') || selectedEmail.email}\n\n${forwardedContent}`);
-                      setComposeAccountEmail(selectedEmail.accountEmail || connectedAccounts[0]?.email || '');
-                      setShowCc(false);
-                      setShowBcc(false);
-                      setShowComposeModal(true);
-                    }}
-                    className="px-3 py-1.5 bg-white text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors border border-slate-200"
-                  >
-                    Forward
-                  </button>
-                )}
+                  )}
                   {/* Schedule Meeting Button (Phase 5) */}
                   <button
                     type="button"
@@ -4989,100 +5137,98 @@ ${currentUser?.name || 'Team'}`;
                       {selectedEmail.attachments.map((attachment, idx) => {
                         const isDriveFile = (attachment as any).isDriveFile || (attachment as any).driveFileId;
                         return (
-                        <div
-                          key={attachment.attachmentId || idx}
-                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                            isDriveFile 
-                              ? 'bg-blue-50/30 border-blue-200 hover:bg-blue-50' 
+                          <div
+                            key={attachment.attachmentId || idx}
+                            className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${isDriveFile
+                              ? 'bg-blue-50/30 border-blue-200 hover:bg-blue-50'
                               : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            {isDriveFile && (attachment as any).iconUrl ? (
-                              <img src={(attachment as any).iconUrl} alt={attachment.filename} className="w-8 h-8" />
-                            ) : (
-                              <div className={`p-2 rounded-lg ${
-                                isImageFile(attachment.mimeType) ? 'bg-blue-50 text-blue-600' :
-                                isPdfFile(attachment.mimeType) ? 'bg-red-50 text-red-600' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {isImageFile(attachment.mimeType) ? (
-                                  <ImageIcon className="w-4 h-4" />
-                                ) : isPdfFile(attachment.mimeType) ? (
-                                  <File className="w-4 h-4" />
-                                ) : (
-                                  <Paperclip className="w-4 h-4" />
-                                )}
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-slate-900 truncate">
-                                  {attachment.filename}
+                              }`}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              {isDriveFile && (attachment as any).iconUrl ? (
+                                <img src={(attachment as any).iconUrl} alt={attachment.filename} className="w-8 h-8" />
+                              ) : (
+                                <div className={`p-2 rounded-lg ${isImageFile(attachment.mimeType) ? 'bg-blue-50 text-blue-600' :
+                                  isPdfFile(attachment.mimeType) ? 'bg-red-50 text-red-600' :
+                                    'bg-slate-100 text-slate-600'
+                                  }`}>
+                                  {isImageFile(attachment.mimeType) ? (
+                                    <ImageIcon className="w-4 h-4" />
+                                  ) : isPdfFile(attachment.mimeType) ? (
+                                    <File className="w-4 h-4" />
+                                  ) : (
+                                    <Paperclip className="w-4 h-4" />
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-slate-900 truncate">
+                                    {attachment.filename}
+                                  </p>
+                                  {isDriveFile && (
+                                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[9px] font-bold rounded">Drive</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  {isDriveFile ? 'Google Drive file' : `${formatFileSize(attachment.size)} · ${attachment.mimeType}`}
                                 </p>
-                                {isDriveFile && (
-                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[9px] font-bold rounded">Drive</span>
-                                )}
                               </div>
-                              <p className="text-xs text-slate-500">
-                                {isDriveFile ? 'Google Drive file' : `${formatFileSize(attachment.size)} · ${attachment.mimeType}`}
-                              </p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {isDriveFile && (attachment as any).previewUrl && (
+                                <a
+                                  href={(attachment as any).previewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+                                  title="Open in Drive"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              )}
+                              {!isDriveFile && (isImageFile(attachment.mimeType) || isPdfFile(attachment.mimeType)) && (
+                                <button
+                                  onClick={() => handleViewAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename, attachment.mimeType)}
+                                  disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-view`]}
+                                  className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="View"
+                                >
+                                  {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-view`] ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-4 h-4" />
+                                  )}
+                                </button>
+                              )}
+                              {!isDriveFile && (
+                                <button
+                                  onClick={() => handleDownloadAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename)}
+                                  disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`]}
+                                  className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Download"
+                                >
+                                  {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`] ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Download className="w-4 h-4" />
+                                  )}
+                                </button>
+                              )}
+                              {isDriveFile && (attachment as any).downloadUrl && (
+                                <a
+                                  href={(attachment as any).downloadUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 rounded-lg hover:bg-indigo-100 text-indigo-600 transition-colors"
+                                  title="Download"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </a>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            {isDriveFile && (attachment as any).previewUrl && (
-                              <a
-                                href={(attachment as any).previewUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-2 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
-                                title="Open in Drive"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </a>
-                            )}
-                            {!isDriveFile && (isImageFile(attachment.mimeType) || isPdfFile(attachment.mimeType)) && (
-                              <button
-                                onClick={() => handleViewAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename, attachment.mimeType)}
-                                disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-view`]}
-                                className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="View"
-                              >
-                                {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-view`] ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Eye className="w-4 h-4" />
-                                )}
-                              </button>
-                            )}
-                            {!isDriveFile && (
-                              <button
-                                onClick={() => handleDownloadAttachment(selectedEmail.id, attachment.attachmentId, attachment.filename)}
-                                disabled={attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`]}
-                                className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Download"
-                              >
-                                {attachmentLoading[`${selectedEmail.id}-${attachment.attachmentId}-download`] ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Download className="w-4 h-4" />
-                                )}
-                              </button>
-                            )}
-                            {isDriveFile && (attachment as any).downloadUrl && (
-                              <a
-                                href={(attachment as any).downloadUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-2 rounded-lg hover:bg-indigo-100 text-indigo-600 transition-colors"
-                                title="Download"
-                              >
-                                <Download className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      );
+                        );
                       })}
                     </div>
                   </div>
@@ -5156,7 +5302,7 @@ ${currentUser?.name || 'Team'}`;
                             e.stopPropagation();
                             safeAsyncCall(
                               () => handleGenerateAIDraft(),
-                              (errorMsg) => {}
+                              (errorMsg) => { }
                             );
                           }}
                           disabled={isGeneratingDraft}
@@ -5183,7 +5329,7 @@ ${currentUser?.name || 'Team'}`;
                             e.stopPropagation();
                             safeAsyncCall(
                               () => handleGenerateAIDraft(),
-                              (errorMsg) => {}
+                              (errorMsg) => { }
                             );
                           }}
                           disabled={isGeneratingDraft}
@@ -5204,7 +5350,7 @@ ${currentUser?.name || 'Team'}`;
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Variation Selector */}
                   {aiDraftVariations.length > 1 && (
                     <div className="mb-3 space-y-2">
@@ -5218,11 +5364,10 @@ ${currentUser?.name || 'Team'}`;
                               setSelectedVariationIndex(index);
                               setAiDraft(plainTextToHtmlForQuill(variation.draft));
                             }}
-                            className={`p-3 rounded-lg border-2 text-left transition-all ${
-                              selectedVariationIndex === index
-                                ? 'border-indigo-500 bg-indigo-50'
-                                : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/30'
-                            }`}
+                            className={`p-3 rounded-lg border-2 text-left transition-all ${selectedVariationIndex === index
+                              ? 'border-indigo-500 bg-indigo-50'
+                              : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/30'
+                              }`}
                           >
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-xs font-semibold text-slate-900 capitalize">
@@ -5235,13 +5380,12 @@ ${currentUser?.name || 'Team'}`;
                             <p className="text-[10px] text-slate-500 mb-2">{variation.description}</p>
                             <div className="w-full bg-slate-200 rounded-full h-1.5">
                               <div
-                                className={`h-1.5 rounded-full ${
-                                  variation.confidence >= 80
-                                    ? 'bg-green-500'
-                                    : variation.confidence >= 60
+                                className={`h-1.5 rounded-full ${variation.confidence >= 80
+                                  ? 'bg-green-500'
+                                  : variation.confidence >= 60
                                     ? 'bg-indigo-500'
                                     : 'bg-amber-500'
-                                }`}
+                                  }`}
                                 style={{ width: `${variation.confidence}%` }}
                               />
                             </div>
@@ -5347,8 +5491,8 @@ ${currentUser?.name || 'Team'}`;
                 {/* Internal Discussion Thread */}
                 <div className="space-y-4 pt-4 border-t border-slate-200">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-indigo-500" /> 
-                    Notes & Comments 
+                    <MessageSquare className="w-4 h-4 text-indigo-500" />
+                    Notes & Comments
                     {selectedEmail?.id && internalThreads[selectedEmail.id] && internalThreads[selectedEmail.id].length > 0 && (
                       <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full text-[10px]">
                         {internalThreads[selectedEmail.id].length}
@@ -5361,7 +5505,7 @@ ${currentUser?.name || 'Team'}`;
                     <div className="space-y-3">
                       <div className="relative" style={{ position: 'relative' }}>
                         <div className="quill-wrapper">
-                        <style>{`
+                          <style>{`
                           .quill-wrapper .ql-container {
                             border-bottom-left-radius: 0.75rem;
                             border-bottom-right-radius: 0.75rem;
@@ -5393,210 +5537,207 @@ ${currentUser?.name || 'Team'}`;
                             box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
                           }
                         `}</style>
-                        <QuillEditor
-                          ref={(el: any) => {
-                            quillEditorRef.current = el;
-                            // Also store the editor instance when component mounts
-                            if (el) {
-                              quillInstanceRef.current = el.getEditor();
-                            }
-                          }}
-                          theme="snow"
-                          value={newThreadMessage}
-                          onChange={handleQuillChange}
-                          onBlur={() => {
-                            // Don't hide dropdown immediately on blur (user might be clicking dropdown)
-                            setTimeout(() => {
-                              if (!showMentionDropdown) {
-                                setMentionStartIndex(null);
+                          <QuillEditor
+                            ref={(el: any) => {
+                              quillEditorRef.current = el;
+                              // Also store the editor instance when component mounts
+                              if (el) {
+                                quillInstanceRef.current = el.getEditor();
                               }
-                            }, 200);
-                          }}
-                          modules={quillModules}
-                          formats={quillFormats}
-                          placeholder="Add a note or comment... (Use @ to mention users)"
-                        />
-                      </div>
-                      
-                      {/* Mention Dropdown */}
-                      {showMentionDropdown && filteredMentionUsers.length > 0 && (
-                        <div 
-                          className="absolute top-full mt-2 left-0 w-full max-w-sm bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-[100] max-h-48 overflow-y-auto"
-                          onMouseDown={(e) => {
-                            // Prevent editor from losing focus when clicking dropdown
-                            e.preventDefault();
-                          }}
-                        >
-                          <div className="p-2">
-                            <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                              <AtSign className="w-3 h-3" />
-                              Mention User
-                            </div>
-                            {filteredMentionUsers.map((user: any) => (
-                              <button
-                                key={user.id}
-                                type="button"
-                                onMouseDown={(e) => {
-                                  e.preventDefault(); // Prevent losing focus from Quill
-                                  e.stopPropagation();
-                                  handleMentionSelect(user);
-                                }}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                }}
-                                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left"
-                              >
-                                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
-                                  {user.name?.charAt(0) || 'U'}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-bold text-slate-900 truncate">{user.name || 'Unknown'}</p>
-                                  <p className="text-xs text-slate-400 truncate">{user.email || ''}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Mark for Team Members */}
-                    <div className="relative" ref={markForDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => setShowMarkForDropdown(!showMarkForDropdown)}
-                        className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-white border-2 rounded-xl text-sm transition-all ${
-                          markedForUsers.length > 0 
-                            ? 'border-indigo-300 bg-indigo-50' 
-                            : 'border-slate-200 hover:border-indigo-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <UserPlus className={`w-4 h-4 ${markedForUsers.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
-                          <span className={`font-medium ${markedForUsers.length > 0 ? 'text-indigo-900' : 'text-slate-600'}`}>
-                            {markedForUsers.length > 0 
-                              ? `Marked for ${markedForUsers.length} team member${markedForUsers.length > 1 ? 's' : ''}`
-                              : 'Mark for team member'}
-                          </span>
-                        </div>
-                        {markedForUsers.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMarkedForUsers([]);
                             }}
-                            className="p-1 hover:bg-indigo-200 rounded transition-all"
-                          >
-                            <X className="w-3 h-3 text-indigo-600" />
-                          </button>
-                        )}
-                      </button>
-                      
-                      {/* Mark For Dropdown */}
-                      {showMarkForDropdown && (
-                        <div className="absolute top-full mt-2 left-0 w-full bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-[100] max-h-64 overflow-y-auto">
-                          <div className="p-2">
-                            <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-2">
-                              <UserPlus className="w-3 h-3" />
-                              Select Team Members
-                            </div>
-                            <input
-                              type="text"
-                              placeholder="Search team members..."
-                              value={markForSearchQuery}
-                              onChange={(e) => setMarkForSearchQuery(e.target.value)}
-                              className="w-full px-3 py-2 mb-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                            />
-                            {users
-                              .filter((user: any) => 
-                                user.id !== userId && 
-                                (markForSearchQuery === '' || 
-                                 user.name?.toLowerCase().includes(markForSearchQuery.toLowerCase()) ||
-                                 user.email?.toLowerCase().includes(markForSearchQuery.toLowerCase()))
-                              )
-                              .map((user: any) => {
-                                const isSelected = markedForUsers.includes(user.id);
-                                return (
-                                  <button
-                                    key={user.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setMarkedForUsers(prev => prev.filter(id => id !== user.id));
-                                      } else {
-                                        setMarkedForUsers(prev => [...prev, user.id]);
-                                      }
-                                    }}
-                                    className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left ${
-                                      isSelected ? 'bg-indigo-50' : ''
-                                    }`}
-                                  >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
-                                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-                                    }`}>
-                                      {user.name?.charAt(0) || 'U'}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-bold text-slate-900 truncate">{user.name || 'Unknown'}</p>
-                                      <p className="text-xs text-slate-400 truncate">{user.email || ''}</p>
-                                    </div>
-                                    {isSelected && (
-                                      <CheckCircle2 className="w-4 h-4 text-indigo-600" />
-                                    )}
-                                  </button>
-                                );
-                              })}
-                          </div>
+                            theme="snow"
+                            value={newThreadMessage}
+                            onChange={handleQuillChange}
+                            onBlur={() => {
+                              // Don't hide dropdown immediately on blur (user might be clicking dropdown)
+                              setTimeout(() => {
+                                if (!showMentionDropdown) {
+                                  setMentionStartIndex(null);
+                                }
+                              }, 200);
+                            }}
+                            modules={quillModules}
+                            formats={quillFormats}
+                            placeholder="Add a note or comment... (Use @ to mention users)"
+                          />
                         </div>
-                      )}
-                    </div>
 
-                    {/* Image Upload */}
-                    <div className="flex items-center gap-3">
-                      <label className="flex-1 cursor-pointer group">
-                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
-                          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all">
-                            {noteImagePreview ? (
-                              <ImageIcon className="w-4 h-4" />
-                            ) : (
-                              <UploadIcon className="w-4 h-4" />
-                            )}
+                        {/* Mention Dropdown */}
+                        {showMentionDropdown && filteredMentionUsers.length > 0 && (
+                          <div
+                            className="absolute top-full mt-2 left-0 w-full max-w-sm bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-[100] max-h-48 overflow-y-auto"
+                            onMouseDown={(e) => {
+                              // Prevent editor from losing focus when clicking dropdown
+                              e.preventDefault();
+                            }}
+                          >
+                            <div className="p-2">
+                              <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                <AtSign className="w-3 h-3" />
+                                Mention User
+                              </div>
+                              {filteredMentionUsers.map((user: any) => (
+                                <button
+                                  key={user.id}
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault(); // Prevent losing focus from Quill
+                                    e.stopPropagation();
+                                    handleMentionSelect(user);
+                                  }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                  }}
+                                  className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left"
+                                >
+                                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                    {user.name?.charAt(0) || 'U'}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-slate-900 truncate">{user.name || 'Unknown'}</p>
+                                    <p className="text-xs text-slate-400 truncate">{user.email || ''}</p>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <p className="text-xs font-bold text-slate-900">
-                              {noteImagePreview ? (noteImageFile?.name || 'Image selected') : 'Attach Image'}
-                            </p>
-                            <p className="text-[10px] text-slate-400">PNG, JPG (Max 10MB)</p>
-                          </div>
-                        </div>
-                        <input
-                          ref={noteImageInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleNoteImageSelect}
-                          className="hidden"
-                        />
-                      </label>
-                      <button
-                        onClick={handleAddThreadMessage}
-                        disabled={isAddingThread || (!newThreadMessage.trim() && !noteImageFile)}
-                        className="px-6 py-3 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                      >
-                        {isAddingThread ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Sending...
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-4 h-4" />
-                            Send
-                          </>
                         )}
-                      </button>
-                    </div>
+                      </div>
+
+                      {/* Mark for Team Members */}
+                      <div className="relative" ref={markForDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setShowMarkForDropdown(!showMarkForDropdown)}
+                          className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-white border-2 rounded-xl text-sm transition-all ${markedForUsers.length > 0
+                            ? 'border-indigo-300 bg-indigo-50'
+                            : 'border-slate-200 hover:border-indigo-200'
+                            }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <UserPlus className={`w-4 h-4 ${markedForUsers.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                            <span className={`font-medium ${markedForUsers.length > 0 ? 'text-indigo-900' : 'text-slate-600'}`}>
+                              {markedForUsers.length > 0
+                                ? `Marked for ${markedForUsers.length} team member${markedForUsers.length > 1 ? 's' : ''}`
+                                : 'Mark for team member'}
+                            </span>
+                          </div>
+                          {markedForUsers.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMarkedForUsers([]);
+                              }}
+                              className="p-1 hover:bg-indigo-200 rounded transition-all"
+                            >
+                              <X className="w-3 h-3 text-indigo-600" />
+                            </button>
+                          )}
+                        </button>
+
+                        {/* Mark For Dropdown */}
+                        {showMarkForDropdown && (
+                          <div className="absolute top-full mt-2 left-0 w-full bg-white border-2 border-indigo-200 rounded-xl shadow-2xl z-[100] max-h-64 overflow-y-auto">
+                            <div className="p-2">
+                              <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-2">
+                                <UserPlus className="w-3 h-3" />
+                                Select Team Members
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="Search team members..."
+                                value={markForSearchQuery}
+                                onChange={(e) => setMarkForSearchQuery(e.target.value)}
+                                className="w-full px-3 py-2 mb-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                              />
+                              {users
+                                .filter((user: any) =>
+                                  user.id !== userId &&
+                                  (markForSearchQuery === '' ||
+                                    user.name?.toLowerCase().includes(markForSearchQuery.toLowerCase()) ||
+                                    user.email?.toLowerCase().includes(markForSearchQuery.toLowerCase()))
+                                )
+                                .map((user: any) => {
+                                  const isSelected = markedForUsers.includes(user.id);
+                                  return (
+                                    <button
+                                      key={user.id}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isSelected) {
+                                          setMarkedForUsers(prev => prev.filter(id => id !== user.id));
+                                        } else {
+                                          setMarkedForUsers(prev => [...prev, user.id]);
+                                        }
+                                      }}
+                                      className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 rounded-lg transition-all text-left ${isSelected ? 'bg-indigo-50' : ''
+                                        }`}
+                                    >
+                                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                                        }`}>
+                                        {user.name?.charAt(0) || 'U'}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold text-slate-900 truncate">{user.name || 'Unknown'}</p>
+                                        <p className="text-xs text-slate-400 truncate">{user.email || ''}</p>
+                                      </div>
+                                      {isSelected && (
+                                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Image Upload */}
+                      <div className="flex items-center gap-3">
+                        <label className="flex-1 cursor-pointer group">
+                          <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all">
+                              {noteImagePreview ? (
+                                <ImageIcon className="w-4 h-4" />
+                              ) : (
+                                <UploadIcon className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs font-bold text-slate-900">
+                                {noteImagePreview ? (noteImageFile?.name || 'Image selected') : 'Attach Image'}
+                              </p>
+                              <p className="text-[10px] text-slate-400">PNG, JPG (Max 10MB)</p>
+                            </div>
+                          </div>
+                          <input
+                            ref={noteImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleNoteImageSelect}
+                            className="hidden"
+                          />
+                        </label>
+                        <button
+                          onClick={handleAddThreadMessage}
+                          disabled={isAddingThread || (!newThreadMessage.trim() && !noteImageFile)}
+                          className="px-6 py-3 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        >
+                          {isAddingThread ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4" />
+                              Send
+                            </>
+                          )}
+                        </button>
+                      </div>
 
                       {/* Image Preview */}
                       {noteImagePreview && (
@@ -5620,7 +5761,7 @@ ${currentUser?.name || 'Team'}`;
                       )}
                     </div>
                   )}
-                  
+
                   {/* Viewer-only message */}
                   {!canAddNote && (
                     <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center">
@@ -5634,9 +5775,8 @@ ${currentUser?.name || 'Team'}`;
                       internalThreads[selectedEmail.id].map((thread) => {
                         const canDelete = hasPermission(userRole, 'shared-inbox:delete-note') && (isAdmin(userRole) || thread.userId === userId);
                         return (
-                          <div key={thread.id} className={`p-4 bg-white border rounded-xl space-y-2 ${
-                            (thread.markedFor || []).length > 0 ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'
-                          }`}>
+                          <div key={thread.id} className={`p-4 bg-white border rounded-xl space-y-2 ${(thread.markedFor || []).length > 0 ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'
+                            }`}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex items-center gap-2 flex-1">
                                 <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-xs">
@@ -5685,7 +5825,7 @@ ${currentUser?.name || 'Team'}`;
                               )}
                             </div>
                             {thread.message && (
-                              <div 
+                              <div
                                 className="text-sm text-slate-700 leading-relaxed pl-10 prose prose-sm max-w-none"
                                 dangerouslySetInnerHTML={{ __html: thread.message }}
                               />
@@ -5733,7 +5873,7 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Image Preview Modal */}
       {imagePreviewModal.isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => setImagePreviewModal({ isOpen: false, imageUrl: '', imageName: undefined })}
         >
@@ -5761,14 +5901,14 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Template Name Modal */}
       {showTemplateNameModal && (
-        <div 
+        <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => {
             setShowTemplateNameModal(false);
             setTemplateNameInput('');
           }}
         >
-          <div 
+          <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
@@ -5787,7 +5927,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -5808,7 +5948,7 @@ ${currentUser?.name || 'Team'}`;
                   autoFocus
                 />
               </div>
-              
+
               <div className="flex items-center gap-3 justify-end">
                 <button
                   onClick={() => {
@@ -5835,11 +5975,11 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Templates Modal */}
       {showTemplatesModal && (
-        <div 
+        <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => setShowTemplatesModal(false)}
         >
-          <div 
+          <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
@@ -5855,7 +5995,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6">
               {templates.length === 0 ? (
                 <div className="text-center py-12">
@@ -5996,7 +6136,7 @@ ${currentUser?.name || 'Team'}`;
                   <X className="w-5 h-5 text-slate-500" />
                 </button>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {/* Search */}
                 <div className="flex items-center gap-2">
@@ -6020,7 +6160,7 @@ ${currentUser?.name || 'Team'}`;
                     {loadingDriveFiles ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
                   </button>
                 </div>
-                
+
                 {/* Files List */}
                 {loadingDriveFiles && driveFiles.length === 0 ? (
                   <div className="flex items-center justify-center py-12">
@@ -6068,7 +6208,7 @@ ${currentUser?.name || 'Team'}`;
                     ))}
                   </div>
                 )}
-                
+
                 {/* Load More */}
                 {driveNextPageToken && (
                   <div className="flex justify-center pt-4">
@@ -6137,21 +6277,21 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Compose/Reply Modal */}
       {showComposeModal && (
-        <div 
+        <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => {
             setShowDiscardEmailConfirm(true);
           }}
         >
-          <div 
+          <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
               <h2 className="text-xl font-bold text-slate-900">
-                {composeMode === 'compose' ? 'Compose Email' : 
-                 composeMode === 'reply' ? 'Reply' :
-                 composeMode === 'replyAll' ? 'Reply All' : 'Forward'}
+                {composeMode === 'compose' ? 'Compose Email' :
+                  composeMode === 'reply' ? 'Reply' :
+                    composeMode === 'replyAll' ? 'Reply All' : 'Forward'}
               </h2>
               <button
                 onClick={() => {
@@ -6176,7 +6316,7 @@ ${currentUser?.name || 'Team'}`;
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
                   >
                     {connectedAccounts
-                      .filter((account, index, self) => 
+                      .filter((account, index, self) =>
                         self.findIndex(a => a.email === account.email && a.userId === account.userId) === index
                       )
                       .map((account, index) => (
@@ -6221,10 +6361,10 @@ ${currentUser?.name || 'Team'}`;
                       onChange={(e) => {
                         const value = e.target.value;
                         setToInput(value);
-                        
+
                         // Show contact suggestions
                         if (value.length > 0) {
-                          const filtered = contacts.filter(c => 
+                          const filtered = contacts.filter(c =>
                             c.email?.toLowerCase().includes(value.toLowerCase()) ||
                             c.name?.toLowerCase().includes(value.toLowerCase())
                           ).slice(0, 5);
@@ -6300,9 +6440,8 @@ ${currentUser?.name || 'Team'}`;
                               setShowContactSuggestions(false);
                             }
                           }}
-                          className={`w-full text-left px-3 py-2 hover:bg-indigo-50 text-sm ${
-                            idx === suggestionIndex ? 'bg-indigo-50' : ''
-                          }`}
+                          className={`w-full text-left px-3 py-2 hover:bg-indigo-50 text-sm ${idx === suggestionIndex ? 'bg-indigo-50' : ''
+                            }`}
                         >
                           <div className="font-medium text-slate-900">{contact.name}</div>
                           <div className="text-xs text-slate-500">{contact.email}</div>
@@ -6675,7 +6814,7 @@ ${currentUser?.name || 'Team'}`;
                 <label className="block text-xs font-medium text-slate-700 mb-2">
                   Attachments
                 </label>
-                
+
                 {/* Attachment Buttons */}
                 <div className="flex items-center gap-2 mb-2">
                   {/* File Input */}
@@ -6695,7 +6834,7 @@ ${currentUser?.name || 'Team'}`;
                       className="hidden"
                     />
                   </label>
-                  
+
                   {/* Drive Button */}
                   <button
                     type="button"
@@ -6720,18 +6859,16 @@ ${currentUser?.name || 'Team'}`;
                     {composeAttachments.map((attachment) => (
                       <div
                         key={attachment.id}
-                        className={`flex items-center gap-3 p-3 border rounded-lg ${
-                          attachment.isDriveFile ? 'bg-blue-50/30 border-blue-200' : 'bg-slate-50 border-slate-200'
-                        }`}
+                        className={`flex items-center gap-3 p-3 border rounded-lg ${attachment.isDriveFile ? 'bg-blue-50/30 border-blue-200' : 'bg-slate-50 border-slate-200'
+                          }`}
                       >
                         {attachment.isDriveFile && attachment.driveIconLink ? (
                           <img src={attachment.driveIconLink} alt="Drive file" className="w-8 h-8" />
                         ) : (
-                          <div className={`p-2 rounded-lg ${
-                            isImageFile(attachment.file.type) ? 'bg-blue-50 text-blue-600' :
+                          <div className={`p-2 rounded-lg ${isImageFile(attachment.file.type) ? 'bg-blue-50 text-blue-600' :
                             isPdfFile(attachment.file.type) ? 'bg-red-50 text-red-600' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
+                              'bg-slate-100 text-slate-600'
+                            }`}>
                             {isImageFile(attachment.file.type) ? (
                               <ImageIcon className="w-4 h-4" />
                             ) : isPdfFile(attachment.file.type) ? (
@@ -6758,7 +6895,7 @@ ${currentUser?.name || 'Team'}`;
                             {attachmentUploadProgress[attachment.id] !== undefined && attachmentUploadProgress[attachment.id] < 100 && (
                               <div className="flex-1 max-w-[100px]">
                                 <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                  <div 
+                                  <div
                                     className="h-full bg-indigo-600 transition-all duration-300"
                                     style={{ width: `${attachmentUploadProgress[attachment.id]}%` }}
                                   />
@@ -6885,11 +7022,11 @@ ${currentUser?.name || 'Team'}`;
                         showError('Please fill in all required fields (To, Subject, Message)');
                         return;
                       }
-                      
+
                       // Extract meeting details from compose content
                       const bodyText = composeBody.replace(/<[^>]+>/g, ' ').toLowerCase();
                       const fullText = `${composeSubject} ${bodyText}`;
-                      
+
                       // Extract date patterns
                       const datePatterns = [
                         /(\d{1,2}\/\d{1,2}\/\d{2,4})/g,
@@ -6898,7 +7035,7 @@ ${currentUser?.name || 'Team'}`;
                         /(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi,
                         /(today|tomorrow|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))/gi
                       ];
-                      
+
                       let extractedDate: string | undefined;
                       for (const pattern of datePatterns) {
                         const match = fullText.match(pattern);
@@ -6907,14 +7044,14 @@ ${currentUser?.name || 'Team'}`;
                           break;
                         }
                       }
-                      
+
                       // Extract time patterns
                       const timePatterns = [
                         /\b(\d{1,2}):(\d{2})\s*(am|pm)\b/gi,
                         /\b(\d{1,2}):(\d{2})\b/gi,
                         /\b(\d{1,2})\s*(am|pm)\b/gi
                       ];
-                      
+
                       let extractedTime: string | undefined;
                       for (const pattern of timePatterns) {
                         const match = fullText.match(pattern);
@@ -6923,14 +7060,14 @@ ${currentUser?.name || 'Team'}`;
                           break;
                         }
                       }
-                      
+
                       // Extract location patterns
                       const locationPatterns = [
                         /(?:location|where|venue|address|place|at):\s*([^\n,]+)/gi,
                         /(?:meeting|call|conference)\s+(?:at|in|on)\s+([^\n,]+)/gi,
                         /(?:zoom|meet|teams|webex|skype|google\s+meet)[\s:]+([^\s\n]+)/gi
                       ];
-                      
+
                       let extractedLocation: string | undefined;
                       for (const pattern of locationPatterns) {
                         const match = fullText.match(pattern);
@@ -6939,7 +7076,7 @@ ${currentUser?.name || 'Team'}`;
                           break;
                         }
                       }
-                      
+
                       // Set extracted details and open modal
                       setScheduleMeetingExtractedDetails({
                         title: composeSubject,
@@ -7001,7 +7138,7 @@ ${currentUser?.name || 'Team'}`;
                               });
                             })
                         );
-                        
+
                         // Add Drive file links to email body for compose mode
                         const driveFiles = composeAttachments.filter(a => a.isDriveFile && a.driveWebViewLink);
                         if (driveFiles.length > 0 && composeMode === 'compose') {
@@ -7046,39 +7183,39 @@ ${currentUser?.name || 'Team'}`;
                             body: finalBody,
                             attachments: attachments.length > 0 ? attachments : undefined
                           });
-                        
-                        // Attach Drive files to sent email (if we have an email ID)
-                        const sentEmailId = sentEmail?.data?.id;
-                        if (sentEmailId) {
-                          const driveFilesToAttach = composeAttachments.filter(a => a.isDriveFile && a.driveFileId);
-                          for (const att of driveFilesToAttach) {
-                            try {
-                              await apiAttachDriveFile({
-                                userId,
-                                emailId: sentEmailId,
-                                fileId: att.driveFileId!,
-                                fileName: att.file.name,
-                                fileMimeType: att.file.type,
-                                webViewLink: att.driveWebViewLink,
-                                webContentLink: undefined,
-                                iconLink: att.driveIconLink
-                              });
-                            } catch (err: any) {
-                              console.error('Failed to attach Drive file:', err);
-                              // Continue with other attachments
+
+                          // Attach Drive files to sent email (if we have an email ID)
+                          const sentEmailId = sentEmail?.data?.id;
+                          if (sentEmailId) {
+                            const driveFilesToAttach = composeAttachments.filter(a => a.isDriveFile && a.driveFileId);
+                            for (const att of driveFilesToAttach) {
+                              try {
+                                await apiAttachDriveFile({
+                                  userId,
+                                  emailId: sentEmailId,
+                                  fileId: att.driveFileId!,
+                                  fileName: att.file.name,
+                                  fileMimeType: att.file.type,
+                                  webViewLink: att.driveWebViewLink,
+                                  webContentLink: undefined,
+                                  iconLink: att.driveIconLink
+                                });
+                              } catch (err: any) {
+                                console.error('Failed to attach Drive file:', err);
+                                // Continue with other attachments
+                              }
                             }
                           }
-                        }
-                        
-                        showSuccess('Email sent successfully');
-                      }
 
-                      // Cleanup attachments
-                      composeAttachments.forEach(att => {
-                        if (att.preview) {
-                          URL.revokeObjectURL(att.preview);
+                          showSuccess('Email sent successfully');
                         }
-                      });
+
+                        // Cleanup attachments
+                        composeAttachments.forEach(att => {
+                          if (att.preview) {
+                            URL.revokeObjectURL(att.preview);
+                          }
+                        });
 
                         setShowComposeModal(false);
                         setComposeTo([]);
@@ -7111,7 +7248,7 @@ ${currentUser?.name || 'Team'}`;
                       <>
                         <Send className="w-4 h-4" />
                         {composeMode === 'reply' || composeMode === 'replyAll' ? 'Send Reply' :
-                         composeMode === 'forward' ? 'Forward' : 'Send'}
+                          composeMode === 'forward' ? 'Forward' : 'Send'}
                       </>
                     )}
                   </button>
@@ -7214,14 +7351,14 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Label Selector Modal */}
       {showLabelSelector && labelSelectorEmailId && (
-        <div 
+        <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => {
             setShowLabelSelector(false);
             setLabelSelectorEmailId(null);
           }}
         >
-          <div 
+          <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
@@ -7237,7 +7374,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6">
               {/* Create Label Button */}
               {connectedAccounts.length > 0 && (
@@ -7251,7 +7388,7 @@ ${currentUser?.name || 'Team'}`;
                   </button>
                 </div>
               )}
-              
+
               {loadingLabels ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
@@ -7322,14 +7459,14 @@ ${currentUser?.name || 'Team'}`;
 
       {/* Create Label Modal */}
       {showCreateLabelModal && (
-        <div 
+        <div
           className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => {
             setShowCreateLabelModal(false);
             setNewLabelName('');
           }}
         >
-          <div 
+          <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
@@ -7346,7 +7483,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -7367,7 +7504,7 @@ ${currentUser?.name || 'Team'}`;
                   autoFocus
                 />
               </div>
-              
+
               {connectedAccounts.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -7386,7 +7523,7 @@ ${currentUser?.name || 'Team'}`;
                   </select>
                 </div>
               )}
-              
+
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={() => {
@@ -7448,7 +7585,7 @@ ${currentUser?.name || 'Team'}`;
                 if (res.success && res.data) {
                   setLinkedCalendarEvents(res.data);
                 }
-              }).catch(() => {});
+              }).catch(() => { });
             }
           }}
         />
@@ -7652,7 +7789,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -7705,7 +7842,7 @@ ${currentUser?.name || 'Team'}`;
                       showError('Please fill in all required fields');
                       return;
                     }
-                    
+
                     try {
                       // Convert attachments to base64
                       const attachments = await Promise.all(
@@ -7727,12 +7864,12 @@ ${currentUser?.name || 'Team'}`;
                             });
                           })
                       );
-                      
+
                       let finalBody = composeBody;
                       if (composeSignature) {
                         finalBody += `<br><br>${composeSignature}`;
                       }
-                      
+
                       await apiScheduleSendEmail({
                         userId,
                         accountEmail: composeAccountEmail || connectedAccounts[0]?.email,
@@ -7745,7 +7882,7 @@ ${currentUser?.name || 'Team'}`;
                         timezone: scheduleSendTimezone,
                         attachments: attachments.length > 0 ? attachments : undefined
                       });
-                      
+
                       showSuccess('Email scheduled successfully');
                       setShowScheduleSendModal(false);
                       setShowComposeModal(false);
@@ -7791,7 +7928,7 @@ ${currentUser?.name || 'Team'}`;
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6">
               {loadingGmailDrafts ? (
                 <div className="flex items-center justify-center py-12">
@@ -7817,7 +7954,7 @@ ${currentUser?.name || 'Team'}`;
                           const ccHeader = headers.find((h: any) => h.name === 'Cc');
                           const bccHeader = headers.find((h: any) => h.name === 'Bcc');
                           const subjectHeader = headers.find((h: any) => h.name === 'Subject');
-                          
+
                           if (toHeader?.value) {
                             setComposeTo(toHeader.value.split(',').map((e: string) => e.trim()));
                           }
@@ -7831,7 +7968,7 @@ ${currentUser?.name || 'Team'}`;
                             setComposeSubject(subjectHeader.value);
                           }
                         }
-                        
+
                         // Extract body from draft (decode base64 in browser)
                         if (draft.payload?.body?.data) {
                           try {
@@ -7854,7 +7991,7 @@ ${currentUser?.name || 'Team'}`;
                             }
                           }
                         }
-                        
+
                         setShowGmailDraftsModal(false);
                         showSuccess('Draft loaded');
                       }}
@@ -7881,7 +8018,7 @@ ${currentUser?.name || 'Team'}`;
                               const ccHeader = headers.find((h: any) => h.name === 'Cc');
                               const bccHeader = headers.find((h: any) => h.name === 'Bcc');
                               const subjectHeader = headers.find((h: any) => h.name === 'Subject');
-                              
+
                               if (toHeader?.value) {
                                 setComposeTo(toHeader.value.split(',').map((e: string) => e.trim()));
                               }
@@ -7895,7 +8032,7 @@ ${currentUser?.name || 'Team'}`;
                                 setComposeSubject(subjectHeader.value);
                               }
                             }
-                            
+
                             if (draft.payload?.body?.data) {
                               try {
                                 const decoded = atob(draft.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
@@ -7916,7 +8053,6 @@ ${currentUser?.name || 'Team'}`;
                                 }
                               }
                             }
-                            
                             setShowGmailDraftsModal(false);
                             showSuccess('Draft loaded');
                           }}
@@ -7929,6 +8065,234 @@ ${currentUser?.name || 'Team'}`;
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connected Accounts Modal */}
+      {showAccountsModal && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300"
+          onClick={() => {
+            setShowAccountsModal(false);
+            setAccountSearchFilter('');
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="font-black text-xl text-slate-900">Team Connected Accounts</h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    {connectedAccounts.length} account{connectedAccounts.length !== 1 ? 's' : ''} connected
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAccountsModal(false);
+                  setAccountSearchFilter('');
+                }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            {/* Search Filter */}
+            <div className="p-4 border-b border-slate-200 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by email or owner name..."
+                  value={accountSearchFilter}
+                  onChange={(e) => setAccountSearchFilter(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Accounts List */}
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              {(() => {
+                // Get list of filtered account emails for quick lookup
+                const filteredAccountEmails = new Set(filteredAccounts.map(fa => fa.accountEmail.toLowerCase()));
+                
+                // Filter accounts based on search
+                const searchFilteredAccounts = connectedAccounts
+                  .filter((account, index, self) =>
+                    self.findIndex(a => a.email === account.email && a.userId === account.userId) === index
+                  )
+                  .filter(account => {
+                    if (!accountSearchFilter.trim()) return true;
+                    const searchLower = accountSearchFilter.toLowerCase();
+                    return (
+                      account.email.toLowerCase().includes(searchLower) ||
+                      account.ownerName.toLowerCase().includes(searchLower)
+                    );
+                  });
+
+                return searchFilteredAccounts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Users className="w-12 h-12 text-slate-300 mb-3" />
+                    <p className="text-slate-600 font-medium text-sm">
+                      {accountSearchFilter ? 'No accounts found matching your search' : 'No accounts connected'}
+                    </p>
+                    {accountSearchFilter && (
+                      <button
+                        onClick={() => setAccountSearchFilter('')}
+                        className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {searchFilteredAccounts.map((account, idx) => {
+                      const isFiltered = filteredAccountEmails.has(account.email.toLowerCase());
+                      const filteredAccountData = filteredAccounts.find(fa => fa.accountEmail.toLowerCase() === account.email.toLowerCase());
+                      
+                      return (
+                        <div
+                          key={`${account.email}-${account.userId}-${idx}`}
+                          className={`flex items-center justify-between p-4 bg-white border rounded-xl transition-all ${
+                            account.isCurrentUser
+                              ? 'border-indigo-300 bg-indigo-50/30'
+                              : isFiltered
+                              ? 'border-amber-300 bg-amber-50/30'
+                              : 'border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
+                              isFiltered ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+                            }`}>
+                              {account.email.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-slate-900 truncate">{account.email}</p>
+                                {account.isCurrentUser && (
+                                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-bold rounded uppercase shrink-0">
+                                    You
+                                  </span>
+                                )}
+                                {isFiltered && (
+                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded uppercase shrink-0">
+                                    Filtered
+                                  </span>
+                                )}
+                              </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {account.ownerName === 'Unknown User' ? (
+                                <span className="italic">Account synced from emails · {new Date(account.connectedAt).toLocaleDateString()}</span>
+                              ) : (
+                                <>
+                                  {account.ownerName} · Connected {new Date(account.connectedAt).toLocaleDateString()}
+                                  {!account.hasToken && account.ownerName !== 'Unknown User' && (
+                                    <span className="ml-1 text-amber-600" title="No active token - emails were synced previously">⚠️</span>
+                                  )}
+                                </>
+                              )}
+                            </p>
+                            </div>
+                          </div>
+                          <div className="ml-3 flex items-center gap-2 shrink-0">
+                            {isFiltered ? (
+                              <button
+                                onClick={() => filteredAccountData && handleUnfilterAccount(filteredAccountData.id, account.email)}
+                                disabled={filteringAccount === account.email}
+                                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                title="Show emails from this account"
+                              >
+                                {filteringAccount === account.email ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Unfiltering...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Show</span>
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleFilterAccount(account.email)}
+                                disabled={filteringAccount === account.email}
+                                className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                title="Hide emails from this account"
+                              >
+                                {filteringAccount === account.email ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Hiding...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                    <span>Hide</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {account.isCurrentUser && account.hasToken !== false && (
+                              <button
+                                onClick={() => handleDisconnectAccount(account.email)}
+                                disabled={disconnectingAccount === account.email}
+                                className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                title="Disconnect your account"
+                              >
+                                {disconnectingAccount === account.email ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Disconnecting...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <DisconnectIcon className="w-3.5 h-3.5" />
+                                    <span>Remove</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {account.isCurrentUser && account.hasToken === false && (
+                              <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded" title="This account has no active token - cannot be disconnected">
+                                No Token
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer with Connect Button */}
+            <div className="p-4 border-t border-slate-200 shrink-0">
+              <button
+                onClick={() => {
+                  setShowAccountsModal(false);
+                  handleConnectAccount();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Connect Your Gmail Account
+              </button>
             </div>
           </div>
         </div>

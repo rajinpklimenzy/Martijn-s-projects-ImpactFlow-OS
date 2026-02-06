@@ -432,10 +432,11 @@ export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: s
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
 
 /** Shared Inbox – uses already connected Gmail (Google Calendar OAuth). scopeHours e.g. 24 = sync last 24 hrs. */
-export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number) => {
+export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number, scopeDays?: number) => {
   const params = new URLSearchParams({ userId });
   if (accountEmail) params.append('accountEmail', accountEmail);
   if (scopeHours != null) params.append('scopeHours', String(scopeHours));
+  if (scopeDays != null) params.append('scopeDays', String(scopeDays));
   return apiFetch(`/shared-inbox/sync?${params.toString()}`, { method: 'POST' });
 };
 export const apiGetConnectedGmailAccounts = (userId: string) =>
@@ -445,6 +446,17 @@ export const apiDisconnectGmailAccount = (userId: string, accountEmail: string) 
     method: 'DELETE',
     body: JSON.stringify({ userId, accountEmail })
   });
+
+// Filtered accounts - hide emails from specific accounts
+export const apiGetFilteredAccounts = (userId: string) =>
+  apiFetch(`/shared-inbox/filtered-accounts?userId=${userId}`);
+export const apiAddFilteredAccount = (userId: string, accountEmail: string) =>
+  apiFetch('/shared-inbox/filtered-accounts', {
+    method: 'POST',
+    body: JSON.stringify({ userId, accountEmail })
+  });
+export const apiRemoveFilteredAccount = (userId: string, id: string) =>
+  apiFetch(`/shared-inbox/filtered-accounts/${id}?userId=${userId}`, { method: 'DELETE' });
 export interface SharedInboxFilters {
   search?: string;
   status?: string;
