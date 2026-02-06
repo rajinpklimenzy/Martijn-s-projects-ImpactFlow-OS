@@ -19,9 +19,17 @@ export const useTasks = (userId?: string, projectId?: string, status?: string) =
     queryKey: taskKeys.list({ userId, projectId, status }),
     queryFn: async () => {
       const response = await apiGetTasks(userId, projectId, status);
-      return response.data || response || [];
+      // Handle response structure: backend returns { success: true, data: [...] }
+      // apiFetch returns the parsed JSON, so response is already { success: true, data: [...] }
+      if (Array.isArray(response)) {
+        return response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        return response.data;
+      } else if (response?.success && response?.data && Array.isArray(response.data)) {
+        return response.data;
+      }
+      return [];
     },
-    enabled: !!userId, // Only fetch if userId is provided
     staleTime: 30 * 1000, // 30 seconds - refetch in background after 30 seconds
     refetchInterval: 60 * 1000, // Refetch every 60 seconds in background
     // Keep showing cached data while refetching in background for smooth updates

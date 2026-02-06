@@ -16,7 +16,16 @@ export const useUsers = (search?: string) => {
     queryKey: userKeys.list(search),
     queryFn: async () => {
       const response = await apiGetUsers(undefined, search);
-      return response.data || response || [];
+      // Handle response structure: backend returns { success: true, data: [...] }
+      // apiFetch returns the parsed JSON, so response is already { success: true, data: [...] }
+      if (Array.isArray(response)) {
+        return response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        return response.data;
+      } else if (response?.success && response?.data && Array.isArray(response.data)) {
+        return response.data;
+      }
+      return [];
     },
     staleTime: 5 * 60 * 1000, // 5 minutes - users change rarely
     refetchInterval: 10 * 60 * 1000, // Refetch every 10 minutes in background

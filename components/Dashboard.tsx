@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 import {
   TrendingUp, Users, DollarSign, Briefcase, ChevronRight,
-  Star, CheckSquare, ArrowRight, Activity, Mail, X, Globe, GripVertical, Save
+  Star, CheckSquare, ArrowRight, Activity, Mail, X, Globe, GripVertical, Save,
+  Maximize2, Minimize2, Square
 } from 'lucide-react';
 import { MOCK_USERS } from '../constants.tsx';
 import { ImageWithFallback } from './common.tsx';
@@ -17,15 +18,24 @@ interface DashboardProps {
   onNavigate: (tab: string) => void;
 }
 
+// Widget size types
+type WidgetSize = 'small' | 'medium' | 'large';
+
+interface WidgetConfig {
+  id: string;
+  order: number;
+  size?: WidgetSize;
+}
+
 // Default widget layout
-const DEFAULT_LAYOUT = [
-  { id: 'stat-pipeline', order: 0 },
-  { id: 'stat-projects', order: 1 },
-  { id: 'stat-invoices', order: 2 },
-  { id: 'stat-tasks', order: 3 },
-  { id: 'revenue-chart', order: 4 },
-  { id: 'inbox-card', order: 5 },
-  { id: 'tasks-card', order: 6 }
+const DEFAULT_LAYOUT: WidgetConfig[] = [
+  { id: 'stat-pipeline', order: 0, size: 'medium' },
+  { id: 'stat-projects', order: 1, size: 'medium' },
+  { id: 'stat-invoices', order: 2, size: 'medium' },
+  { id: 'stat-tasks', order: 3, size: 'medium' },
+  { id: 'revenue-chart', order: 4, size: 'large' },
+  { id: 'inbox-card', order: 5, size: 'medium' },
+  { id: 'tasks-card', order: 6, size: 'medium' }
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
@@ -51,10 +61,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [isCurrencyPopupOpen, setIsCurrencyPopupOpen] = useState(false);
 
   // Drag and drop state
-  const [widgetLayout, setWidgetLayout] = useState(DEFAULT_LAYOUT);
+  const [widgetLayout, setWidgetLayout] = useState<WidgetConfig[]>(DEFAULT_LAYOUT);
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [resizingWidget, setResizingWidget] = useState<string | null>(null);
   const dragCounter = useRef(0);
 
   useEffect(() => {
@@ -72,24 +83,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       const response = await apiGetDashboardLayout(userId);
       if (response?.data && Array.isArray(response.data)) {
         // Migrate old stats-grid to individual stat cards
-        const migratedLayout = response.data.flatMap(widget => {
+        const migratedLayout = response.data.flatMap((widget: any) => {
           if (widget.id === 'stats-grid') {
             // Replace stats-grid with 4 individual stat cards
             return [
-              { id: 'stat-pipeline', order: widget.order },
-              { id: 'stat-projects', order: widget.order + 0.1 },
-              { id: 'stat-invoices', order: widget.order + 0.2 },
-              { id: 'stat-tasks', order: widget.order + 0.3 }
+              { id: 'stat-pipeline', order: widget.order, size: widget.size || 'medium' },
+              { id: 'stat-projects', order: widget.order + 0.1, size: widget.size || 'medium' },
+              { id: 'stat-invoices', order: widget.order + 0.2, size: widget.size || 'medium' },
+              { id: 'stat-tasks', order: widget.order + 0.3, size: widget.size || 'medium' }
             ];
           }
           // Adjust order for widgets that come after stats-grid
           if (widget.order > 0) {
-            return [{ ...widget, order: widget.order + 3 }]; // Add 3 to account for the 3 new stat cards
+            return [{ ...widget, order: widget.order + 3, size: widget.size || 'medium' }]; // Add 3 to account for the 3 new stat cards
           }
-          return [widget];
+          return [{ ...widget, size: widget.size || 'medium' }];
         });
         
-        setWidgetLayout(migratedLayout);
+        // Deduplicate widgets by id (keep the first occurrence)
+        const seen = new Set<string>();
+        const deduplicatedLayout = migratedLayout.filter(widget => {
+          if (seen.has(widget.id)) {
+            console.warn(`[DASHBOARD] Duplicate widget found: ${widget.id}, removing duplicate`);
+            return false;
+          }
+          seen.add(widget.id);
+          return true;
+        });
+        
+        setWidgetLayout(deduplicatedLayout);
       }
     } catch (err) {
       console.log('[DASHBOARD] Using default layout');
@@ -114,6 +136,50 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
   const resetLayout = () => {
     setWidgetLayout(DEFAULT_LAYOUT);
+  };
+
+  const handleResizeWidget = (widgetId: string, newSize: WidgetSize) => {
+    setWidgetLayout(prev => 
+      prev.map(widget => 
+        widget.id === widgetId ? { ...widget, size: newSize } : widget
+      )
+    );
+  };
+
+  const getSizeClasses = (size: WidgetSize = 'medium', widgetId: string) => {
+    const isStatCard = widgetId.startsWith('stat-');
+    
+    if (isStatCard) {
+      // Stat cards are always in a grid, size doesn't affect them
+      return '';
+    }
+    
+    switch (size) {
+      case 'small':
+        return 'lg:col-span-1';
+      case 'medium':
+        return 'lg:col-span-2';
+      case 'large':
+        return 'lg:col-span-3';
+      default:
+        return 'lg:col-span-2';
+    }
+  };
+
+  const getColumnSpan = (size: WidgetSize = 'medium', widgetId: string): number => {
+    const isStatCard = widgetId.startsWith('stat-');
+    if (isStatCard) return 0; // Stat cards handled separately
+    
+    switch (size) {
+      case 'small':
+        return 1;
+      case 'medium':
+        return 2;
+      case 'large':
+        return 3;
+      default:
+        return 2;
+    }
   };
 
   // Drag handlers
@@ -317,8 +383,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   };
 
   // Render individual widgets
-  const renderWidget = (widgetId: string) => {
+  const renderWidget = (widgetId: string, widgetSize?: WidgetSize) => {
     const isDragging = draggedWidget === widgetId;
+    const widget = widgetLayout.find(w => w.id === widgetId);
+    const size = widgetSize || widget?.size || 'medium';
+    
     const commonProps = {
       draggable: isEditMode,
       onDragStart: (e: React.DragEvent) => handleDragStart(e, widgetId),
@@ -328,14 +397,50 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       className: `transition-all ${isDragging ? 'opacity-50 scale-95' : ''} ${isEditMode ? 'cursor-move' : ''}`
     };
 
+    const renderSizeControls = () => {
+      if (!isEditMode) return null;
+      
+      const sizes: { value: WidgetSize; icon: React.ReactNode; label: string }[] = [
+        { value: 'small', icon: <Minimize2 className="w-3 h-3" />, label: 'Small' },
+        { value: 'medium', icon: <Square className="w-3 h-3" />, label: 'Medium' },
+        { value: 'large', icon: <Maximize2 className="w-3 h-3" />, label: 'Large' }
+      ];
+
+      return (
+        <div className="flex items-center gap-1 mb-3 bg-slate-50 rounded-lg p-1 border border-slate-200">
+          {sizes.map(({ value, icon, label }) => (
+            <button
+              key={value}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleResizeWidget(widgetId, value);
+              }}
+              onMouseEnter={() => setResizingWidget(widgetId)}
+              onMouseLeave={() => setResizingWidget(null)}
+              className={`p-1.5 rounded transition-all ${
+                size === value
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+              }`}
+              title={label}
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+      );
+    };
+
     switch (widgetId) {
       case 'stat-pipeline':
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Open Pipeline</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Open Pipeline</span>
+                </div>
               </div>
             )}
             <button
@@ -372,9 +477,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Active Projects</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Active Projects</span>
+                </div>
               </div>
             )}
             <button
@@ -401,9 +508,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Unpaid Invoices</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Unpaid Invoices</span>
+                </div>
               </div>
             )}
             <button
@@ -440,9 +549,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Tasks Due Today</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Tasks Due Today</span>
+                </div>
               </div>
             )}
             <button
@@ -468,9 +579,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Revenue Chart</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Revenue Chart</span>
+                </div>
+                {renderSizeControls()}
               </div>
             )}
             <div className="bg-white p-5 lg:p-8 rounded-[24px] lg:rounded-[32px] border border-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
@@ -547,9 +661,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Inbox Card</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Inbox Card</span>
+                </div>
+                {renderSizeControls()}
               </div>
             )}
             <div
@@ -601,9 +718,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         return (
           <div key={widgetId} {...commonProps}>
             {isEditMode && (
-              <div className="flex items-center gap-2 mb-3 text-indigo-600">
-                <GripVertical className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-wider">Tasks Due Today</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Tasks Due Today</span>
+                </div>
+                {renderSizeControls()}
               </div>
             )}
             <div className="bg-white rounded-[24px] lg:rounded-[32px] border border-slate-100 p-6 lg:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
@@ -733,7 +853,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             <div>
               <h3 className="text-sm font-black text-slate-900 mb-1">Customize Your Dashboard</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Drag and drop the cards below to rearrange them. Your layout will be saved to your account and synced across all devices.
+                Drag and drop the cards below to rearrange them. Use the size controls to resize widgets (small, medium, large). Your layout will be saved to your account and synced across all devices.
               </p>
             </div>
           </div>
@@ -743,7 +863,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       {/* Customizable Widget Layout */}
       <div className="space-y-6 lg:space-y-8">
         {sortedWidgets.map((widget, index) => {
-          const content = renderWidget(widget.id);
+          const content = renderWidget(widget.id, widget.size);
           const isStatCard = widget.id.startsWith('stat-');
           
           // Group consecutive stat cards in a grid
@@ -766,7 +886,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
               // Render all stat cards in a grid
               return (
                 <div key={`stat-cards-group-${index}`} className="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6">
-                  {statCards.map(statWidget => renderWidget(statWidget.id))}
+                  {statCards.map(statWidget => renderWidget(statWidget.id, statWidget.size))}
                 </div>
               );
             } else {
@@ -777,36 +897,76 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           
           // Handle revenue-chart with inbox/tasks in a grid for larger screens
           if (widget.id === 'revenue-chart') {
-            const nextWidget = sortedWidgets[sortedWidgets.indexOf(widget) + 1];
-            const nextNextWidget = sortedWidgets[sortedWidgets.indexOf(widget) + 2];
+            const nextWidget = sortedWidgets[index + 1];
+            const nextNextWidget = sortedWidgets[index + 2];
+            const revenueSize = widget.size || 'large';
             
             // Check if next two widgets are inbox and tasks
             if (nextWidget && nextNextWidget && 
                 ((nextWidget.id === 'inbox-card' && nextNextWidget.id === 'tasks-card') ||
                  (nextWidget.id === 'tasks-card' && nextNextWidget.id === 'inbox-card'))) {
-              return (
-                <div key="revenue-with-sidebar" className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
-                  <div className="lg:col-span-2">
-                    {content}
+              // Only use the special grid layout if revenue-chart is large
+              if (revenueSize === 'large') {
+                return (
+                  <div key="revenue-with-sidebar" className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+                    <div className="lg:col-span-2">
+                      {content}
+                    </div>
+                    <div className="space-y-6 lg:space-y-8">
+                      {renderWidget(nextWidget.id, nextWidget.size)}
+                      {renderWidget(nextNextWidget.id, nextNextWidget.size)}
+                    </div>
                   </div>
-                  <div className="space-y-6 lg:space-y-8">
-                    {renderWidget(nextWidget.id)}
-                    {renderWidget(nextNextWidget.id)}
-                  </div>
-                </div>
-              );
+                );
+              }
             }
           }
           
-          // Skip widgets that were already rendered as part of the grid
-          const prevWidget = sortedWidgets[sortedWidgets.indexOf(widget) - 1];
-          const prevPrevWidget = sortedWidgets[sortedWidgets.indexOf(widget) - 2];
-          if (prevPrevWidget?.id === 'revenue-chart' && 
+          // Skip widgets that were already rendered as part of the revenue-chart grid
+          const prevWidget = sortedWidgets[index - 1];
+          const prevPrevWidget = sortedWidgets[index - 2];
+          
+          // If previous widget is revenue-chart and current widget is inbox-card or tasks-card,
+          // check if it was already rendered in the grid
+          if (prevWidget?.id === 'revenue-chart' && 
               (widget.id === 'inbox-card' || widget.id === 'tasks-card')) {
-            return null;
+            const revenueSize = prevWidget.size || 'large';
+            const nextWidget = sortedWidgets[index + 1];
+            // If both inbox-card and tasks-card are next to revenue-chart and revenue-chart is large, skip them (already rendered in grid)
+            if (revenueSize === 'large' && nextWidget && 
+                ((widget.id === 'inbox-card' && nextWidget.id === 'tasks-card') ||
+                 (widget.id === 'tasks-card' && nextWidget.id === 'inbox-card'))) {
+              return null;
+            }
           }
           
-          return content;
+          // Also skip if this is the second widget after revenue-chart (tasks-card after inbox-card or vice versa)
+          if (prevPrevWidget?.id === 'revenue-chart' && 
+              (widget.id === 'inbox-card' || widget.id === 'tasks-card')) {
+            const revenueSize = prevPrevWidget.size || 'large';
+            if (revenueSize === 'large') {
+              return null;
+            }
+          }
+          
+          // Render widget with size-based grid
+          const sizeClasses = getSizeClasses(widget.size || 'medium', widget.id);
+          
+          if (sizeClasses) {
+            return (
+              <div key={widget.id} className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+                <div className={sizeClasses}>
+                  {content}
+                </div>
+              </div>
+            );
+          }
+          
+          return (
+            <div key={widget.id}>
+              {content}
+            </div>
+          );
         })}
       </div>
 

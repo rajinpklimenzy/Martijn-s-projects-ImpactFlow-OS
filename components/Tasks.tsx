@@ -13,6 +13,10 @@ import { Task, Project, User as UserType, TaskNote } from '../types';
 import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiGetTaskCategories, apiCreateTask, apiBulkImportTasks, apiCreateNotification } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
+import { useTasks, useUpdateTask, useDeleteTask, useCreateTask } from '../hooks/useTasks';
+import { useProjects } from '../hooks/useProjects';
+import { useUsers } from '../hooks/useUsers';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface TasksProps {
   onCreateTask: () => void;
@@ -21,10 +25,20 @@ interface TasksProps {
 
 const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const { showSuccess, showError, showInfo } = useToast();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [users, setUsers] = useState<UserType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  
+  // React Query hooks for data fetching
+  const { data: tasks = [], isLoading: isLoadingTasks, error: tasksError } = useTasks();
+  const { data: projects = [], isLoading: isLoadingProjects } = useProjects();
+  const { data: users = [], isLoading: isLoadingUsers } = useUsers();
+  
+  // React Query mutations
+  const updateTaskMutation = useUpdateTask();
+  const deleteTaskMutation = useDeleteTask();
+  const createTaskMutation = useCreateTask();
+  
+  const isLoading = isLoadingTasks || isLoadingProjects || isLoadingUsers;
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'active' | 'archived' | 'week'>('active');
   const [displayMode, setDisplayMode] = useState<'list' | 'card'>('list');
@@ -153,84 +167,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
   };
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      console.log('[TASKS] Fetching data (all tasks). Current userId:', userId);
-      
-      // IMPORTANT:
-      // Always fetch ALL tasks (no userId filter), so that:
-      // - Imported tasks for any owner are visible in the registry
-      // - Admins can see the full portfolio
-      // Owner-specific views can be added later via client-side filters.
-      const [taskRes, projRes, userRes] = await Promise.all([
-        apiGetTasks(),          // <-- no userId query param; returns all tasks
-        apiGetProjects(),
-        apiGetUsers()
-      ]);
-      
-      console.log('[TASKS] API Responses:', {
-        tasks: taskRes,
-        tasksData: (taskRes as any)?.data,
-        tasksCount: Array.isArray((taskRes as any)?.data) ? (taskRes as any).data.length : Array.isArray(taskRes) ? taskRes.length : 'not array',
-        projects: (projRes as any)?.data?.length ?? (Array.isArray(projRes) ? projRes.length : 'unknown'),
-        users: (userRes as any)?.data?.length ?? (Array.isArray(userRes) ? userRes.length : 'unknown')
-      });
-      
-      // Handle response structure: backend returns { success: true, data: [...] }
-      // apiFetch returns the parsed JSON, so taskRes is already { success: true, data: [...] }
-      let tasksData = [];
-      if (Array.isArray(taskRes)) {
-        tasksData = taskRes;
-      } else if (taskRes?.data && Array.isArray(taskRes.data)) {
-        tasksData = taskRes.data;
-      } else if (taskRes?.success && taskRes?.data && Array.isArray(taskRes.data)) {
-        tasksData = taskRes.data;
-      }
-      
-      let projectsData = [];
-      if (Array.isArray(projRes)) {
-        projectsData = projRes;
-      } else if (projRes?.data && Array.isArray(projRes.data)) {
-        projectsData = projRes.data;
-      } else if (projRes?.success && projRes?.data && Array.isArray(projRes.data)) {
-        projectsData = projRes.data;
-      }
-      
-      let usersData = [];
-      if (Array.isArray(userRes)) {
-        usersData = userRes;
-      } else if (userRes?.data && Array.isArray(userRes.data)) {
-        usersData = userRes.data;
-      } else if (userRes?.success && userRes?.data && Array.isArray(userRes.data)) {
-        usersData = userRes.data;
-      }
-      
-      setTasks(tasksData);
-      setProjects(projectsData);
-      setUsers(usersData);
-      
-      console.log('[TASKS] State updated:', {
-        tasksCount: Array.isArray(tasksData) ? tasksData.length : 0,
-        projectsCount: Array.isArray(projectsData) ? projectsData.length : 0,
-        usersCount: Array.isArray(usersData) ? usersData.length : 0
-      });
-    } catch (err: any) {
-      console.error('[TASKS] Fetch error:', err);
-      showError(err.message || 'Failed to load tasks');
-    } finally { 
-      setIsLoading(false); 
-    }
-  };
-
-  useEffect(() => { fetchData(); }, [currentUser]);
-
+  // Handle errors from React Query
   useEffect(() => {
-    const handleRefresh = () => fetchData();
-    window.addEventListener('refresh-tasks', handleRefresh);
-    return () => window.removeEventListener('refresh-tasks', handleRefresh);
-  }, []);
+    if (tasksError) {
+      console.error('[TASKS] React Query error:', tasksError);
+      showError('Failed to load tasks');
+    }
+  }, [tasksError, showError]);
 
   // Initialize edit form when task is selected
   useEffect(() => {
@@ -283,12 +226,14 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     if (!task) return;
     setArchivingTaskId(id);
     try {
-      await apiUpdateTask(id, { archived: viewMode === 'active' });
-      setTasks(prev => prev.map(t => t.id === id ? { ...t, archived: viewMode === 'active' } : t));
+      await updateTaskMutation.mutateAsync({
+        id,
+        data: { archived: viewMode === 'active' }
+      });
       setArchiveConfirmTask(null);
-      showSuccess(viewMode === 'active' ? 'Task archived' : 'Task restored');
+      // React Query will automatically refetch and update the cache
     } catch (err) { 
-      showError('Update failed'); 
+      // Error is already handled by mutation
     } finally {
       setArchivingTaskId(null);
     }
@@ -297,13 +242,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   const handleDeleteTask = async (id: string) => {
     setDeletingTaskId(id);
     try {
-      await apiDeleteTask(id);
-      setTasks(prev => prev.filter(t => t.id !== id));
+      await deleteTaskMutation.mutateAsync(id);
       setDeleteConfirmTask(null);
-      showSuccess('Task deleted successfully');
-      fetchData();
+      // React Query will automatically refetch and update the cache
     } catch (err) {
-      showError('Failed to delete task');
+      // Error is already handled by mutation
     } finally {
       setDeletingTaskId(null);
     }
@@ -322,12 +265,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     setIsBulkDeletingTasks(true);
     try {
       const targetIds = [...selectedTaskIds];
-      await Promise.all(targetIds.map(id => apiDeleteTask(id)));
-      setTasks(prev => prev.filter(t => !targetIds.includes(t.id)));
+      await Promise.all(targetIds.map(id => deleteTaskMutation.mutateAsync(id)));
       setSelectedTaskIds([]);
       setBulkDeleteConfirmOpen(false);
       showSuccess(`Successfully deleted ${targetIds.length} task${targetIds.length > 1 ? 's' : ''}`);
-      fetchData();
+      // React Query will automatically refetch and update the cache
     } catch (err: any) {
       showError(err.message || 'Failed to delete tasks');
     } finally {
@@ -345,16 +287,12 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       const targetIds = [...selectedTaskIds];
       await Promise.all(
         targetIds.map(id =>
-          apiUpdateTask(id, {
-            projectId: bulkAssignProjectId === '__none__' ? null : bulkAssignProjectId
+          updateTaskMutation.mutateAsync({
+            id,
+            data: {
+              projectId: bulkAssignProjectId === '__none__' ? null : bulkAssignProjectId
+            }
           })
-        )
-      );
-      setTasks(prev =>
-        prev.map(t =>
-          targetIds.includes(t.id)
-            ? { ...t, projectId: bulkAssignProjectId === '__none__' ? null : bulkAssignProjectId }
-            : t
         )
       );
       setSelectedTaskIds([]);
@@ -365,7 +303,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           bulkAssignProjectId === '__none__' ? 'No project' : projects.find(p => p.id === bulkAssignProjectId)?.title || 'project'
         }`
       );
-      fetchData();
+      // React Query will automatically refetch and update the cache
     } catch (err: any) {
       showError(err.message || 'Failed to assign project');
     } finally {
@@ -795,63 +733,15 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         errors: importData.errors
       });
       
-      // Add imported tasks directly to state immediately (before refresh)
-      // This ensures tasks show up even if they have different assigneeId
+      // Invalidate React Query cache to refetch tasks
       if (createdTasks && createdTasks.length > 0) {
-        console.log('[IMPORT] ===== ADDING TASKS TO STATE =====');
-        console.log('[IMPORT] Adding imported tasks directly to state:', createdTasks);
-        console.log('[IMPORT] First created task:', createdTasks[0]);
-        
-        setTasks(prevTasks => {
-          // Merge new tasks, avoiding duplicates by ID
-          const existingIds = new Set(prevTasks.map(t => t.id));
-          const newTasks = createdTasks
-            .filter((t: any) => {
-              const hasId = t && t.id;
-              const isNew = !existingIds.has(t.id);
-              if (!hasId) {
-                console.error('[IMPORT] Task missing ID:', t);
-                return false;
-              }
-              if (!isNew) {
-                console.warn('[IMPORT] Task already exists, skipping:', t.id);
-                return false;
-              }
-              return true;
-            })
-            .map((t: any) => {
-              const mappedTask: Task = {
-                id: t.id,
-                title: t.title || '',
-                category: t.category || undefined,
-                description: t.description || '',
-                dueDate: t.dueDate || '',
-                priority: (t.priority || 'Medium') as 'Low' | 'Medium' | 'High',
-                status: (t.status || 'Todo') as 'Todo' | 'In Progress' | 'Review' | 'Done',
-                assigneeId: t.assigneeId || userId,
-                projectId: t.projectId || undefined,
-                archived: t.archived || false,
-                createdAt: t.createdAt,
-                updatedAt: t.updatedAt
-              };
-              console.log('[IMPORT] Mapped task:', mappedTask);
-              return mappedTask;
-            });
-          
-          const merged = [...newTasks, ...prevTasks];
-          console.log('[IMPORT] ===== STATE UPDATE COMPLETE =====');
-          console.log('[IMPORT] Merged tasks:', { 
-            previousCount: prevTasks.length, 
-            newCount: newTasks.length, 
-            totalCount: merged.length,
-            newTaskIds: newTasks.map(t => t.id),
-            newTaskTitles: newTasks.map(t => t.title)
-          });
-          return merged;
-        });
+        console.log('[IMPORT] ===== INVALIDATING TASKS CACHE =====');
+        console.log('[IMPORT] Created tasks:', createdTasks.length);
+        // Invalidate all task queries to trigger refetch
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
       } else {
-        console.error('[IMPORT] ===== NO TASKS TO ADD =====');
-        console.error('[IMPORT] No created tasks to add to state. createdTasks:', createdTasks);
+        console.error('[IMPORT] ===== NO TASKS CREATED =====');
+        console.error('[IMPORT] No created tasks. createdTasks:', createdTasks);
         console.error('[IMPORT] Response structure:', response);
         console.error('[IMPORT] Import data:', importData);
       }
@@ -871,28 +761,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       
       setIsImportOpen(false);
       
-      // Refresh tasks list after a short delay to ensure database consistency
-      // Use a longer delay to ensure database has fully processed the import
-      setTimeout(async () => {
-        console.log('[IMPORT] Refreshing tasks list from server...');
-        try {
-          await fetchData();
-          console.log('[IMPORT] Tasks list refreshed from server');
-          
-          // Double-check: if tasks still not showing, try fetching all tasks (not filtered by userId)
-          const currentTasksCount = tasks.length;
-          console.log('[IMPORT] Current tasks count after refresh:', currentTasksCount);
-          
-          if (currentTasksCount === 0 && createdTasks.length > 0) {
-            console.warn('[IMPORT] Tasks not showing after refresh, fetching all tasks...');
-            // Try fetching without userId filter to see if tasks exist
-            const allTasksRes = await apiGetTasks(); // No userId = all tasks
-            console.log('[IMPORT] All tasks response:', allTasksRes);
-          }
-        } catch (refreshError) {
-          console.error('[IMPORT] Error refreshing tasks:', refreshError);
-        }
-      }, 1500);
+      // React Query will automatically refetch tasks after cache invalidation
+      // No need for manual refresh - React Query handles it
       
       // Also dispatch event for consistency
       window.dispatchEvent(new Event('refresh-tasks'));
@@ -1224,14 +1094,17 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     const newStatus = current === 'Done' ? 'Todo' : 'Done';
     setUpdatingTaskId(id);
     try {
-      await apiUpdateTask(id, { status: newStatus as any });
-      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
+      await updateTaskMutation.mutateAsync({
+        id,
+        data: { status: newStatus as any }
+      });
+      // Update selectedTask if it's the one being toggled
       if (selectedTask?.id === id) {
         setSelectedTask({ ...selectedTask, status: newStatus as any });
       }
-      showSuccess(newStatus === 'Done' ? 'Task marked as done' : 'Task marked as todo');
+      // React Query will automatically refetch and update the cache
     } catch (err) { 
-      showError('Status update failed'); 
+      // Error is already handled by mutation
     } finally {
       setUpdatingTaskId(null);
     }
@@ -1252,33 +1125,21 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     
     setIsUpdatingTask(true);
     try {
-      await apiUpdateTask(selectedTask.id, {
-        title: editFormData.title.trim(),
-        category: editFormData.category.trim() || undefined,
-        description: editFormData.description.trim() || '',
-        dueDate: editFormData.dueDate || null,
-        priority: editFormData.priority,
-        status: editFormData.status,
-        assigneeId: editFormData.assigneeId,
-        projectId: editFormData.projectId || null
+      await updateTaskMutation.mutateAsync({
+        id: selectedTask.id,
+        data: {
+          title: editFormData.title.trim(),
+          category: editFormData.category.trim() || undefined,
+          description: editFormData.description.trim() || '',
+          dueDate: editFormData.dueDate || null,
+          priority: editFormData.priority,
+          status: editFormData.status,
+          assigneeId: editFormData.assigneeId,
+          projectId: editFormData.projectId || null
+        }
       });
       
-      setTasks(prev => prev.map(t => 
-        t.id === selectedTask.id 
-          ? { 
-              ...t, 
-              title: editFormData.title.trim(),
-              category: editFormData.category.trim() || undefined,
-              description: editFormData.description.trim() || '',
-              dueDate: editFormData.dueDate || '',
-              priority: editFormData.priority,
-              status: editFormData.status,
-              assigneeId: editFormData.assigneeId,
-              projectId: editFormData.projectId || undefined
-            } 
-          : t
-      ));
-      
+      // Update selectedTask to reflect changes immediately
       setSelectedTask({
         ...selectedTask,
         title: editFormData.title.trim(),
@@ -1292,10 +1153,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       });
       
       setIsEditingTask(false);
-      showSuccess('Task updated successfully');
-      window.dispatchEvent(new Event('refresh-tasks'));
+      // React Query will automatically refetch and update the cache
     } catch (err: any) {
-      showError(err.message || 'Failed to update task');
+      // Error is already handled by mutation
     } finally {
       setIsUpdatingTask(false);
     }
@@ -1494,20 +1354,18 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
       const updatedNotes = [...(selectedTask.notes || []), newNote];
 
-      await apiUpdateTask(selectedTask.id, {
-        notes: updatedNotes
+      await updateTaskMutation.mutateAsync({
+        id: selectedTask.id,
+        data: { notes: updatedNotes }
       });
 
+      // Update selectedTask immediately for UI responsiveness
       setSelectedTask({
         ...selectedTask,
         notes: updatedNotes
       });
 
-      setTasks(prev => prev.map(t => 
-        t.id === selectedTask.id 
-          ? { ...t, notes: updatedNotes } 
-          : t
-      ));
+      // React Query mutation will automatically invalidate and refetch the cache
 
       // Send notifications to mentioned users
       const mentionedUserIds = extractMentionedUsers(newNoteText);
@@ -1551,21 +1409,18 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
       const updatedNotes = selectedTask.notes?.filter(note => note.id !== noteToDelete) || [];
 
-      await apiUpdateTask(selectedTask.id, {
-        notes: updatedNotes
+      await updateTaskMutation.mutateAsync({
+        id: selectedTask.id,
+        data: { notes: updatedNotes }
       });
 
+      // Update selectedTask immediately for UI responsiveness
       setSelectedTask({
         ...selectedTask,
         notes: updatedNotes
       });
 
-      setTasks(prev => prev.map(t => 
-        t.id === selectedTask.id 
-          ? { ...t, notes: updatedNotes } 
-          : t
-      ));
-
+      // React Query mutation will automatically invalidate and refetch the cache
       showSuccess('Note deleted successfully');
       setNoteToDelete(null);
     } catch (err: any) {
