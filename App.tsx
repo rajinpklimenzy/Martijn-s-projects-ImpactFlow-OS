@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [allowLayoutTransition, setAllowLayoutTransition] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   
@@ -402,6 +403,12 @@ const App: React.FC = () => {
     if (isMobile) setIsSidebarOpen(false);
   };
 
+  // Prevent sidebar/overlay from animating on first paint (avoids "sliding" glitch on refresh)
+  useEffect(() => {
+    const t = setTimeout(() => setAllowLayoutTransition(true), 400);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <QueryProvider>
       <ToastProvider>
@@ -409,14 +416,15 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
         {isMobile && isSidebarOpen && (
           <div 
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 transition-opacity"
+            className={`fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 ${allowLayoutTransition ? 'transition-opacity duration-300' : ''}`}
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         <aside className={`
           fixed lg:static inset-y-0 left-0 z-50
-          bg-white border-r border-slate-200 transition-all duration-300 
+          bg-white border-r border-slate-200
+          ${allowLayoutTransition ? 'transition-all duration-300' : ''}
           ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-20 lg:translate-x-0'} 
           flex flex-col overflow-hidden
         `}>
@@ -544,10 +552,10 @@ const App: React.FC = () => {
           </header>
 
           <section
-            className={`flex-1 min-h-0 flex flex-col p-4 lg:p-8 pb-20 lg:pb-8 overflow-y-auto`}
+            className={`flex-1 min-h-0 flex flex-col p-4 lg:p-8 pb-20 lg:pb-8 ${activeTab === 'pipeline' ? 'overflow-hidden' : 'overflow-y-auto'}`}
           >
             <div
-              className={`${activeTab === 'inbox' ? 'min-h-0 flex flex-col max-w-7xl mx-auto w-full' : 'max-w-7xl mx-auto'}`}
+              className={`w-full ${activeTab === 'inbox' ? 'min-h-0 flex flex-col' : activeTab === 'pipeline' ? 'min-h-0 flex flex-col h-full' : ''}`}
             >
               {renderContent()}
             </div>

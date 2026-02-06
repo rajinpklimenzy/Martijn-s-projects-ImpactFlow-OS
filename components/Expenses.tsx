@@ -428,7 +428,7 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
   }
 
   return (
-    <div className="p-6 lg:p-10 max-w-7xl mx-auto pb-20">
+    <div className="w-full pt-0 pb-20 px-0">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <div>

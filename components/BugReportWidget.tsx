@@ -9,6 +9,13 @@ const BugReportWidget: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [allowTransition, setAllowTransition] = useState(false);
+
+  // Prevent widget panel from "sliding in from wrong position" on first load (Tailwind delay)
+  useEffect(() => {
+    const t = setTimeout(() => setAllowTransition(true), 500);
+    return () => clearTimeout(t);
+  }, []);
   
   const [formData, setFormData] = useState({
     type: 'bug' as 'bug' | 'feature' | 'idea',
@@ -314,12 +321,15 @@ const BugReportWidget: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     <div className="fixed right-0 top-1/2 -translate-y-1/2 z-[100] flex items-center pointer-events-none">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`pointer-events-auto h-32 w-10 bg-slate-900 text-white flex flex-col items-center justify-center rounded-l-2xl shadow-2xl transition-all duration-300 hover:w-12 group border-l border-y border-white/10 ${isOpen ? 'translate-x-full' : ''}`}
+        className={`pointer-events-auto h-32 w-10 bg-slate-900 text-white flex flex-col items-center justify-center rounded-l-2xl shadow-2xl hover:w-12 group border-l border-y border-white/10 ${allowTransition ? 'transition-all duration-300' : ''} ${isOpen ? 'translate-x-full' : ''}`}
       >
         <span className="[writing-mode:vertical-lr] text-[11px] font-black uppercase tracking-[0.3em] rotate-180">Feedback</span>
       </button>
 
-      <div className={`pointer-events-auto fixed right-0 top-1/2 -translate-y-1/2 w-[90vw] sm:w-80 bg-white shadow-[-20px_0_60px_rgba(0,0,0,0.15)] rounded-l-[32px] border-l border-slate-100 transition-all duration-500 ease-out transform overflow-hidden ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div
+        className={`pointer-events-auto fixed right-0 top-1/2 -translate-y-1/2 w-[90vw] sm:w-80 bg-white shadow-[-20px_0_60px_rgba(0,0,0,0.15)] rounded-l-[32px] border-l border-slate-100 transform overflow-hidden ${allowTransition ? 'transition-all duration-500 ease-out' : ''} ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        style={!allowTransition ? { transform: isOpen ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(100%)' } : undefined}
+      >
         {isSuccess ? (
           <div className="p-10 text-center animate-in zoom-in-95 duration-300">
              <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 mx-auto mb-6">

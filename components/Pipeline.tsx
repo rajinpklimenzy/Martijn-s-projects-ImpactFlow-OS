@@ -602,7 +602,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
   };
 
   return (
-    <div className="h-full flex flex-col gap-6 animate-in slide-in-from-right-2 duration-500 relative">
+    <div className="h-full min-h-0 flex flex-col gap-6 animate-in slide-in-from-right-2 duration-500 relative">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center shrink-0 gap-4">
         <div className="flex items-center gap-4">
           <div className="relative group">
@@ -653,14 +653,14 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
         </div>
       )}
 
-      <div className="flex-1 flex gap-6 overflow-x-auto pb-6 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-hide">
+      <div className="flex-1 min-h-0 flex gap-6 overflow-x-auto overflow-y-hidden pb-6 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-hide">
         {isLoading || isLoadingPipelines || !activePipeline ? (
           <div className="flex items-center justify-center w-full min-h-[400px]"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>
         ) : (
           activePipeline.stages.map(stage => {
             const stageDeals = deals.filter(d => d.stage === stage);
             return (
-              <div key={stage} onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, stage)} className="flex flex-col w-[85vw] sm:w-72 lg:w-80 shrink-0 bg-slate-100/40 rounded-3xl p-4 border border-slate-200/50">
+              <div key={stage} onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, stage)} className="flex flex-col min-h-0 w-[85vw] sm:w-72 lg:w-80 shrink-0 bg-slate-100/40 rounded-3xl p-4 border border-slate-200/50">
                 <div className="flex justify-between items-center mb-6 px-1">
                   <div className="flex items-center gap-3">
                     <h3 className="font-black text-slate-900 text-xs uppercase tracking-widest">{stage}</h3>
@@ -669,7 +669,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                   <Plus onClick={() => onNewDeal(stage)} className="w-4 h-4 text-slate-300 hover:text-indigo-600 cursor-pointer transition-colors" />
                 </div>
                 
-                <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+                <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
                   {stageDeals.map(deal => {
                     const company = companies.find(c => c.id === deal.companyId);
                     const isSelected = selectedDealIds.includes(deal.id);

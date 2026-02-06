@@ -65,25 +65,28 @@ const Integrations: React.FC = () => {
           const isConnecting = connecting === app.id;
 
           return (
-            <div key={app.id} className="bg-white rounded-[32px] border border-slate-200 p-8 shadow-sm flex flex-col h-full hover:border-indigo-300 transition-all group relative overflow-hidden">
+            <div key={app.id} className="bg-white rounded-[32px] border border-slate-200 p-8 shadow-sm flex flex-col h-full hover:border-indigo-300 transition-all group relative overflow-visible">
               {app.isComingSoon && (
-                <div className="absolute top-4 right-4 bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-indigo-200 flex items-center gap-1.5 shadow-sm">
-                  <Sparkles className="w-3 h-3" /> Coming Soon
+                <div className="absolute top-3 right-3 z-10 bg-indigo-100 text-indigo-700 rounded-full border border-indigo-200 shadow-sm px-3 py-1.5 text-center leading-tight whitespace-nowrap">
+                  <div className="text-[10px] font-black uppercase tracking-widest">Coming Soon</div>
+                  <div className="text-[8px] font-bold uppercase tracking-wider text-indigo-600">In Development</div>
                 </div>
               )}
               
               <div className="flex justify-between items-start mb-8">
-                <div className={`w-16 h-16 ${app.color} rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                <div className={`w-16 h-16 ${app.color} rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform shrink-0`}>
                   {app.icon}
                 </div>
-                {isConnected ? (
-                  <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> Active
-                  </div>
-                ) : (
-                  <div className="px-3 py-1 bg-slate-50 text-slate-400 rounded-full text-[10px] font-black uppercase tracking-tighter">
-                    {app.isComingSoon ? 'In Development' : 'Disconnected'}
-                  </div>
+                {!app.isComingSoon && (
+                  isConnected ? (
+                    <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> Active
+                    </div>
+                  ) : (
+                    <div className="px-3 py-1 bg-slate-50 text-slate-400 rounded-full text-[10px] font-black uppercase tracking-tighter">
+                      Disconnected
+                    </div>
+                  )
                 )}
               </div>
 

@@ -813,7 +813,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col gap-6 w-full max-w-6xl mx-auto">
+      <div className="flex-1 flex flex-col gap-6 w-full">
         {/* Search Bar */}
         <div className="w-full">
           <div className="relative group w-full">

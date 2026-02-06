@@ -1172,7 +1172,7 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="w-full space-y-8 animate-in fade-in duration-500 pb-20">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-left">Settings</h1>
