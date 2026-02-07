@@ -431,8 +431,8 @@ export const apiGetGoogleCalendarAuthUrl = (userId: string) => apiFetch(`/google
 export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: string) => apiFetch(`/google-calendar/events?userId=${userId}&startDate=${start}&endDate=${end}`);
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
 
-/** Shared Inbox – uses already connected Gmail (Google Calendar OAuth). scopeHours e.g. 24 = sync last 24 hrs. */
-export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number, scopeDays?: number) => {
+/** Shared Inbox – uses already connected Gmail (Google Calendar OAuth). scopeDays: number (e.g. 90) or 'all' for all emails. scopeHours e.g. 24 = sync last 24 hrs. */
+export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number, scopeDays?: number | 'all') => {
   const params = new URLSearchParams({ userId });
   if (accountEmail) params.append('accountEmail', accountEmail);
   if (scopeHours != null) params.append('scopeHours', String(scopeHours));
@@ -471,6 +471,8 @@ export interface SharedInboxFilters {
   isStarred?: boolean;
   page?: number;
   limit?: number;
+  /** Cursor for cursor-based pagination (from previous response nextCursor) */
+  cursor?: string;
 }
 export const apiGetSharedInboxEmails = (userId: string, filters?: SharedInboxFilters) => {
   const params = new URLSearchParams({ userId });
@@ -484,7 +486,8 @@ export const apiGetSharedInboxEmails = (userId: string, filters?: SharedInboxFil
   if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
   if (filters.dateTo) params.append('dateTo', filters.dateTo);
   if (filters.labelId) params.append('labelId', filters.labelId);
-  if (filters.page !== undefined) params.append('page', String(filters.page));
+  if (filters.cursor) params.append('cursor', filters.cursor);
+  if (filters.page !== undefined && !filters.cursor) params.append('page', String(filters.page));
   if (filters.limit !== undefined) params.append('limit', String(filters.limit));
   if (filters.isRead !== undefined) params.append('isRead', String(filters.isRead));
   if (filters.isStarred !== undefined) params.append('isStarred', String(filters.isStarred));
