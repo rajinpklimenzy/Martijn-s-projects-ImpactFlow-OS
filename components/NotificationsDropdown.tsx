@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw } from 'lucide-react';
+import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw, Mail, AtSign, Send, TrendingUp } from 'lucide-react';
 import { Notification } from '../types';
 
 interface NotificationsDropdownProps {
@@ -11,29 +11,40 @@ interface NotificationsDropdownProps {
   isRefreshing?: boolean;
   onClose: () => void;
   onViewAll?: () => void;
+  onNavigate?: (tab: string) => void;
 }
 
 const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({ 
-  notifications, onMarkAsRead, onMarkAllAsRead, onRefresh, isRefreshing = false, onClose, onViewAll
+  notifications, onMarkAsRead, onMarkAllAsRead, onRefresh, isRefreshing = false, onClose, onViewAll, onNavigate
 }) => {
-  // Filter to show only unread notifications
-  const unreadNotifications = notifications.filter(n => !n.read);
-  const getIcon = (type: Notification['type']) => {
+  const getIcon = (type: Notification['type'], title?: string) => {
+    if (type === 'note-marked' || title?.toLowerCase().includes('marked')) return <UserPlus className="w-4 h-4 text-indigo-500" />;
+    if (title?.toLowerCase().includes('pipeline')) return <TrendingUp className="w-4 h-4 text-purple-500" />;
     switch (type) {
       case 'lead': return <UserPlus className="w-4 h-4 text-blue-500" />;
       case 'deal': return <MessageSquare className="w-4 h-4 text-indigo-500" />;
       case 'task': return <CheckSquare className="w-4 h-4 text-emerald-500" />;
       case 'payment': return <AlertTriangle className="w-4 h-4 text-red-500" />;
+      case 'email-routing': return <Send className="w-4 h-4 text-amber-500" />;
+      case 'email-assigned': return <Mail className="w-4 h-4 text-blue-500" />;
+      case 'email-mention': return <AtSign className="w-4 h-4 text-violet-500" />;
+      case 'new-email': return <Mail className="w-4 h-4 text-slate-600" />;
       default: return <Shield className="w-4 h-4 text-slate-400" />;
     }
   };
 
-  const getBg = (type: Notification['type']) => {
+  const getBg = (type: Notification['type'], title?: string) => {
+    if (type === 'note-marked' || title?.toLowerCase().includes('marked')) return 'bg-indigo-50';
+    if (title?.toLowerCase().includes('pipeline')) return 'bg-purple-50';
     switch (type) {
       case 'lead': return 'bg-blue-50';
       case 'deal': return 'bg-indigo-50';
       case 'task': return 'bg-emerald-50';
       case 'payment': return 'bg-red-50';
+      case 'email-routing': return 'bg-amber-50';
+      case 'email-assigned': return 'bg-blue-50';
+      case 'email-mention': return 'bg-violet-50';
+      case 'new-email': return 'bg-slate-100';
       default: return 'bg-slate-50';
     }
   };
@@ -75,20 +86,27 @@ const NotificationsDropdown: React.FC<NotificationsDropdownProps> = ({
                 onClick={() => {
                   onMarkAsRead(n.id);
                   if (n.link) {
-                    // Handle link navigation - links are in format /?tab=pipeline&deal=123
-                    if (n.link.startsWith('/?tab=')) {
-                      window.location.href = n.link;
+                    if (n.link.startsWith('/?tab=') && onNavigate) {
+                      const url = new URL(n.link, window.location.origin);
+                      const tabParam = url.searchParams.get('tab');
+                      if (tabParam) {
+                        onNavigate(tabParam);
+                        localStorage.setItem('activeTab', tabParam);
+                        window.history.replaceState(null, '', n.link);
+                        onClose();
+                      } else {
+                        window.location.href = n.link;
+                      }
                     } else if (n.link.startsWith('/')) {
                       window.location.href = n.link;
                     } else {
-                      // Fallback: treat as relative path
                       window.location.href = n.link;
                     }
                   }
                 }}
               >
-                <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${getBg(n.type)}`}>
-                  {getIcon(n.type)}
+                <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${getBg(n.type, n.title)}`}>
+                  {getIcon(n.type, n.title)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start gap-2">

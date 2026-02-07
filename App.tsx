@@ -117,56 +117,61 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
-  // WebSocket connection for real-time notifications
-  // TEMPORARILY DISABLED: Backend /ws/notifications endpoint not implemented yet
+  // WebSocket connection for real-time notifications (Phase 9)
+  const notificationCleanupRef = useRef<(() => void) | null>(null);
+  const notificationCancelledRef = useRef(false);
+
   useEffect(() => {
     const storedUser = currentUser || JSON.parse(localStorage.getItem('user_data') || 'null');
     if (!storedUser?.id) return;
 
-    // TODO: Re-enable when backend WebSocket notification endpoint is implemented
-    return; // Disabled
+    notificationCleanupRef.current = null;
+    notificationCancelledRef.current = false;
 
-    // Import WebSocket client dynamically
     import('./utils/notificationWebSocket').then(({ getNotificationWebSocket, disconnectNotificationWebSocket }) => {
+      if (notificationCancelledRef.current) {
+        disconnectNotificationWebSocket();
+        return;
+      }
       const ws = getNotificationWebSocket(storedUser.id);
-      
-      // Request browser notification permission
+
+      // Request browser notification permission (once per session)
       if ('Notification' in window && window.Notification.permission === 'default') {
         window.Notification.requestPermission().then(permission => {
           console.log('[NOTIFICATIONS] Browser notification permission:', permission);
         });
       }
 
-      // Handle WebSocket notifications
       const handleNotification = (notification: any) => {
-        // Add to notifications list
+        const mapped = {
+          id: notification.id,
+          userId: notification.userId,
+          type: (notification.type || 'system') as NotificationType['type'],
+          title: notification.title || 'Notification',
+          message: notification.message || '',
+          timestamp: 'Just now',
+          read: false,
+          link: notification.link,
+        };
+
         setNotifications(prev => {
           const exists = prev.find(n => n.id === notification.id);
           if (exists) return prev;
-          
-          const timestamp = 'Just now';
-          return [{
-            id: notification.id,
-            userId: notification.userId,
-            type: notification.type || 'system',
-            title: notification.title,
-            message: notification.message,
-            timestamp,
-            read: false,
-            link: notification.link,
-          }, ...prev].slice(0, 20); // Keep latest 20
+          return [mapped, ...prev].slice(0, 100);
         });
 
-        // Show browser notification if permitted
+        // Sync full Notifications page if open
+        window.dispatchEvent(new Event('refresh-notifications'));
+
+        // Browser notification when permission granted
         if ('Notification' in window && window.Notification.permission === 'granted') {
           try {
-            const browserNotif = new window.Notification(notification.title, {
-              body: notification.message,
+            const browserNotif = new window.Notification(notification.title || 'Notification', {
+              body: notification.message || '',
               icon: '/favicon.ico',
               tag: notification.id,
-              requireInteraction: false
+              requireInteraction: false,
             });
-
             browserNotif.onclick = () => {
               window.focus();
               if (notification.link) {
@@ -174,8 +179,6 @@ const App: React.FC = () => {
               }
               browserNotif.close();
             };
-
-            // Auto-close after 5 seconds
             setTimeout(() => browserNotif.close(), 5000);
           } catch (error) {
             console.error('[NOTIFICATIONS] Error showing browser notification:', error);
@@ -184,17 +187,21 @@ const App: React.FC = () => {
       };
 
       ws.on('notification', handleNotification);
-      
-      // Connect WebSocket
       ws.connect().catch(error => {
         console.error('[NOTIFICATIONS] WebSocket connection failed:', error);
       });
 
-      return () => {
+      notificationCleanupRef.current = () => {
         ws.off('notification', handleNotification);
         disconnectNotificationWebSocket();
       };
     });
+
+    return () => {
+      notificationCancelledRef.current = true;
+      notificationCleanupRef.current?.();
+      notificationCleanupRef.current = null;
+    };
   }, [currentUser]);
 
   useEffect(() => {
@@ -533,6 +540,7 @@ const App: React.FC = () => {
                     onRefresh={() => loadNotifications(true)}
                     isRefreshing={isRefreshingNotifications}
                     onClose={() => setIsNotificationsOpen(false)}
+                    onNavigate={setActiveTab}
                     onViewAll={() => {
                       setActiveTab('notifications');
                       localStorage.setItem('activeTab', 'notifications');

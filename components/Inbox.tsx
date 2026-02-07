@@ -267,6 +267,10 @@ function EmailBodyContent({ content, highlightTerm }: { content: string; highlig
   );
 }
 
+// Module-level guard: only one background sync can start within this window (avoids duplicate POST /sync when effect runs twice or multiple mounts)
+const BACKGROUND_SYNC_DEBOUNCE_MS = 90 * 1000; // 90 seconds
+let lastBackgroundSyncStartedAt = 0;
+
 const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -336,6 +340,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
   const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const backgroundSyncInProgress = useRef(false);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -421,6 +426,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [showCategorizationRulesModal, setShowCategorizationRulesModal] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const emailListContainerRef = useRef<HTMLUListElement | null>(null);
+  const loadMoreInFlightRef = useRef(false);
   const [newRuleType, setNewRuleType] = useState<'domain' | 'keyword'>('domain');
   const [newRuleValue, setNewRuleValue] = useState('');
   const [newRuleLabelId, setNewRuleLabelId] = useState('');
@@ -456,6 +462,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     description?: string;
   } | null>(null);
   const [scheduleMeetingEmailId, setScheduleMeetingEmailId] = useState<string | null>(null);
+  const [scheduleMeetingEmailSubject, setScheduleMeetingEmailSubject] = useState<string | null>(null);
+  const [scheduleMeetingEmailBody, setScheduleMeetingEmailBody] = useState<string | null>(null);
+  const [scheduleMeetingEmailParticipants, setScheduleMeetingEmailParticipants] = useState<string[] | null>(null);
 
   // Excluded domains state
   const [excludedDomains, setExcludedDomains] = useState<Array<{ id: string; domain: string; createdAt?: string }>>([]);
@@ -617,8 +626,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     error: emailsError,
     refetch,
   } = useSharedInboxEmails(userId, Object.keys(filters).length > 0 ? filters : undefined, {
-    staleTime: 30 * 1000, // 30 seconds
-    refetchInterval: 60 * 1000, // 60 seconds
+    staleTime: 60 * 1000, // 1 min – show cached data, refetch in background
+    refetchInterval: 2 * 60 * 1000, // 2 min – avoid frequent heavy refetches
   });
 
   // Flatten pages into single array and deduplicate
@@ -638,11 +647,14 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const syncMutation = useSyncSharedInbox();
 
   const loadMoreEmails = useCallback(() => {
-    if (!loadingMore && hasMore && userId) {
-      console.log('[INBOX] Loading more emails - hasMore:', hasMore, 'loadingMore:', loadingMore);
-      fetchNextPage();
-    }
+    if (loadMoreInFlightRef.current || loadingMore || !hasMore || !userId) return;
+    loadMoreInFlightRef.current = true;
+    fetchNextPage();
   }, [loadingMore, hasMore, fetchNextPage, userId]);
+
+  useEffect(() => {
+    if (!loadingMore) loadMoreInFlightRef.current = false;
+  }, [loadingMore]);
 
   // Update error state from React Query
   useEffect(() => {
@@ -657,7 +669,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   }, [emailsError]);
 
-  // Infinite scroll observer with scroll event fallback
+  // Infinite scroll observer with throttled scroll fallback (avoids duplicate API calls)
   useEffect(() => {
     const loadMoreElement = loadMoreRef.current;
     const scrollContainer = emailListContainerRef.current;
@@ -666,20 +678,21 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
     let observer: IntersectionObserver | null = null;
     let scrollHandler: ((e: Event) => void) | null = null;
+    let scrollThrottleId: ReturnType<typeof setTimeout> | null = null;
+    const SCROLL_THROTTLE_MS = 400;
 
     // Primary: Use IntersectionObserver with scrollable container as root
     try {
       observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting && hasMore && !loadingMore) {
-            console.log('[INBOX] IntersectionObserver triggered - loading more');
             loadMoreEmails();
           }
         },
         {
           threshold: 0.1,
           rootMargin: '300px',
-          root: scrollContainer // Use the scrollable container as root
+          root: scrollContainer
         }
       );
 
@@ -688,33 +701,32 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       console.warn('[INBOX] IntersectionObserver failed, using scroll fallback:', err);
     }
 
-    // Fallback: Scroll event listener
+    // Fallback: throttled scroll listener so we don't fire loadMore on every scroll tick
     scrollHandler = () => {
       if (loadingMore || !hasMore) return;
+      if (scrollThrottleId != null) return;
 
-      const container = scrollContainer;
-      const element = loadMoreElement;
+      scrollThrottleId = setTimeout(() => {
+        scrollThrottleId = null;
+        const container = scrollContainer;
+        const element = loadMoreElement;
+        if (!container || !element || loadingMore || !hasMore) return;
 
-      if (!container || !element) return;
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        const distanceFromBottom = containerRect.bottom - elementRect.top;
 
-      const containerRect = container.getBoundingClientRect();
-      const elementRect = element.getBoundingClientRect();
-
-      // Check if loadMore element is within 500px of the bottom of the scroll container
-      const distanceFromBottom = containerRect.bottom - elementRect.top;
-
-      if (distanceFromBottom < 500 && distanceFromBottom > -100) {
-        console.log('[INBOX] Scroll handler triggered - loading more');
-        loadMoreEmails();
-      }
+        if (distanceFromBottom < 500 && distanceFromBottom > -100) {
+          loadMoreEmails();
+        }
+      }, SCROLL_THROTTLE_MS);
     };
 
     scrollContainer.addEventListener('scroll', scrollHandler, { passive: true });
 
     return () => {
-      if (observer) {
-        observer.disconnect();
-      }
+      if (scrollThrottleId != null) clearTimeout(scrollThrottleId);
+      if (observer) observer.disconnect();
       if (scrollHandler && scrollContainer) {
         scrollContainer.removeEventListener('scroll', scrollHandler);
       }
@@ -737,8 +749,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setIsLoadingExcludedDomains(true);
     try {
       const res = await apiGetExcludedDomains(userId);
-      const data = res?.data ?? res ?? [];
-      setExcludedDomains(Array.isArray(data) ? data : []);
+      const raw = res?.data ?? res ?? [];
+      const list = Array.isArray(raw) ? raw : [];
+      // Defensive: only show entries with a non-empty domain
+      setExcludedDomains(list.filter((d: { id: string; domain?: string }) => (d.domain && String(d.domain).trim()) || false));
     } catch (err: any) {
       console.error('[INBOX] Failed to load excluded domains:', err);
       showError(getSafeErrorMessage(err, 'Failed to load excluded domains'));
@@ -858,14 +872,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       await apiAddFilteredAccount(userId, accountEmail);
       await loadFilteredAccounts();
       
-      // Invalidate all email queries - this will automatically trigger refetch for active queries
-      await queryClient.invalidateQueries({ 
-        queryKey: sharedInboxKeys.emails()
-      });
-      
-      // Also explicitly refetch to ensure immediate update
-      await refetch();
-      
+      await queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`Emails from ${accountEmail} will be hidden`);
     } catch (err: any) {
       showError(err?.message || 'Failed to filter account');
@@ -881,14 +888,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       await apiRemoveFilteredAccount(userId, filterId);
       await loadFilteredAccounts();
       
-      // Invalidate all email queries - this will automatically trigger refetch for active queries
-      await queryClient.invalidateQueries({ 
-        queryKey: sharedInboxKeys.emails()
-      });
-      
-      // Also explicitly refetch to ensure immediate update
-      await refetch();
-      
+      await queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`Emails from ${accountEmail} will now be visible`);
     } catch (err: any) {
       showError(err?.message || 'Failed to unfilter account');
@@ -1035,8 +1035,8 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     setSyncing(true);
     setError(null);
     try {
-      await syncMutation.mutateAsync({ userId, scopeHours: 24 });
-      showSuccess('Synced new mail from last 24 hours');
+      await syncMutation.mutateAsync({ userId, scopeDays: 'all' });
+      showSuccess('Syncing all emails from connected accounts');
       // React Query will automatically refetch emails after sync mutation invalidates the cache
     } catch (err: any) {
       const msg = err?.message || 'Sync failed';
@@ -1047,7 +1047,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   };
 
-  // Automatic background sync every 25 minutes for past 90 days (no loader)
+  // Automatic background sync every 25 minutes – syncs all emails from connected accounts (no loader)
   // Use refs to store stable references and prevent multiple sync calls
   const syncMutationRef = useRef(syncMutation);
   const queryClientRef = useRef(queryClient);
@@ -1083,37 +1083,39 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
 
     const performBackgroundSync = () => {
-      // Prevent concurrent background syncs (both local and global check)
+      const now = Date.now();
+      if (now - lastBackgroundSyncStartedAt < BACKGROUND_SYNC_DEBOUNCE_MS) {
+        return; // Another instance or double effect already started a sync recently
+      }
       if (backgroundSyncInProgress.current) {
-        console.log('[INBOX] Background sync already in progress, skipping...');
         return;
       }
 
+      lastBackgroundSyncStartedAt = now;
       backgroundSyncInProgress.current = true;
-      
-      // Silent sync - don't set syncing state or show notifications
-      // The mutation hook's onSuccess will automatically invalidate queries
+      setBackgroundSyncing(true);
+
       syncMutationRef.current.mutate(
-        { userId, scopeDays: 90 },
+        { userId, scopeDays: 'all' },
         {
           onSuccess: () => {
-            // Mutation hook already invalidates queries, just reset the flag
             backgroundSyncInProgress.current = false;
+            setBackgroundSyncing(false);
           },
-          // Don't show errors for background syncs - fail silently
           onError: (err: any) => {
             console.log('[INBOX] Background sync failed:', err?.message || 'Unknown error');
             backgroundSyncInProgress.current = false;
+            setBackgroundSyncing(false);
           },
         }
       );
     };
 
-    // Initial sync after component mounts (wait 5 seconds to avoid immediate sync on page load)
+    // First sync only after page has had time to load (30s) – keeps initial load fast; sync runs in background
     syncTimeoutRef.current = setTimeout(() => {
       performBackgroundSync();
       syncTimeoutRef.current = null;
-    }, 5000);
+    }, 30 * 1000);
 
     // Set up interval for every 25 minutes (25 * 60 * 1000 = 1500000 ms)
     syncIntervalRef.current = setInterval(() => {
@@ -1313,12 +1315,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           };
         }
       );
-      
-      // Force React Query to recognize the update by notifying observers
-      // This ensures the useMemo recalculates and UI updates immediately
-      // Note: invalidateQueries will trigger a refetch, but since we've already updated the cache,
-      // React Query will use the updated cache data
-      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
+      // Do not invalidate here: we already updated the cache; invalidate would trigger a full refetch (page=0 + all cursors).
     }
     
     try {
@@ -1454,18 +1451,15 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           }
         } : null));
       }
-      // Only show success notification if not silent (for manual actions)
+      // Cache already updated above; skip invalidate to avoid full list refetch (page=0 + all cursors).
       if (!silent) {
         showSuccess(markAsRead ? 'Marked as read' : 'Marked as unread');
       }
     } catch (err: any) {
-      // Only show error notification if not silent
       if (!silent) {
         showError(err?.message || 'Update failed');
-        // Refetch on error to revert optimistic update
         refetch();
       } else {
-        // Still log error even if silent
         console.error('[INBOX] Failed to mark email as read:', err?.message);
       }
     }
@@ -1507,10 +1501,10 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           }
         } : null));
       }
+      queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(isStarred ? 'Starred' : 'Unstarred');
     } catch (err: any) {
       showError(err?.message || 'Update failed');
-      // Refetch on error to revert optimistic update
       refetch();
     }
   };
@@ -1534,10 +1528,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const handleUpdateEmailLabels = async (emailId: string, addLabelIds: string[] = [], removeLabelIds: string[] = [], trackAccuracy: boolean = false, suggestionId?: string) => {
     try {
       await apiUpdateEmailLabels(emailId, { addLabelIds, removeLabelIds, trackAccuracy, suggestionId });
-
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
-
       if (selectedEmail?.id === emailId) {
         const currentLabels = selectedEmail.labels || [];
         const updatedLabels = [...currentLabels];
@@ -1607,7 +1598,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiUpdateEmailMetadata(emailId, { userId, ...updates });
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail((prev) => (prev ? { ...prev, ...updates } : null));
@@ -1654,7 +1644,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           apiMarkSharedInboxEmailRead(emailId, true, userId)
         )
       );
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`${selectedEmailIds.size} email(s) marked as read`);
       setSelectedEmailIds(new Set());
@@ -1670,7 +1659,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiArchiveEmail(emailId, userId);
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'archived' as const } : null);
@@ -1688,7 +1676,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
     try {
       await apiDeleteEmail(emailId, userId);
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(null);
@@ -1703,7 +1690,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiRestoreEmail(emailId, userId);
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'active' as const } : null);
@@ -1718,7 +1704,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     if (!userId) return;
     try {
       await apiUpdateEmailMetadata(emailId, { userId, threadStatus: 'resolved' });
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail?.id === emailId) {
         setSelectedEmail(prev => prev ? { ...prev, threadStatus: 'resolved' as const } : null);
@@ -1738,7 +1723,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           apiArchiveEmail(emailId, userId)
         )
       );
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       showSuccess(`${selectedEmailIds.size} email(s) archived`);
       setSelectedEmailIds(new Set());
@@ -1762,7 +1746,6 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         )
       );
       const deletedIds = Array.from(selectedEmailIds);
-      // Invalidate queries to refetch updated data
       queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() });
       if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) {
         setSelectedEmail(null);
@@ -2872,7 +2855,19 @@ ${currentUser?.name || 'Team'}`;
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300 pb-8 min-w-0">
+    <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-300 pb-8 min-w-0 relative">
+      {/* Background auto-sync indicator (fixed in corner) */}
+      {backgroundSyncing && (
+        <div
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-full shadow-lg border border-indigo-500/30 animate-in fade-in duration-200"
+          title="Auto-syncing emails from connected accounts"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+          <span>Auto-syncing…</span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 shrink-0">
         <div>
@@ -3210,7 +3205,7 @@ ${currentUser?.name || 'Team'}`;
             <div className="flex flex-wrap items-center gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => refetch()}
+                onClick={() => queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() })}
                 className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Apply filters
@@ -3231,7 +3226,7 @@ ${currentUser?.name || 'Team'}`;
                   setFilterAssignedToMe(false);
                   setFilterAssignedToTeamMember(null);
                   setSearch('');
-                  refetch();
+                  setTimeout(() => queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() }), 0);
                 }}
                 className="px-4 py-2 border-2 border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
               >
@@ -3277,7 +3272,7 @@ ${currentUser?.name || 'Team'}`;
                               setFilterStatus(s.filters.status ?? '');
                               setSelectedLabelFilter(s.filters.labelId ?? null);
                               setShowSavedSearchesDropdown(false);
-                              refetch();
+                              setTimeout(() => queryClient.invalidateQueries({ queryKey: sharedInboxKeys.emails() }), 0);
                             }}
                           >
                             {s.name}
@@ -3748,7 +3743,7 @@ ${currentUser?.name || 'Team'}`;
                 </button>
               </div>
               <p className="text-xs text-slate-600 mt-2">
-                Emails from these domains will not sync or appear in your shared inbox
+                Emails from domains listed below will not sync or appear in your shared inbox. To see emails from a domain again, remove it from this list.
               </p>
             </div>
 
@@ -3802,7 +3797,9 @@ ${currentUser?.name || 'Team'}`;
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {excludedDomains.map(domain => (
+                  {excludedDomains
+                    .filter(d => d.domain && String(d.domain).trim())
+                    .map(domain => (
                     <div
                       key={domain.id}
                       className="flex items-center justify-between p-4 bg-white rounded-lg border-2 border-slate-200 hover:border-red-300 transition-all shadow-sm"
@@ -3959,8 +3956,13 @@ ${currentUser?.name || 'Team'}`;
               <p className="text-slate-400 text-sm mt-1">
                 {selectedLabelFilter
                   ? 'Try selecting a different label or clear the filter to see all emails.'
-                  : 'Connect Gmail and tap "Sync new mail (24 hrs)" to pull in recent inbox.'}
+                  : 'Connect Gmail and tap "Sync from Gmail" to pull in your inbox (including older mail).'}
               </p>
+              {(filterDateFrom || filterDateTo) && !selectedLabelFilter && (
+                <p className="text-slate-500 text-xs mt-2 max-w-sm">
+                  To see emails older than your date range, run Sync from Gmail first so full history is available.
+                </p>
+              )}
               {selectedLabelFilter && (
                 <button
                   onClick={() => setSelectedLabelFilter(null)}
@@ -3990,7 +3992,16 @@ ${currentUser?.name || 'Team'}`;
                   <li key={thread.threadId}>
                     {/* Thread header */}
                     <div
-                      className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
+                      role={isBulkMode ? undefined : 'button'}
+                      tabIndex={isBulkMode ? undefined : 0}
+                      onKeyDown={e => {
+                        if (!isBulkMode && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          hasMultiple ? toggleThread(thread.threadId) : handleSelectEmail(latest);
+                        }
+                      }}
+                      onClick={() => !isBulkMode && (hasMultiple ? toggleThread(thread.threadId) : handleSelectEmail(latest))}
+                      className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 cursor-pointer ${selectedEmail?.id === latest.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                         }`}
                     >
                       {/* Bulk Selection Checkbox (Phase 8.1) */}
@@ -4037,10 +4048,8 @@ ${currentUser?.name || 'Team'}`;
                           )}
                         </div>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => !isBulkMode && (hasMultiple ? toggleThread(thread.threadId) : handleSelectEmail(latest))}
-                        className="flex-1 min-w-0 text-left"
+                      <div
+                        className="flex-1 min-w-0"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -4145,7 +4154,7 @@ ${currentUser?.name || 'Team'}`;
                             </p>
                           )}
                         </div>
-                      </button>
+                      </div>
                       <div className="flex flex-col items-end flex-shrink-0">
                         <span className="text-xs text-slate-400 whitespace-nowrap">
                           {latest.timestamp}
@@ -4262,16 +4271,22 @@ ${currentUser?.name || 'Team'}`;
                   </li>
                 );
               })}
-              {/* Infinite scroll trigger */}
+              {/* Load more: always show when there may be more so user can load older emails */}
               {hasMore && (
-                <li className="px-4 py-3" ref={loadMoreRef}>
+                <li className="px-4 py-4 pb-6" ref={loadMoreRef}>
                   {loadingMore ? (
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
                       <span className="ml-2 text-sm text-slate-500">Loading more...</span>
                     </div>
                   ) : (
-                    <div className="h-1" /> // Invisible spacer to trigger intersection
+                    <button
+                      type="button"
+                      onClick={loadMoreEmails}
+                      className="w-full py-3.5 text-sm font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-xl border-2 border-indigo-200 transition-colors"
+                    >
+                      Load older emails
+                    </button>
                   )}
                 </li>
               )}
@@ -4281,7 +4296,11 @@ ${currentUser?.name || 'Team'}`;
               {filteredEmails.map(email => (
                 <li key={email.id}>
                   <div
-                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 ${selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
+                    role={isBulkMode ? undefined : 'button'}
+                    tabIndex={isBulkMode ? undefined : 0}
+                    onKeyDown={e => { if (!isBulkMode && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); handleSelectEmail(email); } }}
+                    onClick={() => !isBulkMode && handleSelectEmail(email)}
+                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-start gap-2 cursor-pointer ${selectedEmail?.id === email.id ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
                       }`}
                   >
                     {/* Bulk Selection Checkbox (Phase 8.1) */}
@@ -4304,10 +4323,8 @@ ${currentUser?.name || 'Team'}`;
                         className="w-8 h-8 rounded-full"
                       />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => !isBulkMode && handleSelectEmail(email)}
-                      className="flex-1 min-w-0 text-left"
+                    <div
+                      className="flex-1 min-w-0"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -4397,7 +4414,7 @@ ${currentUser?.name || 'Team'}`;
                           </p>
                         )}
                       </div>
-                    </button>
+                    </div>
                     <div className="flex flex-col items-end flex-shrink-0">
                       <span className="text-xs text-slate-400 whitespace-nowrap">
                         {email.timestamp}
@@ -4412,16 +4429,22 @@ ${currentUser?.name || 'Team'}`;
                   </div>
                 </li>
               ))}
-              {/* Infinite scroll trigger for list view */}
-              {viewMode === 'list' && hasMore && (
-                <li ref={loadMoreRef} className="px-4 py-3">
+              {/* Load more for list view: show whenever there may be more (no viewMode check so it's always visible when hasMore) */}
+              {hasMore && (
+                <li ref={loadMoreRef} className="px-4 py-4 pb-6">
                   {loadingMore ? (
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
                       <span className="ml-2 text-sm text-slate-500">Loading more...</span>
                     </div>
                   ) : (
-                    <div className="h-1" /> // Invisible spacer to trigger intersection
+                    <button
+                      type="button"
+                      onClick={loadMoreEmails}
+                      className="w-full py-3.5 text-sm font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-xl border-2 border-indigo-200 transition-colors"
+                    >
+                      Load older emails
+                    </button>
                   )}
                 </li>
               )}
@@ -4957,39 +4980,65 @@ ${currentUser?.name || 'Team'}`;
                       Forward
                     </button>
                   )}
-                  {/* Schedule Meeting Button (Phase 5) */}
+                  {/* Schedule Meeting Button (Phase 5) - opens modal with email data for reconfirmation */}
                   <button
                     type="button"
-                    onClick={async () => {
+                    onClick={() => {
                       if (!userId || !selectedEmail.id) return;
-                      setCreatingMeeting(true);
-                      try {
-                        const res = await apiCreateMeetingFromEmail(userId, selectedEmail.id, true);
-                        if (res.success) {
-                          showSuccess('Meeting created successfully!');
-                          // Reload calendar events
-                          if (selectedEmail.id) {
-                            const eventsRes = await apiGetCalendarEvents(userId, selectedEmail.id);
-                            if (eventsRes.success && eventsRes.data) {
-                              setLinkedCalendarEvents(eventsRes.data);
-                            }
-                          }
-                        }
-                      } catch (err: any) {
-                        showError(err.message || 'Failed to create meeting');
-                      } finally {
-                        setCreatingMeeting(false);
+                      const body = (selectedEmail.body || selectedEmail.lastMessage || '').replace(/<[^>]+>/g, ' ');
+                      const fullText = `${selectedEmail.subject || ''} ${body}`.toLowerCase();
+
+                      const datePatterns = [
+                        /(\d{1,2}\/\d{1,2}\/\d{2,4})/g,
+                        /(\d{1,2}-\d{1,2}-\d{2,4})/g,
+                        /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{2,4}/gi,
+                        /(today|tomorrow|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))/gi
+                      ];
+                      let extractedDate: string | undefined;
+                      for (const pattern of datePatterns) {
+                        const match = fullText.match(pattern);
+                        if (match) { extractedDate = match[0]; break; }
                       }
+                      const timePatterns = [/\b(\d{1,2}):(\d{2})\s*(am|pm)\b/gi, /\b(\d{1,2}):(\d{2})\b/gi, /\b(\d{1,2})\s*(am|pm)\b/gi];
+                      let extractedTime: string | undefined;
+                      for (const pattern of timePatterns) {
+                        const match = fullText.match(pattern);
+                        if (match) { extractedTime = match[0]; break; }
+                      }
+                      const locationPatterns = [
+                        /(?:location|where|venue|address|place|at):\s*([^\n,]+)/gi,
+                        /(?:meeting|call|conference)\s+(?:at|in|on)\s+([^\n,]+)/gi,
+                        /(?:zoom|meet|teams|webex|skype|google\s+meet)[\s:]+([^\s\n]+)/gi
+                      ];
+                      let extractedLocation: string | undefined;
+                      for (const pattern of locationPatterns) {
+                        const match = fullText.match(pattern);
+                        if (match?.[1]) { extractedLocation = match[1].trim(); break; }
+                      }
+
+                      const toList = Array.isArray(selectedEmail.to) ? selectedEmail.to : (selectedEmail.to ? [selectedEmail.to] : []);
+                      const fromEmail = selectedEmail.sender || (selectedEmail as any).from || selectedEmail.email;
+                      const participants = [...new Set([...toList, fromEmail].filter(Boolean))] as string[];
+
+                      setScheduleMeetingEmailId(selectedEmail.id);
+                      setScheduleMeetingEmailSubject(selectedEmail.subject || null);
+                      setScheduleMeetingEmailBody(selectedEmail.body || selectedEmail.lastMessage || null);
+                      setScheduleMeetingEmailParticipants(participants.length ? participants : null);
+                      setScheduleMeetingExtractedDetails({
+                        title: selectedEmail.subject || 'Meeting',
+                        date: extractedDate,
+                        time: extractedTime,
+                        location: extractedLocation,
+                        participants,
+                        description: (selectedEmail.body || selectedEmail.lastMessage || '').substring(0, 500)
+                      });
+                      setShowScheduleMeetingModal(true);
                     }}
-                    disabled={creatingMeeting || !userId}
+                    disabled={!userId}
                     className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Create meeting from email (auto-extract details)"
+                    title="Open schedule meeting modal to review and confirm"
                   >
-                    {creatingMeeting ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Calendar className="w-3 h-3" />
-                    )}
+                    <Calendar className="w-3 h-3" />
                     Schedule Meeting
                   </button>
                 </div>
@@ -7563,7 +7612,7 @@ ${currentUser?.name || 'Team'}`;
         </div>
       )}
 
-      {/* Schedule Meeting Modal (Phase 5) */}
+      {/* Schedule Meeting Modal (Phase 5) - shows required data from email for reconfirmation */}
       {showScheduleMeetingModal && userId && (
         <ScheduleMeetingModal
           isOpen={showScheduleMeetingModal}
@@ -7571,15 +7620,17 @@ ${currentUser?.name || 'Team'}`;
             setShowScheduleMeetingModal(false);
             setScheduleMeetingExtractedDetails(null);
             setScheduleMeetingEmailId(null);
+            setScheduleMeetingEmailSubject(null);
+            setScheduleMeetingEmailBody(null);
+            setScheduleMeetingEmailParticipants(null);
           }}
           userId={userId}
           emailId={scheduleMeetingEmailId || undefined}
-          emailSubject={composeSubject}
-          emailBody={composeBody}
-          participants={composeTo}
+          emailSubject={scheduleMeetingEmailSubject ?? composeSubject}
+          emailBody={scheduleMeetingEmailBody ?? composeBody}
+          participants={scheduleMeetingEmailParticipants ?? composeTo}
           extractedDetails={scheduleMeetingExtractedDetails || undefined}
           onCreateSuccess={() => {
-            // Reload calendar events if we have an email ID
             if (scheduleMeetingEmailId && selectedEmail?.id === scheduleMeetingEmailId) {
               apiGetCalendarEvents(userId, scheduleMeetingEmailId).then(res => {
                 if (res.success && res.data) {
