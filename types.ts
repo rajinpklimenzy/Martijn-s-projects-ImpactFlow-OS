@@ -405,3 +405,86 @@ export interface ScanSuggestions {
   existingCompany: Company | null;
   createNewCompany: boolean;
 }
+
+// Client Satisfaction Module Types
+export type SurveyQuestionType = 'nps' | 'multiple_choice' | 'free_text';
+export type SurveyRecipientStatus = 'pending' | 'opened' | 'completed';
+export type SurveyStatus = 'sent' | 'completed' | 'expired';
+export type SatisfactionStatus = 'awaiting_response' | 'completed' | 'not_yet_sent';
+export type NPSCategory = 'Promoter' | 'Passive' | 'Detractor';
+
+export interface SurveyQuestion {
+  id: string;
+  type: SurveyQuestionType;
+  text: string;
+  required: boolean;
+  options?: string[]; // For multiple choice questions
+  order: number;
+}
+
+export interface SurveyTemplate {
+  id: string;
+  workspaceId: string;
+  name: string;
+  questions: SurveyQuestion[];
+  isDefault: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface SatisfactionRecord {
+  id: string;
+  companyId: string;
+  createdAt: string;
+  createdBy: string;
+  source: 'manual' | 'deal_won';
+}
+
+export interface SurveyRecipient {
+  id: string;
+  surveyId: string;
+  contactId: string;
+  email: string;
+  status: SurveyRecipientStatus;
+  respondedAt?: string;
+  openedAt?: string;
+}
+
+export interface SurveyResponse {
+  id: string;
+  surveyId: string;
+  contactId: string;
+  companyId: string;
+  npsScore: number; // 0-10
+  answers: Array<{
+    questionId: string;
+    questionText: string;
+    answer: string | number;
+  }>;
+  submittedAt: string;
+}
+
+export interface Survey {
+  id: string;
+  satisfactionRecordId: string;
+  templateSnapshot: SurveyQuestion[]; // Snapshot of template at time of sending
+  sentAt: string;
+  sentBy: string; // User ID
+  status: SurveyStatus;
+  deliveryMethod: 'email' | 'link';
+  surveyUrl?: string; // Unique URL for link-based surveys
+  recipients: SurveyRecipient[];
+  responses: SurveyResponse[];
+}
+
+export interface CompanySatisfactionSummary {
+  companyId: string;
+  companyName: string;
+  latestNpsScore?: number;
+  npsCategory?: NPSCategory;
+  accountManagerId?: string;
+  accountManagerName?: string;
+  lastSurveyDate?: string;
+  status: SatisfactionStatus;
+  satisfactionRecordId: string;
+}

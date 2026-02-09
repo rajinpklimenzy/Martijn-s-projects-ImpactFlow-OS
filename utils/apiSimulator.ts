@@ -88,6 +88,55 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
     return { success: true, data: feedback, simulated: true };
   }
 
+  // Satisfaction endpoints
+  if (endpoint.includes('/satisfaction/templates/default')) {
+    if (method === 'GET') {
+      const defaultTemplate = {
+        id: 'sim-template-1',
+        workspaceId: 'default',
+        name: 'Default NPS Survey',
+        isDefault: true,
+        questions: [
+          {
+            id: 'q1',
+            type: 'nps',
+            text: 'On a scale of 0–10, how likely are you to recommend Impact 24x7 to a colleague or partner?',
+            required: true,
+            order: 1
+          },
+          {
+            id: 'q2',
+            type: 'multiple_choice',
+            text: 'What is the main reason for your score?',
+            required: false,
+            options: ['Service Quality', 'Communication', 'Timeliness', 'Value for Money', 'Technical Expertise', 'Other'],
+            order: 2
+          },
+          {
+            id: 'q3',
+            type: 'free_text',
+            text: 'What could we do to improve your experience?',
+            required: false,
+            order: 3
+          },
+          {
+            id: 'q4',
+            type: 'free_text',
+            text: 'Any additional comments or feedback?',
+            required: false,
+            order: 4
+          }
+        ],
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'system'
+      };
+      return { success: true, data: defaultTemplate, simulated: true };
+    }
+    if (method === 'PUT') {
+      return { success: true, data: { ...body, updatedAt: new Date().toISOString() }, simulated: true };
+    }
+  }
+
   // Standard CRUD persistence for other entities
   const entities = ['deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'expenses', 'expense-categories'];
   const entityMatch = entities.find(e => endpoint.includes(e));

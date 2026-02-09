@@ -5,6 +5,8 @@ import Dashboard from './components/Dashboard.tsx';
 import CRM from './components/CRM.tsx';
 import Pipeline from './components/Pipeline.tsx';
 import Projects from './components/Projects.tsx';
+import ClientSatisfaction from './components/ClientSatisfaction.tsx';
+import SurveyResponsePage from './components/SurveyResponsePage.tsx';
 import Tasks from './components/Tasks.tsx';
 import Invoicing from './components/Invoicing.tsx';
 import UserManagement from './components/UserManagement.tsx';
@@ -323,9 +325,16 @@ const App: React.FC = () => {
       return 'privacy';
     } else if (initialPathname === '/help') {
       return 'help';
+    } else if (initialPathname.startsWith('/survey/')) {
+      return 'survey';
     }
     return null;
   });
+
+  // Extract survey ID from pathname
+  const surveyId = initialPathname.startsWith('/survey/') 
+    ? initialPathname.replace('/survey/', '') 
+    : null;
 
   useEffect(() => {
     const pathname = window.location.pathname;
@@ -333,6 +342,8 @@ const App: React.FC = () => {
       setPublicRoute('privacy');
     } else if (pathname === '/help') {
       setPublicRoute('help');
+    } else if (pathname.startsWith('/survey/')) {
+      setPublicRoute('survey');
     } else {
       setPublicRoute(null);
     }
@@ -346,6 +357,8 @@ const App: React.FC = () => {
         setPublicRoute('privacy');
       } else if (pathname === '/help') {
         setPublicRoute('help');
+      } else if (pathname.startsWith('/survey/')) {
+        setPublicRoute('survey');
       } else {
         setPublicRoute(null);
       }
@@ -380,6 +393,10 @@ const App: React.FC = () => {
     );
   }
 
+  if (publicRoute === 'survey' && surveyId) {
+    return <SurveyResponsePage surveyId={surveyId} />;
+  }
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={setActiveTab} />;
@@ -387,6 +404,7 @@ const App: React.FC = () => {
       case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
+      case 'satisfaction': return <ClientSatisfaction onNavigate={setActiveTab} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
       case 'expenses': return <Expenses currentUser={currentUser} />;

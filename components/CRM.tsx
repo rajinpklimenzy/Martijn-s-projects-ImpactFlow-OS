@@ -5,10 +5,10 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note } from '../types';
-import { apiCreateNotification } from '../utils/api';
+import { apiCreateNotification, apiGetCompanySatisfaction } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import { BusinessCardScanner, LinkedInScanner } from './Scanner';
@@ -96,6 +96,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [isBulkUnmarkingTargetAccount, setIsBulkUnmarkingTargetAccount] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
 
+  // Satisfaction state
+  const [companySatisfaction, setCompanySatisfaction] = useState<any>(null);
+  const [isLoadingSatisfaction, setIsLoadingSatisfaction] = useState(false);
+  
   // Notes state for Companies
   const [companyNoteText, setCompanyNoteText] = useState('');
   const [isAddingCompanyNote, setIsAddingCompanyNote] = useState(false);
@@ -235,12 +239,36 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     }
   };
 
+  // Load satisfaction data when company is selected
+  useEffect(() => {
+    if (selectedCompany?.id) {
+      const loadSatisfaction = async () => {
+        try {
+          setIsLoadingSatisfaction(true);
+          const response = await apiGetCompanySatisfaction(selectedCompany.id);
+          if (response.success) {
+            setCompanySatisfaction(response.data);
+          }
+        } catch (err) {
+          // Don't show error if satisfaction record doesn't exist
+          setCompanySatisfaction(null);
+        } finally {
+          setIsLoadingSatisfaction(false);
+        }
+      };
+      loadSatisfaction();
+    } else {
+      setCompanySatisfaction(null);
+    }
+  }, [selectedCompany?.id]);
+  
   // Close handlers with cleanup
   const closeCompanyDrawer = () => {
     setSelectedCompany(null);
     setIsEditingCompany(false);
     setCompanyNoteText('');
     setShowCompanyMentionDropdown(false);
+    setCompanySatisfaction(null);
   };
 
   const closeContactDrawer = () => {
@@ -1382,6 +1410,79 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Client Satisfaction Section */}
+              <div className="space-y-4 pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Star className="w-4 h-4 text-yellow-500" /> 
+                    Client Satisfaction
+                  </h3>
+                  {companySatisfaction && (
+                    <button
+                      onClick={() => onNavigate('satisfaction')}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1"
+                    >
+                      View Details
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                
+                {isLoadingSatisfaction ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                  </div>
+                ) : companySatisfaction ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className={`p-4 rounded-2xl border-2 ${
+                      companySatisfaction.latestNpsScore >= 9 ? 'bg-green-50 border-green-200' :
+                      companySatisfaction.latestNpsScore >= 7 ? 'bg-yellow-50 border-yellow-200' :
+                      companySatisfaction.latestNpsScore !== undefined && companySatisfaction.latestNpsScore !== null ? 'bg-red-50 border-red-200' :
+                      'bg-slate-50 border-slate-200'
+                    }`}>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Latest NPS Score</p>
+                      {companySatisfaction.latestNpsScore !== undefined && companySatisfaction.latestNpsScore !== null ? (
+                        <div className="flex items-center gap-2">
+                          <span className={`text-2xl font-black ${
+                            companySatisfaction.latestNpsScore >= 9 ? 'text-green-600' :
+                            companySatisfaction.latestNpsScore >= 7 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {companySatisfaction.latestNpsScore}
+                          </span>
+                          {companySatisfaction.npsCategory && (
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${
+                              companySatisfaction.npsCategory === 'Promoter' ? 'bg-green-100 text-green-700' :
+                              companySatisfaction.npsCategory === 'Passive' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {companySatisfaction.npsCategory}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-slate-400">No score yet</span>
+                      )}
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Last Survey</p>
+                      {companySatisfaction.lastSurveyDate ? (
+                        <span className="text-sm font-bold text-slate-900 flex items-center gap-1">
+                          <Calendar className="w-4 h-4" />
+                          {new Date(companySatisfaction.lastSurveyDate).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-slate-400">Not sent</span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-center">
+                    <p className="text-xs text-slate-400">No satisfaction data available</p>
+                  </div>
+                )}
               </div>
 
               {/* Notes Section */}
