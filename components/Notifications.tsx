@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp } from 'lucide-react';
+import { UserPlus, MessageSquare, CheckSquare, AlertTriangle, Bell, Shield, Check, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp, Mail, AtSign, Send } from 'lucide-react';
 import { Notification } from '../types';
 import { apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
@@ -144,6 +144,10 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
       case 'deal': return <MessageSquare className="w-5 h-5 text-indigo-500" />;
       case 'task': return <CheckSquare className="w-5 h-5 text-emerald-500" />;
       case 'payment': return <AlertTriangle className="w-5 h-5 text-red-500" />;
+      case 'email-routing': return <Send className="w-5 h-5 text-amber-500" />;
+      case 'email-assigned': return <Mail className="w-5 h-5 text-blue-500" />;
+      case 'email-mention': return <AtSign className="w-5 h-5 text-violet-500" />;
+      case 'new-email': return <Mail className="w-5 h-5 text-slate-600" />;
       default: return <Shield className="w-5 h-5 text-slate-400" />;
     }
   };
@@ -163,6 +167,10 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
       case 'deal': return 'bg-indigo-50';
       case 'task': return 'bg-emerald-50';
       case 'payment': return 'bg-red-50';
+      case 'email-routing': return 'bg-amber-50';
+      case 'email-assigned': return 'bg-blue-50';
+      case 'email-mention': return 'bg-violet-50';
+      case 'new-email': return 'bg-slate-100';
       default: return 'bg-slate-50';
     }
   };

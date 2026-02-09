@@ -341,7 +341,7 @@ export interface AutomationRule {
 export interface Notification {
   id: string;
   userId?: string;
-  type: 'lead' | 'deal' | 'task' | 'payment' | 'system';
+  type: 'lead' | 'deal' | 'task' | 'payment' | 'system' | 'email-routing' | 'email-assigned' | 'email-mention' | 'new-email' | 'note-marked';
   title: string;
   message: string;
   timestamp: string;
