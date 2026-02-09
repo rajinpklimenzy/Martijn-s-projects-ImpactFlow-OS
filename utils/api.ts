@@ -37,7 +37,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
 
     if (!response.ok) {
       // Fallback to simulation for 404s on all main entities to support local testing
-      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories', 'data-hygiene'];
+      const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories', 'data-hygiene', 'satisfaction'];
       const isEntityEndpoint = entities.some(e => cleanEndpoint.includes(e));
       
       if (response.status === 404 && isEntityEndpoint) {
@@ -268,6 +268,49 @@ export const apiMarkAllNotificationsAsRead = (userId: string) => apiFetch('/noti
 // Notification Preferences
 export const apiGetNotificationPreferences = (userId: string) => apiFetch(`/users/${userId}/notification-preferences`);
 export const apiUpdateNotificationPreferences = (userId: string, preferences: any[]) => apiFetch(`/users/${userId}/notification-preferences`, { method: 'PUT', body: JSON.stringify({ preferences }) });
+
+/**
+ * CLIENT SATISFACTION MODULE
+ */
+export const apiGetSatisfactionRecords = (search?: string) => {
+  const query = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiFetch(`/satisfaction/records${query}`);
+};
+
+export const apiGetSatisfactionRecord = (id: string) => apiFetch(`/satisfaction/records/${id}`);
+
+export const apiCreateSatisfactionRecord = (data: { companyId: string; source: 'manual' | 'deal_won' }) =>
+  apiFetch('/satisfaction/records', { method: 'POST', body: JSON.stringify(data) });
+
+export const apiGetCompanySatisfaction = (companyId: string) => apiFetch(`/satisfaction/companies/${companyId}`);
+
+export const apiGetSurveys = (satisfactionRecordId?: string) => {
+  const query = satisfactionRecordId ? `?satisfactionRecordId=${satisfactionRecordId}` : '';
+  return apiFetch(`/satisfaction/surveys${query}`);
+};
+
+export const apiGetSurvey = (id: string) => apiFetch(`/satisfaction/surveys/${id}`);
+
+export const apiCreateSurvey = (data: {
+  satisfactionRecordId: string;
+  contactIds: string[];
+  deliveryMethod: 'email' | 'link';
+}) => apiFetch('/satisfaction/surveys', { method: 'POST', body: JSON.stringify(data) });
+
+export const apiGetSurveyTemplate = () => apiFetch('/satisfaction/templates/default');
+
+export const apiUpdateSurveyTemplate = (template: any) =>
+  apiFetch('/satisfaction/templates/default', { method: 'PUT', body: JSON.stringify(template) });
+
+export const apiSubmitSurveyResponse = (surveyId: string, data: {
+  contactId: string;
+  answers: Array<{ questionId: string; answer: string | number }>;
+}) => apiFetch(`/satisfaction/surveys/${surveyId}/responses`, { method: 'POST', body: JSON.stringify(data) });
+
+export const apiGetSurveyResponse = (surveyId: string, responseId: string) =>
+  apiFetch(`/satisfaction/surveys/${surveyId}/responses/${responseId}`);
+
+export const apiGetSatisfactionStats = () => apiFetch('/satisfaction/stats');
 
 /**
  * DATA RETENTION & ARCHIVE
