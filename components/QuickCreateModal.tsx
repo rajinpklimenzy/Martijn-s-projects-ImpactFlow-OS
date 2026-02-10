@@ -6,6 +6,7 @@ import { Company, User as UserType, Project, Contact } from '../types';
 import { extractDomain } from '../utils/validate';
 import { findDuplicateContacts, findFuzzyDuplicateContacts } from '../utils/dedup';
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol } from '../utils/currency';
+import { RichTextEditor } from './common/RichTextEditor';
 
 interface QuickCreateModalProps {
   type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
@@ -1972,13 +1973,21 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Context/Description Area */}
             <div className="md:col-span-2 space-y-3">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Description</label>
-              <textarea 
-                placeholder="Add Context or Notes..." 
-                value={formData.description} 
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} 
-                rows={3} 
-                className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[32px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 resize-none font-medium placeholder:text-slate-300" 
-              />
+              {type === 'task' ? (
+                <RichTextEditor
+                  value={formData.description || ''}
+                  onChange={(html) => setFormData(prev => ({ ...prev, description: html }))}
+                  placeholder="Add Context or Notes..."
+                />
+              ) : (
+                <textarea 
+                  placeholder="Add Context or Notes..." 
+                  value={formData.description} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} 
+                  rows={3} 
+                  className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[32px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 resize-none font-medium placeholder:text-slate-300" 
+                />
+              )}
 
               {/* Image Upload */}
               <label className="cursor-pointer group block">

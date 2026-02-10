@@ -13,6 +13,7 @@ import { Task, Project, User as UserType, TaskNote } from '../types';
 import { apiGetTasks, apiUpdateTask, apiDeleteTask, apiGetProjects, apiGetUsers, apiGetTaskCategories, apiCreateTask, apiBulkImportTasks, apiCreateNotification } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
+import { RichTextEditor, RichTextDisplay } from './common/RichTextEditor';
 import { useTasks, useUpdateTask, useDeleteTask, useCreateTask } from '../hooks/useTasks';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
@@ -1293,6 +1294,22 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     return [...new Set(mentions)]; // Remove duplicates
   };
 
+  // Auto-expand textarea based on content
+  useEffect(() => {
+    if (noteTextareaRef.current) {
+      const textarea = noteTextareaRef.current;
+      // Reset height to auto to get correct scrollHeight
+      textarea.style.height = 'auto';
+      // Set height based on scrollHeight, with min/max constraints
+      // Assuming ~24px per line (line-height + padding)
+      const lineHeight = 24;
+      const minHeight = 5 * lineHeight; // 5 lines minimum
+      const maxHeight = 15 * lineHeight; // 15 lines maximum
+      const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, [newNoteText]);
+
   const renderNoteTextWithMentions = (text: string) => {
     const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
     const parts = [];
@@ -1368,12 +1385,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       // React Query mutation will automatically invalidate and refetch the cache
 
       // Send notifications to mentioned users
+      // Note: Backend also sends mention notifications, but we keep this as a fallback for immediate UI feedback
       const mentionedUserIds = extractMentionedUsers(newNoteText);
       for (const mentionedUserId of mentionedUserIds) {
         try {
           await apiCreateNotification({
             userId: mentionedUserId,
-            type: 'mention',
+            type: 'task-mention',
             title: 'You were mentioned in a task',
             message: `${userName} mentioned you in task "${selectedTask.title}"`,
             relatedId: selectedTask.id,
@@ -2628,18 +2646,23 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                     <FileText className="w-4 h-4 text-indigo-500" /> Description
                   </h3>
                   {isEditingTask ? (
-                    <textarea
-                      rows={6}
-                      value={editFormData.description}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 bg-white border-2 border-indigo-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 resize-none"
+                    <RichTextEditor
+                      value={editFormData.description || ''}
+                      onChange={(html) => setEditFormData(prev => ({ ...prev, description: html }))}
                       placeholder="Add task description..."
                     />
                   ) : (
                     <div className="p-6 bg-slate-950 rounded-[32px] text-indigo-50 relative overflow-hidden shadow-2xl">
-                      <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
-                        {selectedTask.description || 'No description provided.'}
-                      </p>
+                      {selectedTask.description ? (
+                        <RichTextDisplay 
+                          content={selectedTask.description}
+                          className="text-sm leading-relaxed opacity-90 z-10 relative prose prose-invert prose-headings:text-indigo-50 prose-p:text-indigo-50 prose-strong:text-indigo-100 prose-a:text-indigo-300 prose-ul:text-indigo-50 prose-ol:text-indigo-50 prose-li:text-indigo-50"
+                        />
+                      ) : (
+                        <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
+                          No description provided.
+                        </p>
+                      )}
                       <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2" />
                     </div>
                   )}
@@ -2793,14 +2816,15 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                     <div className="relative">
                       <textarea
                         ref={noteTextareaRef}
-                        rows={3}
+                        rows={5}
                         value={newNoteText}
                         onChange={handleNoteTextChange}
                         onBlur={() => {
                           // Delay hiding dropdown to allow click
                           setTimeout(() => setShowMentionDropdown(false), 200);
                         }}
-                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
+                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none overflow-hidden"
+                        style={{ minHeight: '120px', maxHeight: '360px' }}
                         placeholder="Add a note or comment... (Use @ to mention users)"
                       />
                       
