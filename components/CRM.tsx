@@ -192,8 +192,17 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
     setIsUpdatingContact(true);
     try {
-      await updateContactMutation.mutateAsync({ id: selectedContact.id, updates: editContactFormData });
-      const updatedContact = { ...selectedContact, ...editContactFormData };
+      // Normalize form data: convert empty strings to null for optional fields
+      const normalizedUpdates = {
+        ...editContactFormData,
+        companyId: editContactFormData.companyId === '' ? null : editContactFormData.companyId,
+        phone: editContactFormData.phone === '' ? null : editContactFormData.phone,
+        linkedin: editContactFormData.linkedin === '' ? null : editContactFormData.linkedin,
+        role: editContactFormData.role === '' ? null : editContactFormData.role,
+      };
+      
+      await updateContactMutation.mutateAsync({ id: selectedContact.id, updates: normalizedUpdates });
+      const updatedContact = { ...selectedContact, ...normalizedUpdates };
       setSelectedContact(updatedContact);
       setIsEditingContact(false);
       showSuccess('Contact profile updated successfully');

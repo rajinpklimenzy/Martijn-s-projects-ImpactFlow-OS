@@ -246,18 +246,26 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Company ID from URL when opening Client Satisfaction (e.g. from "Project completed - send survey?" notification)
+  const [satisfactionCompanyIdFromUrl, setSatisfactionCompanyIdFromUrl] = useState<string | null>(null);
+
   useEffect(() => {
     // Check URL params first (for direct links/sharing), then use localStorage (already initialized in useState)
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations'];
+    const companyParam = urlParams.get('company');
+    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction'];
     
     if (tabParam && validTabs.includes(tabParam)) {
       // URL param takes priority (for direct links)
       setActiveTab(tabParam);
       localStorage.setItem('activeTab', tabParam);
-      // Clean up URL param after reading
+      if (tabParam === 'satisfaction' && companyParam) {
+        setSatisfactionCompanyIdFromUrl(companyParam);
+      }
+      // Clean up URL params after reading
       urlParams.delete('tab');
+      urlParams.delete('company');
       const newUrl = urlParams.toString() 
         ? `${window.location.pathname}?${urlParams.toString()}`
         : window.location.pathname;
@@ -404,7 +412,7 @@ const App: React.FC = () => {
       case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
-      case 'satisfaction': return <ClientSatisfaction onNavigate={setActiveTab} />;
+      case 'satisfaction': return <ClientSatisfaction onNavigate={setActiveTab} companyIdFromUrl={satisfactionCompanyIdFromUrl} onClearCompanyIdFromUrl={() => setSatisfactionCompanyIdFromUrl(null)} />;
       case 'tasks': return <Tasks onCreateTask={() => openCreateModal('task')} currentUser={currentUser} />;
       case 'invoices': return <Invoicing onCreateInvoice={() => openCreateModal('invoice')} currentUser={currentUser} />;
       case 'expenses': return <Expenses currentUser={currentUser} />;
