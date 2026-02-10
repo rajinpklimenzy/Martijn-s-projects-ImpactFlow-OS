@@ -5,10 +5,10 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban
 } from 'lucide-react';
-import { Company, Contact, Deal, User as UserType, SocialSignal, Note } from '../types';
-import { apiCreateNotification, apiGetCompanySatisfaction } from '../utils/api';
+import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project } from '../types';
+import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import { BusinessCardScanner, LinkedInScanner } from './Scanner';
@@ -25,7 +25,9 @@ import {
   useBulkDeleteContacts,
   useBulkUpdateCompanies
 } from '../hooks/useCRMData';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { usePlaybookInstances, usePlaybookStepCompletions } from '../hooks/usePlaybooks';
+import PlaybookInstanceView from './PlaybookInstanceView';
 
 interface CRMProps {
   onNavigate: (tab: string) => void;
@@ -33,6 +35,104 @@ interface CRMProps {
   onAddContact: () => void;
   externalSearchQuery?: string;
 }
+
+// Playbook Instance Card Component for CRM - fetches completions to calculate accurate progress
+const CompanyPlaybookInstanceCard: React.FC<{ 
+  instance: any; 
+  deals: Deal[];
+  projects: Project[];
+  onView: (id: string) => void;
+}> = ({ instance, deals, projects, onView }) => {
+  const { data: completions = [] } = usePlaybookStepCompletions(instance.id);
+  
+  const totalSteps = instance.templateSnapshot?.sections?.reduce((total: number, section: any) => {
+    return total + (section.steps?.length || 0);
+  }, 0) || 0;
+  const completedSteps = completions.length;
+  const percentage = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+  
+  // Find attached deal or project
+  const attachedDeal = instance.dealId ? deals.find((d: Deal) => d.id === instance.dealId) : null;
+  const attachedProject = instance.projectId ? projects.find((p: Project) => p.id === instance.projectId) : null;
+  const attachedTo = attachedDeal 
+    ? { type: 'Deal', name: attachedDeal.title || attachedDeal.name, id: attachedDeal.id }
+    : attachedProject
+    ? { type: 'Project', name: attachedProject.title || attachedProject.name, id: attachedProject.id }
+    : null;
+  
+  return (
+    <div 
+      className="p-5 bg-white border border-slate-200 rounded-2xl hover:border-indigo-200 transition-all"
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0">
+            <BookOpen className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-sm font-bold text-slate-900 truncate">
+              {instance.templateSnapshot?.name || 'Unknown Playbook'}
+            </h4>
+            {attachedTo && (
+              <div className="flex items-center gap-2 mt-1">
+                {attachedTo.type === 'Deal' ? (
+                  <Briefcase className="w-3 h-3 text-slate-400" />
+                ) : (
+                  <FolderKanban className="w-3 h-3 text-slate-400" />
+                )}
+                <span className="text-xs text-slate-500 truncate">{attachedTo.name}</span>
+              </div>
+            )}
+          </div>
+        </div>
+        {percentage === 100 && (
+          <CheckSquare className="w-5 h-5 text-green-500 shrink-0" />
+        )}
+      </div>
+      
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-slate-600">
+            {completedSteps} / {totalSteps} steps completed
+          </span>
+          <span className="text-xs font-bold text-slate-500">{percentage}%</span>
+        </div>
+        <div className="w-full bg-slate-200 rounded-full h-1.5">
+          <div
+            className={`h-1.5 rounded-full transition-all ${
+              percentage === 100
+                ? 'bg-green-500'
+                : percentage >= 50
+                ? 'bg-indigo-500'
+                : 'bg-yellow-500'
+            }`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </div>
+      
+      <button
+        onClick={() => {
+          // From company view, navigate to deal/project first, then open playbook
+          if (attachedTo?.type === 'Deal') {
+            // For now, just open the playbook instance view
+            // In a full implementation, you might want to navigate to pipeline first
+            onView(instance.id);
+          } else if (attachedTo?.type === 'Project') {
+            // For now, just open the playbook instance view
+            onView(instance.id);
+          } else {
+            onView(instance.id);
+          }
+        }}
+        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+      >
+        View {attachedTo ? attachedTo.type : 'Playbook'}
+        <ExternalLink className="w-3 h-3" />
+      </button>
+    </div>
+  );
+};
 
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
   const { showSuccess, showError } = useToast();
@@ -45,12 +145,26 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [viewingPlaybookInstanceId, setViewingPlaybookInstanceId] = useState<string | null>(null);
+  
+  // Fetch playbook instances for selected company (roll-up from all deals and projects)
+  const { data: companyPlaybookInstances = [], isLoading: isLoadingPlaybooks } = usePlaybookInstances({
+    companyId: selectedCompany?.id
+  });
   
   // React Query hooks for data fetching with caching
   const { data: companies = [], isLoading: isLoadingCompanies } = useCompanies(localSearchQuery);
   const { data: contacts = [], isLoading: isLoadingContacts } = useContacts(localSearchQuery);
   const { data: deals = [], isLoading: isLoadingDeals } = useDeals();
   const { data: users = [], isLoading: isLoadingUsers } = useUsers();
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const response = await apiGetProjects();
+      return response.data || response || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
   
   // React Query mutations
   const updateCompanyMutation = useUpdateCompany();
@@ -1494,6 +1608,42 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 )}
               </div>
 
+              {/* Playbooks Section */}
+              <div className="space-y-4 pt-4 border-t border-slate-200">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-indigo-500" /> 
+                  Playbooks
+                  {companyPlaybookInstances.length > 0 && (
+                    <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full text-[10px]">
+                      {companyPlaybookInstances.length}
+                    </span>
+                  )}
+                </h3>
+
+                {isLoadingPlaybooks ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                  </div>
+                ) : companyPlaybookInstances.length > 0 ? (
+                  <div className="space-y-3">
+                    {companyPlaybookInstances.map((instance: any) => (
+                      <CompanyPlaybookInstanceCard
+                        key={instance.id}
+                        instance={instance}
+                        deals={deals}
+                        projects={projects}
+                        onView={(id) => setViewingPlaybookInstanceId(id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 border-2 border-dashed border-slate-100 rounded-2xl text-center">
+                    <BookOpen className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                    <p className="text-xs text-slate-400 font-medium">No playbooks attached to deals or projects for this company.</p>
+                  </div>
+                )}
+              </div>
+
               {/* Notes Section */}
               <div className="space-y-4 pt-4 border-t border-slate-200">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -2375,6 +2525,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             queryClient.invalidateQueries({ queryKey: ['contacts'] });
           }}
           currentUserId={currentUser?.id || ''}
+        />
+      )}
+
+      {/* Playbook Instance View */}
+      {viewingPlaybookInstanceId && (
+        <PlaybookInstanceView
+          instanceId={viewingPlaybookInstanceId}
+          isOpen={!!viewingPlaybookInstanceId}
+          onClose={() => setViewingPlaybookInstanceId(null)}
         />
       )}
     </div>

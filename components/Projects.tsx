@@ -4,7 +4,7 @@ import {
   FolderKanban, CheckCircle2, Clock, AlertCircle, MoreVertical, Plus, 
   ChevronRight, Loader2, Edit2, Trash2, X, AlertTriangle, CheckSquare, 
   ListChecks, Archive, RotateCcw, Box, Save, Circle, User, Calendar, Tag,
-  FileText, Image as ImageIcon, Eye, Download, Mail, History, ExternalLink
+  FileText, Image as ImageIcon, Eye, Download, Mail, History, ExternalLink, BookOpen
 } from 'lucide-react';
 import { Project, Company, User as UserType, Task } from '../types';
 import { apiUpdateTask } from '../utils/api';
@@ -21,12 +21,83 @@ import {
   useArchiveProject,
   useBulkDeleteProjects
 } from '../hooks/useProjectsData';
+import { usePlaybookInstances, usePlaybookStepCompletions } from '../hooks/usePlaybooks';
+import AttachPlaybookModal from './AttachPlaybookModal';
+import PlaybookInstanceView from './PlaybookInstanceView';
 
 interface ProjectsProps {
   onNavigate: (tab: string) => void;
   onCreateProject: () => void;
   currentUser?: any;
 }
+
+// Playbook Instance Card Component for Projects - fetches completions to calculate accurate progress
+const ProjectPlaybookInstanceCard: React.FC<{ 
+  instance: any; 
+  onView: (id: string) => void;
+}> = ({ instance, onView }) => {
+  const { data: completions = [] } = usePlaybookStepCompletions(instance.id);
+  
+  const totalSteps = instance.templateSnapshot?.sections?.reduce((total: number, section: any) => {
+    return total + (section.steps?.length || 0);
+  }, 0) || 0;
+  const completedSteps = completions.length;
+  const percentage = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+  
+  return (
+    <div 
+      className="p-5 bg-white border border-slate-200 rounded-2xl hover:border-indigo-200 transition-all"
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+            <BookOpen className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-900">
+              {instance.templateSnapshot?.name || 'Unknown Playbook'}
+            </h4>
+            {instance.templateSnapshot?.version && (
+              <p className="text-[10px] text-slate-400 font-medium">v{instance.templateSnapshot.version}</p>
+            )}
+          </div>
+        </div>
+        {percentage === 100 && (
+          <CheckSquare className="w-5 h-5 text-green-500" />
+        )}
+      </div>
+      
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-slate-600">
+            {completedSteps} / {totalSteps} steps completed
+          </span>
+          <span className="text-xs font-bold text-slate-500">{percentage}%</span>
+        </div>
+        <div className="w-full bg-slate-200 rounded-full h-1.5">
+          <div
+            className={`h-1.5 rounded-full transition-all ${
+              percentage === 100
+                ? 'bg-green-500'
+                : percentage >= 50
+                ? 'bg-indigo-500'
+                : 'bg-yellow-500'
+            }`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </div>
+      
+      <button
+        onClick={() => onView(instance.id)}
+        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+      >
+        View Playbook
+        <ExternalLink className="w-3 h-3" />
+      </button>
+    </div>
+  );
+};
 
 const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, currentUser }) => {
   const { showSuccess, showError } = useToast();
@@ -41,6 +112,13 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
   // Project detail view state
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const { data: projectActivities = [], isLoading: isLoadingActivities } = useProjectActivities(selectedProject?.id || null);
+  const [viewingPlaybookInstanceId, setViewingPlaybookInstanceId] = useState<string | null>(null);
+  const [isAttachPlaybookModalOpen, setIsAttachPlaybookModalOpen] = useState(false);
+  
+  // Fetch playbook instances for selected project
+  const { data: projectPlaybookInstances = [], isLoading: isLoadingPlaybooks } = usePlaybookInstances({
+    projectId: selectedProject?.id
+  });
   
   // UI state
   const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
@@ -907,6 +985,42 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
                           )}
                         </div>
                       )}
+
+                      {/* Playbooks Section */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-indigo-500" /> Playbooks
+                          </h3>
+                          <button 
+                            onClick={() => setIsAttachPlaybookModalOpen(true)} 
+                            className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1.5 rounded-xl hover:bg-indigo-100"
+                          >
+                            <Plus className="w-3 h-3" /> Attach
+                          </button>
+                        </div>
+
+                        {isLoadingPlaybooks ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                          </div>
+                        ) : projectPlaybookInstances.length > 0 ? (
+                          <div className="space-y-3">
+                            {projectPlaybookInstances.map((instance: any) => (
+                              <ProjectPlaybookInstanceCard
+                                key={instance.id}
+                                instance={instance}
+                                onView={(id) => setViewingPlaybookInstanceId(id)}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-8 border-2 border-dashed border-slate-100 rounded-2xl text-center">
+                            <BookOpen className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                            <p className="text-xs text-slate-400 font-medium">No playbooks attached to this project yet.</p>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
@@ -1155,6 +1269,25 @@ const Projects: React.FC<ProjectsProps> = ({ onNavigate, onCreateProject, curren
             </div>
           </div>
         </div>
+      )}
+
+      {/* Attach Playbook Modal */}
+      <AttachPlaybookModal
+        isOpen={isAttachPlaybookModalOpen}
+        projectId={selectedProject?.id}
+        onClose={() => setIsAttachPlaybookModalOpen(false)}
+        onSuccess={() => {
+          setIsAttachPlaybookModalOpen(false);
+        }}
+      />
+
+      {/* Playbook Instance View */}
+      {viewingPlaybookInstanceId && (
+        <PlaybookInstanceView
+          instanceId={viewingPlaybookInstanceId}
+          isOpen={!!viewingPlaybookInstanceId}
+          onClose={() => setViewingPlaybookInstanceId(null)}
+        />
       )}
     </div>
   );

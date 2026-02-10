@@ -313,6 +313,46 @@ export const apiGetSurveyResponse = (surveyId: string, responseId: string) =>
 export const apiGetSatisfactionStats = () => apiFetch('/satisfaction/stats');
 
 /**
+ * PLAYBOOKS
+ */
+// Template APIs
+export const apiGetPlaybookTemplates = (params?: { category?: string; search?: string }) => {
+  const queryString = params ? '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])).toString() : '';
+  return apiFetch(`/playbooks/templates${queryString}`);
+};
+
+export const apiGetPlaybookTemplate = (id: string) => apiFetch(`/playbooks/templates/${id}`);
+
+export const apiCreatePlaybookTemplate = (data: { name: string; category?: string; description?: string; sections: any[] }) =>
+  apiFetch('/playbooks/templates', { method: 'POST', body: JSON.stringify(data) });
+
+export const apiUpdatePlaybookTemplate = (id: string, data: { name?: string; category?: string; description?: string; sections?: any[] }) =>
+  apiFetch(`/playbooks/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const apiDeletePlaybookTemplate = (id: string) => apiFetch(`/playbooks/templates/${id}`, { method: 'DELETE' });
+
+// Instance APIs
+export const apiGetPlaybookInstances = (params?: { dealId?: string; projectId?: string; companyId?: string; status?: string }) => {
+  const queryString = params ? '?' + new URLSearchParams(Object.entries(params).filter(([_, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])).toString() : '';
+  return apiFetch(`/playbooks/instances${queryString}`);
+};
+
+export const apiGetPlaybookInstance = (id: string) => apiFetch(`/playbooks/instances/${id}`);
+
+export const apiCreatePlaybookInstance = (data: { templateId: string; dealId?: string; projectId?: string }) =>
+  apiFetch('/playbooks/instances', { method: 'POST', body: JSON.stringify(data) });
+
+export const apiUpdatePlaybookInstanceStatus = (id: string, status: 'active' | 'completed') =>
+  apiFetch(`/playbooks/instances/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+
+// Step Completion APIs
+export const apiMarkPlaybookStepComplete = (instanceId: string, stepId: string) =>
+  apiFetch(`/playbooks/instances/${instanceId}/steps/${stepId}/complete`, { method: 'POST' });
+
+export const apiGetPlaybookStepCompletions = (instanceId: string) =>
+  apiFetch(`/playbooks/instances/${instanceId}/completions`);
+
+/**
  * DATA RETENTION & ARCHIVE
  */
 export const apiGetRetentionPolicy = (workspaceId: string = 'default') => 

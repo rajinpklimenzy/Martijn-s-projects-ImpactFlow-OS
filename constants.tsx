@@ -1,6 +1,6 @@
 
 import { User, Contact, Company, Deal, Project, Task, Thread, Invoice, Expense, AutomationRule, Notification, NotificationPreference, CalendarEvent } from './types.ts';
-import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt, PieChart, FileSignature, Star } from 'lucide-react';
+import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt, PieChart, FileSignature, Star, BookOpen } from 'lucide-react';
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
@@ -9,6 +9,7 @@ export const NAV_ITEMS = [
   { id: 'crm', label: 'CRM', icon: <Users className="w-5 h-5" /> },
   { id: 'pipeline', label: 'Deal Pipeline', icon: <Briefcase className="w-5 h-5" /> },
   { id: 'projects', label: 'Projects', icon: <FileText className="w-5 h-5" /> },
+  { id: 'playbooks', label: 'Playbooks', icon: <BookOpen className="w-5 h-5" /> },
   { id: 'satisfaction', label: 'Client Satisfaction', icon: <Star className="w-5 h-5" /> },
   { id: 'tasks', label: 'Tasks', icon: <CheckSquare className="w-5 h-5" /> },
   { id: 'invoices', label: 'Billing & Invoicing', icon: <DollarSign className="w-5 h-5" /> },
