@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Star, Search, Send, TrendingUp, TrendingDown, Minus, ChevronRight,
   X, Calendar, User, Mail, Link2, Loader2, Plus, Edit3, Save, AlertCircle,
@@ -28,11 +28,15 @@ import {
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 
-interface ClientSatisfactionProps {
+export interface ClientSatisfactionProps {
   onNavigate: (tab: string) => void;
+  /** When set (e.g. from project-completion notification link), open this company's detail and Send Survey modal. */
+  companyIdFromUrl?: string | null;
+  /** Called after companyIdFromUrl has been applied so URL/state can be cleared. */
+  onClearCompanyIdFromUrl?: () => void;
 }
 
-const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) => {
+const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate, companyIdFromUrl, onClearCompanyIdFromUrl }) => {
   const { showSuccess, showError } = useToast();
   const currentUser = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}') : null;
   
@@ -59,6 +63,11 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
   const [isSurveyBuilderOpen, setIsSurveyBuilderOpen] = useState(false);
   const [surveyTemplate, setSurveyTemplate] = useState<any>(null);
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
+  const [contactsById, setContactsById] = useState<Record<string, any>>({});
+  const [users, setUsers] = useState<any[]>([]);
+  const [companiesById, setCompaniesById] = useState<Record<string, any>>({});
+  
+  const appliedCompanyIdFromUrlRef = useRef(false);
   
   const loadSurveyTemplate = async () => {
     try {
@@ -84,6 +93,44 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
       loadSurveyTemplate();
     }
   }, [isSurveyBuilderOpen]);
+
+  // Load users (for Account Manager names in list)
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const response = await apiGetUsers();
+        const data = response?.data || response || [];
+        if (Array.isArray(data)) {
+          setUsers(data);
+        }
+      } catch (err: any) {
+        console.error('[SATISFACTION] Failed to load users', err);
+      }
+    };
+    loadUsers();
+  }, []);
+
+  // Load companies (for reliable company names in list)
+  useEffect(() => {
+    const loadCompanies = async () => {
+      try {
+        const response = await apiGetCompanies();
+        const data = response?.data || response || [];
+        if (Array.isArray(data)) {
+          const map: Record<string, any> = {};
+          data.forEach((c: any) => {
+            if (c.id) {
+              map[c.id] = c;
+            }
+          });
+          setCompaniesById(map);
+        }
+      } catch (err: any) {
+        console.error('[SATISFACTION] Failed to load companies', err);
+      }
+    };
+    loadCompanies();
+  }, []);
   
   useEffect(() => {
     loadSatisfactionRecords();
@@ -94,6 +141,56 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
       loadRecordDetail(selectedRecord.id);
     }
   }, [selectedRecord]);
+
+  // Load contacts for the selected company (used for timeline display)
+  useEffect(() => {
+    const loadContactsForSelectedCompany = async () => {
+      if (!selectedRecord?.companyId) return;
+      try {
+        const contactsResponse = await apiGetContacts('', selectedRecord.companyId);
+        if (contactsResponse.success && contactsResponse.data) {
+          const map: Record<string, any> = {};
+          contactsResponse.data.forEach((c: any) => {
+            if (c.id) {
+              map[c.id] = c;
+            }
+          });
+          setContactsById(map);
+        }
+      } catch (err: any) {
+        console.error('[SATISFACTION] Failed to load contacts for timeline', err);
+      }
+    };
+    loadContactsForSelectedCompany();
+  }, [selectedRecord?.companyId]);
+  
+  // Apply companyIdFromUrl (e.g. from project-completion notification): open detail drawer and Send Survey modal
+  useEffect(() => {
+    if (!companyIdFromUrl || appliedCompanyIdFromUrlRef.current || !onClearCompanyIdFromUrl) return;
+    appliedCompanyIdFromUrlRef.current = true;
+    const companyId = companyIdFromUrl;
+    (async () => {
+      try {
+        const companyResponse = await apiGetCompanySatisfaction(companyId);
+        const recordId = companyResponse?.data?.satisfactionRecordId;
+        if (recordId) {
+          setSelectedRecord({
+            id: recordId,
+            companyId,
+            createdAt: '',
+            createdBy: '',
+            source: 'manual'
+          });
+        }
+        await openSendSurvey(companyId);
+      } catch {
+        // Still open Send Survey for this company (record may be created on send)
+        await openSendSurvey(companyId);
+      } finally {
+        onClearCompanyIdFromUrl();
+      }
+    })();
+  }, [companyIdFromUrl, onClearCompanyIdFromUrl]);
   
   const loadSatisfactionRecords = async () => {
     try {
@@ -119,6 +216,70 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getNpsCategory = (score: number | null | undefined): NPSCategory | null => {
+    if (score === null || score === undefined) return null;
+    if (score >= 9) return 'Promoter';
+    if (score >= 7) return 'Passive';
+    return 'Detractor';
+  };
+
+  const timelineEntries = useMemo(() => {
+    const entries: Array<{
+      id: string;
+      submittedAt: string;
+      npsScore: number;
+      contactId?: string;
+      contactName?: string;
+      feedback?: string;
+    }> = [];
+
+    surveys.forEach((survey) => {
+      (survey.responses || []).forEach((response: SurveyResponse) => {
+        const contact = response.contactId ? contactsById[response.contactId] : null;
+
+        // Pick a free-text feedback answer if available
+        let feedback = '';
+        if (response.answers && Array.isArray(response.answers)) {
+          const freeTextAnswer =
+            response.answers.find(a =>
+              typeof a.answer === 'string' &&
+              a.questionText &&
+              (a.questionText.toLowerCase().includes('improve') ||
+               a.questionText.toLowerCase().includes('additional'))
+            ) ||
+            response.answers.find(a => typeof a.answer === 'string');
+          if (freeTextAnswer && typeof freeTextAnswer.answer === 'string') {
+            feedback = freeTextAnswer.answer;
+          }
+        }
+
+        entries.push({
+          id: response.id,
+          submittedAt: response.submittedAt,
+          npsScore: response.npsScore,
+          contactId: response.contactId,
+          contactName: contact?.name,
+          feedback
+        });
+      });
+    });
+
+    // Sort newest first
+    entries.sort((a, b) => {
+      const da = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+      const db = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+      return db - da;
+    });
+
+    return entries;
+  }, [surveys, contactsById]);
+
+  const getAccountManagerName = (record: CompanySatisfactionSummary): string | null => {
+    if (!record.accountManagerId || !users || users.length === 0) return null;
+    const user = users.find((u: any) => u.id === record.accountManagerId);
+    return user?.name || null;
   };
   
   const loadRecordDetail = async (recordId: string) => {
@@ -276,13 +437,22 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
             <h1 className="text-2xl font-bold text-slate-900">Client Satisfaction</h1>
             <p className="text-sm text-slate-500 mt-1">Track NPS scores and client feedback</p>
           </div>
-          <button
-            onClick={() => setIsSurveyBuilderOpen(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm flex items-center gap-2"
-          >
-            <Edit3 className="w-4 h-4" />
-            Survey Builder
-          </button>
+          {(() => {
+            const canEditTemplate =
+              !!currentUser &&
+              (currentUser.role === 'Admin' ||
+                records.some(r => r.accountManagerId === currentUser.id));
+            if (!canEditTemplate) return null;
+            return (
+              <button
+                onClick={() => setIsSurveyBuilderOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm flex items-center gap-2"
+              >
+                <Edit3 className="w-4 h-4" />
+                Survey Builder
+              </button>
+            );
+          })()}
         </div>
         
         {/* Search and Filters */}
@@ -347,17 +517,28 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4 flex-1">
-                    <div className={`w-16 h-16 rounded-xl ${getNpsBgColor(record.latestNpsScore)} flex items-center justify-center`}>
-                      {record.latestNpsScore !== undefined && record.latestNpsScore !== null ? (
-                        <span className={`text-2xl font-bold ${getNpsColor(record.latestNpsScore)}`}>
-                          {record.latestNpsScore}
-                        </span>
-                      ) : (
-                        <Minus className="w-6 h-6 text-slate-400" />
-                      )}
-                    </div>
+                    {/* Company Avatar/Logo */}
+                    <ImageWithFallback
+                      src={companiesById[record.companyId]?.logo}
+                      fallbackText={companiesById[record.companyId]?.name || record.companyName}
+                      className="w-16 h-16 border border-slate-200"
+                      isAvatar={false}
+                    />
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-slate-900">{record.companyName}</h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-lg text-slate-900">
+                          {companiesById[record.companyId]?.name || record.companyName}
+                        </h3>
+                        {record.latestNpsScore !== undefined && record.latestNpsScore !== null && (
+                          <span className={`px-2 py-0.5 rounded-lg text-sm font-bold ${
+                            record.latestNpsScore >= 9 ? 'bg-green-100 text-green-700' :
+                            record.latestNpsScore >= 7 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            NPS {record.latestNpsScore}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-4 mt-2">
                         {record.npsCategory && (
                           <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
@@ -376,6 +557,11 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
                           </span>
                         )}
                       </div>
+                      {getAccountManagerName(record) && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Account Manager: {getAccountManagerName(record)}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -425,6 +611,88 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
                 </div>
               ) : (
                 <div className="space-y-6">
+                  {/* Current NPS Summary */}
+                  <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/60">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                      Current NPS Score
+                    </p>
+                    {timelineEntries.length === 0 ? (
+                      <p className="text-sm text-slate-500">No responses yet</p>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${
+                          getNpsBgColor(timelineEntries[0].npsScore)
+                        }`}>
+                          <span className={`text-3xl font-black ${getNpsColor(timelineEntries[0].npsScore)}`}>
+                            {timelineEntries[0].npsScore}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {getNpsCategory(timelineEntries[0].npsScore) && (
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                              getNpsCategory(timelineEntries[0].npsScore) === 'Promoter'
+                                ? 'bg-green-100 text-green-700'
+                                : getNpsCategory(timelineEntries[0].npsScore) === 'Passive'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              {getNpsCategory(timelineEntries[0].npsScore)}
+                            </span>
+                          )}
+                          <p className="text-xs text-slate-500">
+                            Last response on{' '}
+                            {timelineEntries[0].submittedAt
+                              ? new Date(timelineEntries[0].submittedAt).toLocaleDateString()
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Historical Timeline */}
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 mb-4">Historical Timeline</h3>
+                    {timelineEntries.length === 0 ? (
+                      <p className="text-slate-500 text-sm">No responses yet</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {timelineEntries.map(entry => (
+                          <div
+                            key={entry.id}
+                            className="flex items-start gap-3 border-l-2 border-slate-200 pl-4 relative"
+                          >
+                            <div className="w-2 h-2 rounded-full bg-indigo-500 absolute -left-[5px] mt-2" />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-900">
+                                    NPS {entry.npsScore}
+                                  </span>
+                                  {entry.contactName && (
+                                    <span className="text-[11px] text-slate-500">
+                                      {entry.contactName}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-slate-400">
+                                  {entry.submittedAt
+                                    ? new Date(entry.submittedAt).toLocaleDateString()
+                                    : ''}
+                                </span>
+                              </div>
+                              {entry.feedback && (
+                                <p className="text-xs text-slate-600 line-clamp-2">
+                                  {entry.feedback}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Survey History */}
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 mb-4">Survey History</h3>
@@ -436,25 +704,49 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
                           <div key={survey.id} className="border border-slate-200 rounded-lg p-4">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-sm font-semibold text-slate-900">
-                                Sent {new Date(survey.sentAt).toLocaleDateString()}
+                                Sent {survey.sentAt ? new Date(survey.sentAt).toLocaleDateString() : '—'}
                               </span>
                               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                                 survey.status === 'completed' ? 'bg-green-100 text-green-700' :
                                 survey.status === 'sent' ? 'bg-yellow-100 text-yellow-700' :
+                                survey.status === 'expired' ? 'bg-slate-200 text-slate-700' :
                                 'bg-slate-100 text-slate-700'
                               }`}>
-                                {survey.status}
+                                {survey.status === 'sent'
+                                  ? 'Sent'
+                                  : survey.status === 'completed'
+                                  ? 'Completed'
+                                  : survey.status === 'expired'
+                                  ? 'Expired'
+                                  : survey.status}
                               </span>
                             </div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-slate-500 mb-1">
                               {survey.recipients?.length || 0} recipient(s) • {survey.responses?.length || 0} response(s)
                             </div>
+                            {survey.recipients && survey.recipients.length > 0 && (
+                              <div className="text-[11px] text-slate-500 mb-2">
+                                Recipients:{' '}
+                                {survey.recipients
+                                  .slice(0, 3)
+                                  .map((r: any) => r.email || r.contactId)
+                                  .join(', ')}
+                                {survey.recipients.length > 3 && (
+                                  <span className="text-slate-400">
+                                    {' '}
+                                    +{survey.recipients.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {survey.responses && survey.responses.length > 0 && (
-                              <div className="mt-4 space-y-3">
+                              <div className="mt-3 space-y-3">
                                 {survey.responses.map((response: SurveyResponse) => (
                                   <div key={response.id} className="bg-slate-50 rounded-lg p-3">
                                     <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm font-semibold">NPS: {response.npsScore}</span>
+                                      <span className="text-sm font-semibold">
+                                        NPS: {response.npsScore}
+                                      </span>
                                       <span className="text-xs text-slate-500">
                                         {new Date(response.submittedAt).toLocaleDateString()}
                                       </span>
@@ -462,8 +754,12 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate }) =
                                     {response.answers.map((answer, idx) => (
                                       answer.questionText && answer.answer && (
                                         <div key={idx} className="mt-2 text-sm">
-                                          <span className="font-medium text-slate-700">{answer.questionText}</span>
-                                          <p className="text-slate-600 mt-1">{String(answer.answer)}</p>
+                                          <span className="font-medium text-slate-700">
+                                            {answer.questionText}
+                                          </span>
+                                          <p className="text-slate-600 mt-1">
+                                            {String(answer.answer)}
+                                          </p>
                                         </div>
                                       )
                                     ))}
@@ -684,9 +980,9 @@ const SurveyBuilderContent: React.FC<{
   };
 
   const removeQuestion = (questionId: string) => {
-    const npsQuestion = editedTemplate.questions.find((q: any) => q.type === 'nps');
-    if (npsQuestion && npsQuestion.id === questionId) {
-      showError('Cannot delete the NPS question (Q1)');
+    const q1Question = editedTemplate.questions.find((q: any) => q.order === 1);
+    if (q1Question && q1Question.id === questionId) {
+      showError('Cannot delete Q1 (the first NPS question)');
       return;
     }
     setEditedTemplate({
@@ -710,16 +1006,15 @@ const SurveyBuilderContent: React.FC<{
     const index = questions.findIndex((q: any) => q.id === questionId);
     if (index === -1) return;
     
-    const npsQuestion = questions.find((q: any) => q.type === 'nps');
-    const npsIndex = questions.findIndex((q: any) => q.type === 'nps');
+    const q1Question = questions.find((q: any) => q.order === 1);
     
-    // Don't allow moving NPS question or moving questions before NPS
-    if (npsQuestion && npsQuestion.id === questionId) {
-      showError('NPS question must remain first');
+    // Don't allow moving Q1 or moving questions before Q1
+    if (q1Question && q1Question.id === questionId) {
+      showError('Q1 must remain first');
       return;
     }
-    if (direction === 'up' && index <= npsIndex + 1) {
-      showError('Cannot move question before NPS question');
+    if (direction === 'up' && index <= 0) {
+      showError('Cannot move question before Q1');
       return;
     }
     
@@ -783,7 +1078,7 @@ const SurveyBuilderContent: React.FC<{
                       </button>
                     </>
                   )}
-                  {question.type !== 'nps' && (
+                  {!(question.order === 1 && question.type === 'nps') && (
                     <button
                       onClick={() => removeQuestion(question.id)}
                       className="p-1 hover:bg-red-50 rounded text-red-500"
@@ -801,7 +1096,7 @@ const SurveyBuilderContent: React.FC<{
                   <select
                     value={question.type}
                     onChange={(e) => updateQuestion(question.id, { type: e.target.value })}
-                    disabled={question.type === 'nps'}
+                    disabled={question.order === 1 && question.type === 'nps'}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100"
                   >
                     <option value="nps">NPS (0-10 scale)</option>
@@ -823,16 +1118,52 @@ const SurveyBuilderContent: React.FC<{
 
                 {question.type === 'multiple_choice' && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Options (one per line)</label>
-                    <textarea
-                      value={question.options?.join('\n') || ''}
-                      onChange={(e) => updateQuestion(question.id, {
-                        options: e.target.value.split('\n').filter(o => o.trim())
-                      })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                      rows={4}
-                      placeholder="Option 1&#10;Option 2&#10;Option 3"
-                    />
+                    <label className="block text-xs font-semibold text-slate-600 mb-2">Options</label>
+                    <div className="space-y-2">
+                      {(question.options || []).map((option: string, optionIdx: number) => (
+                        <div key={optionIdx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={option}
+                            onChange={(e) => {
+                              const newOptions = [...(question.options || [])];
+                              newOptions[optionIdx] = e.target.value;
+                              updateQuestion(question.id, { options: newOptions });
+                            }}
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder={`Option ${optionIdx + 1}`}
+                          />
+                          <button
+                            onClick={() => {
+                              const newOptions = [...(question.options || [])];
+                              newOptions.splice(optionIdx, 1);
+                              updateQuestion(question.id, { options: newOptions });
+                            }}
+                            className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-colors"
+                            title="Remove option"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          const currentOptions = question.options || [];
+                          updateQuestion(question.id, {
+                            options: [...currentOptions, '']
+                          });
+                        }}
+                        className="w-full px-3 py-2 border-2 border-dashed border-slate-300 rounded-lg text-sm text-slate-600 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Option
+                      </button>
+                      {(!question.options || question.options.length === 0) && (
+                        <p className="text-xs text-slate-400 text-center py-2">
+                          No options yet. Click "Add Option" to add choices.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -841,7 +1172,7 @@ const SurveyBuilderContent: React.FC<{
                     type="checkbox"
                     checked={question.required}
                     onChange={(e) => updateQuestion(question.id, { required: e.target.checked })}
-                    disabled={question.type === 'nps'}
+                    disabled={question.order === 1 && question.type === 'nps'}
                     className="w-4 h-4 text-indigo-600 disabled:opacity-50"
                   />
                   <label className="text-sm text-slate-700">Required</label>

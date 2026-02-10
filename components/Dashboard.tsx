@@ -6,11 +6,11 @@ import {
 import {
   TrendingUp, Users, DollarSign, Briefcase, ChevronRight,
   Star, CheckSquare, ArrowRight, Activity, Mail, X, Globe, GripVertical, Save,
-  Maximize2, Minimize2, Square
+  Maximize2, Minimize2, Square, MessageSquare
 } from 'lucide-react';
 import { MOCK_USERS } from '../constants.tsx';
 import { ImageWithFallback } from './common.tsx';
-import { apiGetDeals, apiGetProjects, apiGetTasks, apiGetInvoices, apiGetSharedInboxEmails, apiGetProject, apiGetUsers, apiGetRevenueVelocity, apiGetDashboardLayout, apiUpdateDashboardLayout } from '../utils/api';
+import { apiGetDeals, apiGetProjects, apiGetTasks, apiGetInvoices, apiGetSharedInboxEmails, apiGetProject, apiGetUsers, apiGetRevenueVelocity, apiGetDashboardLayout, apiUpdateDashboardLayout, apiGetSatisfactionStats } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol, formatCurrency, getCurrencyByCode } from '../utils/currency';
 
@@ -35,7 +35,11 @@ const DEFAULT_LAYOUT: WidgetConfig[] = [
   { id: 'stat-tasks', order: 3, size: 'medium' },
   { id: 'revenue-chart', order: 4, size: 'large' },
   { id: 'inbox-card', order: 5, size: 'medium' },
-  { id: 'tasks-card', order: 6, size: 'medium' }
+  { id: 'tasks-card', order: 6, size: 'medium' },
+  { id: 'nps-average', order: 7, size: 'medium' },
+  { id: 'nps-needing-attention', order: 8, size: 'medium' },
+  { id: 'nps-recent-feedback', order: 9, size: 'medium' },
+  { id: 'nps-awaiting-feedback', order: 10, size: 'medium' }
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
@@ -67,6 +71,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [resizingWidget, setResizingWidget] = useState<string | null>(null);
   const dragCounter = useRef(0);
+
+  // Client satisfaction / NPS stats for dashboard widgets
+  const [satisfactionStats, setSatisfactionStats] = useState<{
+    averageNps: number | null;
+    totalResponses: number;
+    companiesNeedingAttention: Array<{ companyId: string; companyName: string; npsScore: number; accountManagerId?: string }>;
+    recentFeedback: Array<{ companyId: string; companyName: string; npsScore: number; feedback: string; date: string }>;
+    awaitingFeedback: Array<{ companyId: string; companyName: string; daysElapsed: number }>;
+  } | null>(null);
+  const [isLoadingSatisfactionStats, setIsLoadingSatisfactionStats] = useState(false);
 
   useEffect(() => {
     const userData = JSON.parse(localStorage.getItem('user_data') || 'null');
@@ -373,6 +387,30 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
     fetchRevenueData();
   }, [timeframe]);
+
+  useEffect(() => {
+    const fetchSatisfactionStats = async () => {
+      setIsLoadingSatisfactionStats(true);
+      try {
+        const response = await apiGetSatisfactionStats();
+        const data = response?.data;
+        if (data) {
+          setSatisfactionStats({
+            averageNps: data.averageNps ?? null,
+            totalResponses: data.totalResponses ?? 0,
+            companiesNeedingAttention: data.companiesNeedingAttention ?? [],
+            recentFeedback: data.recentFeedback ?? [],
+            awaitingFeedback: data.awaitingFeedback ?? []
+          });
+        }
+      } catch {
+        setSatisfactionStats(null);
+      } finally {
+        setIsLoadingSatisfactionStats(false);
+      }
+    };
+    fetchSatisfactionStats();
+  }, []);
 
   const formatCurrencyDisplay = (value: number, currencyCode: string = mostUsedCurrency) => {
     const symbol = getCurrencySymbol(currencyCode);
@@ -766,6 +804,198 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             </div>
           </div>
         );
+
+      case 'nps-average': {
+        const nps = satisfactionStats?.averageNps ?? null;
+        const npsColor = nps === null ? 'text-slate-400' : nps >= 9 ? 'text-green-600' : nps >= 7 ? 'text-amber-600' : 'text-red-600';
+        const npsBg = nps === null ? 'bg-slate-50' : nps >= 9 ? 'bg-green-50' : nps >= 7 ? 'bg-amber-50' : 'bg-red-50';
+        return (
+          <div key={widgetId} {...commonProps}>
+            {isEditMode && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Average NPS Score</span>
+                </div>
+                {renderSizeControls()}
+              </div>
+            )}
+            <button
+              onClick={() => !isEditMode && onNavigate('satisfaction')}
+              disabled={isEditMode}
+              className="bg-white p-4 lg:p-7 rounded-[24px] lg:rounded-[28px] border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between hover:border-indigo-300 transition-all text-left group active:scale-[0.98] w-full disabled:opacity-50"
+            >
+              <div className="flex items-center justify-between mb-4 lg:mb-6">
+                <div className={`p-2 rounded-lg lg:p-2.5 lg:rounded-xl ${npsBg} ${npsColor}`}>
+                  <Star className="w-4 h-4 lg:w-5 lg:h-5" />
+                </div>
+              </div>
+              <div>
+                <p className="text-slate-400 text-[9px] lg:text-[10px] font-black uppercase tracking-[0.1em]">Average NPS Score</p>
+                {isLoadingSatisfactionStats ? (
+                  <div className="h-8 w-16 bg-slate-100 rounded mt-1 animate-pulse" />
+                ) : (
+                  <h3 className={`text-2xl lg:text-3xl font-black mt-0.5 lg:mt-1 ${npsColor}`}>
+                    {nps !== null ? nps.toFixed(1) : '—'}
+                  </h3>
+                )}
+              </div>
+            </button>
+          </div>
+        );
+      }
+
+      case 'nps-needing-attention': {
+        const list = satisfactionStats?.companiesNeedingAttention ?? [];
+        return (
+          <div key={widgetId} {...commonProps}>
+            {isEditMode && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Companies Needing Attention</span>
+                </div>
+                {renderSizeControls()}
+              </div>
+            )}
+            <div className="bg-white rounded-[24px] lg:rounded-[32px] border border-slate-100 p-6 lg:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
+              <div className="flex justify-between items-center mb-4 lg:mb-6">
+                <h4 className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Detractors (0–6)</h4>
+                <Star className="w-4 h-4 text-red-400" />
+              </div>
+              <div className="space-y-3">
+                {isLoadingSatisfactionStats ? (
+                  [1, 2, 3].map(i => <div key={i} className="h-10 bg-slate-50 rounded animate-pulse" />)
+                ) : list.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 font-medium">No detractors</p>
+                ) : (
+                  list.map((item: any) => {
+                    const amName = item.accountManagerId && users?.length ? (users.find((u: any) => u.id === item.accountManagerId)?.name) : null;
+                    return (
+                      <button
+                        key={item.companyId}
+                        onClick={() => !isEditMode && onNavigate('satisfaction')}
+                        disabled={isEditMode}
+                        className="w-full flex flex-col gap-0.5 p-2 rounded-lg hover:bg-slate-50 text-left disabled:pointer-events-none"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs lg:text-sm font-semibold text-slate-900 truncate">{item.companyName}</span>
+                          <span className="text-xs font-bold text-red-600 shrink-0">{item.npsScore}</span>
+                        </div>
+                        {amName ? <span className="text-[10px] text-slate-500 truncate">AM: {amName}</span> : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <button
+                onClick={() => !isEditMode && onNavigate('satisfaction')}
+                disabled={isEditMode}
+                className="w-full mt-4 py-2.5 bg-slate-50 text-indigo-600 text-[10px] font-black rounded-xl hover:bg-indigo-50 transition-all uppercase tracking-widest"
+              >
+                View Client Satisfaction
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      case 'nps-recent-feedback': {
+        const list = satisfactionStats?.recentFeedback ?? [];
+        return (
+          <div key={widgetId} {...commonProps}>
+            {isEditMode && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Recent Feedback</span>
+                </div>
+                {renderSizeControls()}
+              </div>
+            )}
+            <div className="bg-white rounded-[24px] lg:rounded-[32px] border border-slate-100 p-6 lg:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
+              <div className="flex justify-between items-center mb-4 lg:mb-6">
+                <h4 className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Latest 5 responses</h4>
+                <MessageSquare className="w-4 h-4 text-indigo-400" />
+              </div>
+              <div className="space-y-4">
+                {isLoadingSatisfactionStats ? (
+                  [1, 2, 3].map(i => <div key={i} className="h-14 bg-slate-50 rounded animate-pulse" />)
+                ) : list.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 font-medium">No feedback yet</p>
+                ) : (
+                  list.map((item: any, idx: number) => (
+                    <div key={idx} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-xs font-semibold text-slate-900">{item.companyName}</span>
+                        <span className={`text-xs font-bold shrink-0 ${item.npsScore >= 9 ? 'text-green-600' : item.npsScore >= 7 ? 'text-amber-600' : 'text-red-600'}`}>{item.npsScore}</span>
+                      </div>
+                      {item.feedback ? <p className="text-[10px] text-slate-500 line-clamp-2">{item.feedback}</p> : null}
+                      <p className="text-[9px] text-slate-400 mt-0.5">{item.date ? new Date(item.date).toLocaleDateString() : ''}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <button
+                onClick={() => !isEditMode && onNavigate('satisfaction')}
+                disabled={isEditMode}
+                className="w-full mt-4 py-2.5 bg-slate-50 text-indigo-600 text-[10px] font-black rounded-xl hover:bg-indigo-50 transition-all uppercase tracking-widest"
+              >
+                View Client Satisfaction
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      case 'nps-awaiting-feedback': {
+        const list = satisfactionStats?.awaitingFeedback ?? [];
+        return (
+          <div key={widgetId} {...commonProps}>
+            {isEditMode && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Awaiting Feedback</span>
+                </div>
+                {renderSizeControls()}
+              </div>
+            )}
+            <div className="bg-white rounded-[24px] lg:rounded-[32px] border border-slate-100 p-6 lg:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
+              <div className="flex justify-between items-center mb-4 lg:mb-6">
+                <h4 className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Survey sent, no response yet</h4>
+                <Mail className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="space-y-3">
+                {isLoadingSatisfactionStats ? (
+                  [1, 2, 3].map(i => <div key={i} className="h-10 bg-slate-50 rounded animate-pulse" />)
+                ) : list.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 font-medium">None</p>
+                ) : (
+                  list.map((item: any) => (
+                    <button
+                      key={item.companyId}
+                      onClick={() => !isEditMode && onNavigate('satisfaction')}
+                      disabled={isEditMode}
+                      className="w-full flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 text-left disabled:pointer-events-none"
+                    >
+                      <span className="text-xs lg:text-sm font-semibold text-slate-900 truncate">{item.companyName}</span>
+                      <span className="text-xs font-bold text-slate-500 shrink-0">{item.daysElapsed}d ago</span>
+                    </button>
+                  ))
+                )}
+              </div>
+              <button
+                onClick={() => !isEditMode && onNavigate('satisfaction')}
+                disabled={isEditMode}
+                className="w-full mt-4 py-2.5 bg-slate-50 text-indigo-600 text-[10px] font-black rounded-xl hover:bg-indigo-50 transition-all uppercase tracking-widest"
+              >
+                View Client Satisfaction
+              </button>
+            </div>
+          </div>
+        );
+      }
 
       default:
         return null;
