@@ -160,10 +160,10 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      // Fetch all deals (we'll filter by pipelineType client-side)
+      // Fetch all deals for the workspace (not just the current user).
+      // We'll filter by pipelineType client-side so every user sees the same pipeline.
       const [dealsRes, compRes, userRes, contRes] = await Promise.all([
-        apiGetDeals(userId),
+        apiGetDeals(),
         apiGetCompanies(),
         apiGetUsers(),
         apiGetContacts()

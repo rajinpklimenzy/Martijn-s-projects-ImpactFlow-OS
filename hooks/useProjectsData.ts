@@ -20,16 +20,17 @@ export const PROJECTS_QUERY_KEYS = {
   projectActivities: (projectId: string) => ['project-activities', projectId] as const,
 };
 
-// Hook to fetch projects
+// Hook to fetch projects (workspace-wide)
 export const useProjects = (userId: string | undefined) => {
   return useQuery({
+    // Keep userId in the query key to avoid breaking cache shape,
+    // but fetch all projects regardless of owner so any user sees the same workspace projects.
     queryKey: PROJECTS_QUERY_KEYS.projects(userId || ''),
     queryFn: async () => {
-      if (!userId) return [];
-      const response = await apiGetProjects(userId);
+      const response = await apiGetProjects(); // no userId filter -> all projects
       return response.data || [];
     },
-    enabled: !!userId,
+    enabled: true,
     staleTime: 0, // Always consider stale for fresh data
     refetchOnWindowFocus: true,
     refetchOnMount: true,

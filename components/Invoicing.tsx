@@ -43,8 +43,8 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      const invoicesResponse = await apiGetInvoices(userId);
+      // Fetch all invoices for the workspace so every user can see the full billing view.
+      const invoicesResponse = await apiGetInvoices();
       const fetchedInvoices = invoicesResponse?.data || invoicesResponse || [];
       setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
       try {

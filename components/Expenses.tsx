@@ -82,15 +82,8 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
-      
-      if (!userId) {
-        setExpenses([]);
-        setIsLoading(false);
-        return;
-      }
-      
-      const params: any = { userId };
+      // Fetch expenses for the whole workspace so every user sees the same data.
+      const params: any = {};
       
       // If multiple companies selected, fetch all and filter client-side
       // Otherwise, if single company selected, use server-side filter
@@ -863,6 +856,7 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
                     category: '',
                     date: new Date().toISOString().split('T')[0],
                     description: '',
+                    status: 'Pending' as 'Pending' | 'Approved' | 'Rejected',
                     receiptFile: null
                   });
                   setReceiptPreview('');
@@ -1040,6 +1034,7 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
                       category: '',
                       date: new Date().toISOString().split('T')[0],
                       description: '',
+                      status: 'Pending' as 'Pending' | 'Approved' | 'Rejected',
                       receiptFile: null
                     });
                     setReceiptPreview('');

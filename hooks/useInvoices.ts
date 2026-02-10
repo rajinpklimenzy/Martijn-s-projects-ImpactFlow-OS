@@ -13,15 +13,16 @@ export const invoiceKeys = {
   detail: (id: string) => [...invoiceKeys.details(), id] as const,
 };
 
-// Get all invoices
+// Get all invoices (workspace-wide)
 export const useInvoices = (userId?: string, companyId?: string, status?: string) => {
   return useQuery({
+    // Keep filters in the key for cache shape, but fetch all invoices unless explicitly filtered.
     queryKey: invoiceKeys.list({ userId, companyId, status }),
     queryFn: async () => {
-      const response = await apiGetInvoices(userId, companyId, status);
+      const response = await apiGetInvoices(undefined, companyId, status);
       return response.data || response || [];
     },
-    enabled: !!userId, // Only fetch if userId is provided
+    enabled: true,
     staleTime: 1 * 60 * 1000, // 1 minute - invoices update moderately
     refetchInterval: 2 * 60 * 1000, // Refetch every 2 minutes in background
     placeholderData: (previousData) => previousData, // Smooth updates

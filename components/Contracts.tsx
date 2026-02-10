@@ -88,19 +88,17 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
     googleDriveIconUrl: ''
   });
 
+  // Current user ID is required for actions like creating contracts,
+  // marking as signed, and Google Drive operations, but we no longer
+  // filter the contracts list itself by user.
   const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (!userId) {
-        setContracts([]);
-        setIsLoading(false);
-        return;
-      }
-
       const [contractsResponse, companiesResponse, contactsResponse, documentTypesResponse] = await Promise.all([
-        apiGetContracts({ userId }),
+        // Fetch all contracts for the workspace so every user sees the same set.
+        apiGetContracts(),
         apiGetCompanies(),
         apiGetContacts(),
         apiGetContractDocumentTypes()
@@ -115,7 +113,7 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [userId, showError]);
+  }, [showError]);
 
   useEffect(() => {
     fetchData();
