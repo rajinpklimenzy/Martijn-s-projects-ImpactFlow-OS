@@ -196,6 +196,7 @@ export const useUpdatePlaybookInstanceStatus = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: playbookKeys.instances.lists() });
       queryClient.invalidateQueries({ queryKey: playbookKeys.instances.detail(variables.id) });
+      // Only show success message (component will handle duplicate prevention)
       showSuccess('Playbook instance status updated successfully!');
       window.dispatchEvent(new Event('refresh-playbooks'));
     },

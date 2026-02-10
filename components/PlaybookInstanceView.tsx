@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
 import {
   X, BookOpen, ChevronDown, ChevronRight, CheckSquare, FileText, ExternalLink,
@@ -30,6 +30,8 @@ const PlaybookInstanceView: React.FC<PlaybookInstanceViewProps> = ({
   const [processingStepId, setProcessingStepId] = useState<string | null>(null);
   // Track completed checklist items: { stepId: Set<itemIndex> }
   const [completedChecklistItems, setCompletedChecklistItems] = useState<Map<string, Set<number>>>(new Map());
+  // Track if we've already triggered status update to prevent duplicate calls
+  const hasTriggeredStatusUpdate = useRef(false);
 
   // Load instance data
   const { data: instance, isLoading: isLoadingInstance } = usePlaybookInstance(instanceId);
@@ -73,13 +75,46 @@ const PlaybookInstanceView: React.FC<PlaybookInstanceViewProps> = ({
 
   // Check if all steps are completed and update instance status
   useEffect(() => {
-    if (instance && progress.total > 0 && progress.completed >= progress.total && instance.status !== 'completed') {
+    // Only update if:
+    // 1. Instance exists
+    // 2. There are steps
+    // 3. All steps are completed
+    // 4. Current status is not 'completed'
+    // 5. We haven't already triggered an update for this instance
+    // 6. Mutation is not already pending
+    if (
+      instance && 
+      progress.total > 0 && 
+      progress.completed >= progress.total && 
+      instance.status !== 'completed' &&
+      !hasTriggeredStatusUpdate.current &&
+      !updateStatusMutation.isPending
+    ) {
+      hasTriggeredStatusUpdate.current = true;
       updateStatusMutation.mutate({
         id: instanceId,
         status: 'completed'
       });
     }
-  }, [progress.completed, progress.total, instance?.status, instanceId, instance, updateStatusMutation]);
+    
+    // Reset the flag if instance changes, status becomes completed, or instanceId changes
+    if (instance?.status === 'completed') {
+      hasTriggeredStatusUpdate.current = false;
+    }
+  }, [progress.completed, progress.total, instance?.status, instanceId, updateStatusMutation.isPending]);
+  
+  // Reset flag when mutation completes (success or error)
+  useEffect(() => {
+    if (!updateStatusMutation.isPending && hasTriggeredStatusUpdate.current) {
+      // Reset after a short delay to allow status to update
+      const timer = setTimeout(() => {
+        if (instance?.status === 'completed') {
+          hasTriggeredStatusUpdate.current = false;
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [updateStatusMutation.isPending, instance?.status]);
 
   // Check if step is completed
   const isStepCompleted = (stepId: string) => {
