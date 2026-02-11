@@ -1,1 +1,47 @@
-{"name":"impactflow-os","private":true,"version":"1.0.0","type":"module","license":"MIT","scripts":{"dev":"vite","build":"vite build","preview":"vite preview","serve":"npx serve -s build -l 8080","server":"tsx server.ts","start":"tsx server.ts"},"dependencies":{"@tanstack/react-query":"^5.90.20","@types/dompurify":"^3.2.0","cors":"^2.8.5","dompurify":"^3.3.1","dotenv":"^17.2.3","express":"^5.2.1","firebase-admin":"^13.6.0","jspdf":"^2.5.1","lucide-react":"^0.460.0","path":"^0.12.7","quill":"^2.0.3","react":"^18.3.1","react-dom":"^18.3.1","react-quill":"^2.0.0","recharts":"^2.13.0","resend":"^6.7.0","xlsx":"^0.18.5"},"devDependencies":{"@types/node":"^22.14.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0","@vitejs/plugin-react":"^4.3.4","autoprefixer":"^10.4.24","postcss":"^8.5.6","tailwindcss":"^3.4.19","tsx":"^4.21.0","typescript":"^5.8.2","vite":"^5.4.0"}}
+{
+  "name": "impactflow-os",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve": "npx serve -s build -l 8080",
+    "server": "tsx server.ts",
+    "start": "tsx server.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "@types/dompurify": "^3.2.0",
+    "cors": "^2.8.5",
+    "dompurify": "^3.3.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.460.0",
+    "path": "^0.12.7",
+    "quill": "^2.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-quill": "^2.0.0",
+    "recharts": "^2.13.0",
+    "resend": "^6.7.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^22.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.2",
+    "vite": "^5.4.0"
+  }
+}
