@@ -2553,9 +2553,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                         });
                       }}
                       disabled={isUpdatingTask}
-                      className="px-4 py-2 border border-slate-200 text-slate-400 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+                      className="px-4 py-2 border border-slate-200 text-slate-500 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
                     >
-                      Cancel
+                      CANCEL
                     </button>
                     <button
                       onClick={handleUpdateTask}
@@ -2570,7 +2570,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                       ) : (
                         <>
                           <Save className="w-4 h-4" />
-                          Save Changes
+                          SAVE CHANGES
                         </>
                       )}
                     </button>
@@ -2594,7 +2594,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 <div className="grid grid-cols-2 gap-6">
                   {/* Assignee */}
                   <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Assignee</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ASSIGNEE</p>
                     {isEditingTask ? (
                       <select
                         value={editFormData.assigneeId}
@@ -2620,7 +2620,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
                   {/* Linked Project */}
                   <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Linked Project</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">LINKED PROJECT</p>
                     {isEditingTask ? (
                       <select
                         value={editFormData.projectId}
@@ -2642,21 +2642,24 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
                 {/* Description */}
                 <div className="space-y-2">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-indigo-500" /> Description
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2 px-1">
+                    <FileText className="w-4 h-4 text-indigo-500" /> DESCRIPTION
                   </h3>
                   {isEditingTask ? (
-                    <RichTextEditor
-                      value={editFormData.description || ''}
-                      onChange={(html) => setEditFormData(prev => ({ ...prev, description: html }))}
-                      placeholder="Add task description..."
-                    />
+                    <div className="min-h-[140px] [&_.quill]:min-h-[120px] [&_.ql-container]:min-h-[100px] [&_.ql-editor]:min-h-[100px] rounded-[20px] overflow-hidden border border-slate-200 bg-slate-50/50">
+                      <RichTextEditor
+                        value={editFormData.description || ''}
+                        onChange={(html) => setEditFormData(prev => ({ ...prev, description: html }))}
+                        placeholder="Add Context or Notes..."
+                        className="[&_.ql-toolbar]:rounded-t-[20px] [&_.ql-container]:rounded-b-[20px] [&_.ql-editor]:text-sm"
+                      />
+                    </div>
                   ) : (
                     <div className="p-6 bg-slate-950 rounded-[32px] text-indigo-50 relative overflow-hidden shadow-2xl">
                       {selectedTask.description ? (
                         <RichTextDisplay 
                           content={selectedTask.description}
-                          className="text-sm leading-relaxed opacity-90 z-10 relative prose prose-invert prose-headings:text-indigo-50 prose-p:text-indigo-50 prose-strong:text-indigo-100 prose-a:text-indigo-300 prose-ul:text-indigo-50 prose-ol:text-indigo-50 prose-li:text-indigo-50"
+                          className="text-sm leading-relaxed opacity-90 z-10 relative prose prose-invert max-w-none prose-headings:text-indigo-50 prose-p:text-indigo-50 prose-strong:text-indigo-100 prose-a:text-indigo-300 prose-ul:text-indigo-50 prose-ol:text-indigo-50 prose-li:text-indigo-50 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_li]:my-1 [&_li]:pl-1"
                         />
                       ) : (
                         <p className="text-sm leading-relaxed italic opacity-90 z-10 relative">
@@ -2671,7 +2674,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 {/* Task Category */}
                 <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5" /> Task Category
+                    <Tag className="w-3.5 h-3.5" /> TASK CATEGORY
                   </p>
                   {isEditingTask ? (
                     <div className="space-y-2 mt-2">
@@ -2722,13 +2725,14 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 {/* Due Date & Priority */}
                 <div className="grid grid-cols-2 gap-6">
                   <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Due Date</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">DUE DATE</p>
                     {isEditingTask ? (
                       <input
                         type="date"
                         value={editFormData.dueDate}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                        className="w-full px-4 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 mt-2"
+                        placeholder="dd/mm/yyyy"
+                        className="w-full px-4 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 mt-2 [color-scheme:light]"
                       />
                     ) : (
                       <p className="text-sm font-bold text-slate-900 mt-2">
@@ -2738,20 +2742,20 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   </div>
 
                   <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Priority</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">PRIORITY</p>
                     {isEditingTask ? (
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex gap-1 p-1.5 bg-slate-100 rounded-2xl border border-slate-200 mt-2">
                         {(['Low', 'Medium', 'High'] as const).map(priority => (
                           <button
                             key={priority}
                             onClick={() => setEditFormData(prev => ({ ...prev, priority }))}
-                            className={`flex-1 px-3 py-2 rounded-xl text-xs font-black uppercase transition-all ${
+                            className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                               editFormData.priority === priority
-                                ? 'bg-indigo-600 text-white shadow-lg'
-                                : 'bg-white text-slate-400 border border-slate-200 hover:border-indigo-300'
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'
                             }`}
                           >
-                            {priority}
+                            {priority.toUpperCase()}
                           </button>
                         ))}
                       </div>
@@ -2771,7 +2775,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
                 {/* Status */}
                 <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">STATUS</p>
                   {isEditingTask ? (
                     <select
                       value={editFormData.status}
@@ -3093,7 +3097,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 onClick={closeTaskDetail} 
                 className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3"
               >
-                <CheckCircle2 className="w-5 h-5" /> Close
+                <CheckCircle2 className="w-5 h-5" /> CLOSE
               </button>
             </div>
           </div>

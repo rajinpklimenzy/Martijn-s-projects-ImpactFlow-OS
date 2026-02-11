@@ -79,10 +79,13 @@ export const RichTextDisplay: React.FC<RichTextDisplayProps> = ({
     ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'target', 'rel'],
     ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
   });
-  
+
+  // Base list styles so bullets/numbers always show in view mode (can be overridden by className)
+  const listStyles = ' [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_li]:my-1 [&_li]:pl-1';
+
   return (
     <div 
-      className={className}
+      className={className + listStyles}
       dangerouslySetInnerHTML={{ __html: sanitized }}
     />
   );

@@ -896,7 +896,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             </div>
             <div>
               <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-1">{getTitle()}</h3>
-              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">Workspace Update</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">WORKSPACE UPDATE</p>
             </div>
           </div>
           <button onClick={handleClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
@@ -1365,7 +1365,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Ownership/Assignment */}
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                Assignee / Lead <RequiredAsterisk />
+                ASSIGNEE / LEAD <RequiredAsterisk />
               </label>
               <select 
                 required 
@@ -1937,15 +1937,16 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {type !== 'invoice' && (
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                  {type === 'deal' ? 'Expected Close Date' : 'Due Date'}
+                  {type === 'deal' ? 'Expected Close Date' : 'DUE DATE'}
                 </label>
                 <div className="relative">
-                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   <input 
                     type="date" 
                     value={formData.expectedCloseDate} 
                     onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))} 
-                    className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold" 
+                    placeholder="dd/mm/yyyy"
+                    className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 font-bold placeholder:text-slate-300 [color-scheme:light]" 
                   />
                 </div>
               </div>
@@ -1954,16 +1955,16 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task Priority */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Priority</label>
-                <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">PRIORITY</label>
+                <div className="flex gap-1 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
                   {['Low', 'Medium', 'High'].map(p => (
                     <button
                       key={p}
                       type="button"
                       onClick={() => setFormData({...formData, priority: p as any})}
-                      className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.priority === p ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}
+                      className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.priority === p ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'}`}
                     >
-                      {p}
+                      {p.toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -1972,13 +1973,16 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
             {/* Context/Description Area */}
             <div className="md:col-span-2 space-y-3">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Description</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">DESCRIPTION</label>
               {type === 'task' ? (
-                <RichTextEditor
-                  value={formData.description || ''}
-                  onChange={(html) => setFormData(prev => ({ ...prev, description: html }))}
-                  placeholder="Add Context or Notes..."
-                />
+                <div className="min-h-[140px] [&_.quill]:min-h-[120px] [&_.ql-container]:min-h-[100px] [&_.ql-editor]:min-h-[100px] rounded-[20px] overflow-hidden border border-slate-200 bg-slate-50/50">
+                  <RichTextEditor
+                    value={formData.description || ''}
+                    onChange={(html) => setFormData(prev => ({ ...prev, description: html }))}
+                    placeholder="Add Context or Notes..."
+                    className="[&_.ql-toolbar]:rounded-t-[20px] [&_.ql-container]:rounded-b-[20px] [&_.ql-editor]:text-sm"
+                  />
+                </div>
               ) : (
                 <textarea 
                   placeholder="Add Context or Notes..." 
@@ -1990,20 +1994,20 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               )}
 
               {/* Image Upload */}
-              <label className="cursor-pointer group block">
-                <div className="flex items-center gap-3 px-5 py-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[24px] hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all">
+              <label className="cursor-pointer group block mt-4">
+                <div className="flex items-center gap-4 px-5 py-5 bg-slate-50/80 border-2 border-dashed border-slate-200 rounded-[24px] hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all shrink-0">
                     {noteImagePreview ? (
-                      <ImageIcon className="w-5 h-5" />
+                      <ImageIcon className="w-6 h-6" />
                     ) : (
-                      <UploadIcon className="w-5 h-5" />
+                      <UploadIcon className="w-6 h-6" />
                     )}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-black text-slate-900">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800">
                       {noteImagePreview ? (noteImageFile?.name || 'Image attached') : 'Attach Image to Note'}
                     </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, GIF (Max 10MB)</p>
+                    <p className="text-[10px] text-slate-400 mt-1">PNG, JPG, GIF (Max 10MB)</p>
                   </div>
                 </div>
                 <input
