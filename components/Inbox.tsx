@@ -805,7 +805,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     const emailLocal = firstName.replace(/[^a-z0-9]/g, '');
     // Fallback to 'user' if name results in empty string
     const finalEmailLocal = emailLocal || 'user';
-    return `${finalEmailLocal}@app.impact24x7.com`;
+    return `${finalEmailLocal}@impact24x7.com`;
   };
 
   const loadConnectedAccounts = useCallback(async () => {
@@ -862,18 +862,43 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // Combine Gmail accounts and custom email accounts
       const allAccounts = [...gmailAccounts, ...customEmailAccounts];
       
+      // Deduplicate and filter accounts:
+      // 1. Remove entries with "Unknown User" as ownerName
+      // 2. Deduplicate by email address (case-insensitive), keeping the first occurrence
+      const emailMap = new Map<string, typeof allAccounts[0]>();
+      
+      allAccounts.forEach(account => {
+        const emailLower = (account.email || '').toLowerCase();
+        const ownerName = account.ownerName || '';
+        const isUnknownUser = ownerName.toLowerCase() === 'unknown user' || ownerName.trim() === '';
+        
+        // Skip entries with "Unknown User" or empty owner name
+        if (isUnknownUser) {
+          return;
+        }
+        
+        // If email already exists, keep the first one (both should have valid names since we filtered)
+        // This handles cases where same email appears multiple times with different userIds
+        if (!emailMap.has(emailLower)) {
+          emailMap.set(emailLower, account);
+        }
+      });
+      
+      const deduplicatedAccounts = Array.from(emailMap.values());
+      
       console.log('[INBOX] Total accounts loaded:', {
         gmail: gmailAccounts.length,
         custom: customEmailAccounts.length,
-        total: allAccounts.length
+        beforeDedup: allAccounts.length,
+        afterDedup: deduplicatedAccounts.length
       });
       
-      setConnectedAccounts(allAccounts);
+      setConnectedAccounts(deduplicatedAccounts);
       setGmailConnected(gmailAccounts.length > 0);
       // Set default account email for compose (use functional update to avoid dependency)
       setComposeAccountEmail(prev => {
-        if (allAccounts.length > 0 && !prev) {
-          return allAccounts[0].email;
+        if (deduplicatedAccounts.length > 0 && !prev) {
+          return deduplicatedAccounts[0].email;
         }
         return prev;
       });
@@ -6427,9 +6452,6 @@ ${currentUser?.name || 'Team'}`;
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
                   >
                     {connectedAccounts
-                      .filter((account, index, self) =>
-                        self.findIndex(a => a.email === account.email && a.userId === account.userId) === index
-                      )
                       .map((account, index) => (
                         <option key={`${account.email}-${account.userId}-${index}`} value={account.email}>
                           {account.email} {account.isCurrentUser ? '(You)' : `(${account.ownerName})`}
