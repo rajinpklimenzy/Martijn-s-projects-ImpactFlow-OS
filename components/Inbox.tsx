@@ -367,7 +367,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
   const [showSaveSearchModal, setShowSaveSearchModal] = useState(false);
   const [savedSearchName, setSavedSearchName] = useState('');
   const [showSavedSearchesDropdown, setShowSavedSearchesDropdown] = useState(false);
-  const [connectedAccounts, setConnectedAccounts] = useState<Array<{ email: string; userId: string; ownerName: string; connectedAt: string; lastSyncedAt: string; isCurrentUser?: boolean }>>([]);
+  const [connectedAccounts, setConnectedAccounts] = useState<Array<{ email: string; userId: string; ownerName: string; connectedAt: string; lastSyncedAt: string; isCurrentUser?: boolean; isCustomEmail?: boolean }>>([]);
   const [filteredAccounts, setFilteredAccounts] = useState<Array<{ id: string; accountEmail: string; createdAt: string }>>([]);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [accountSearchFilter, setAccountSearchFilter] = useState('');
@@ -794,32 +794,94 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
   }, [userId, loadExcludedDomains, refetch, showSuccess, showError]);
 
+  // Utility function to generate email from name
+  const generateEmailFromName = (name: string): string => {
+    if (!name) return '';
+    // Convert name to lowercase, remove special characters, keep only alphanumeric and spaces
+    const cleaned = name.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '');
+    // Split by spaces and take first part (first name)
+    const firstName = cleaned.split(/\s+/)[0];
+    // Remove any remaining non-alphanumeric characters
+    const emailLocal = firstName.replace(/[^a-z0-9]/g, '');
+    // Fallback to 'user' if name results in empty string
+    const finalEmailLocal = emailLocal || 'user';
+    return `${finalEmailLocal}@app.impact24x7.com`;
+  };
+
   const loadConnectedAccounts = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await apiGetConnectedGmailAccounts(userId);
-      const accounts = res?.data ?? res ?? [];
-      // Deduplicate accounts by email (case-insensitive) + userId combination
-      // This ensures we show all unique account/user combinations
-      const uniqueAccounts = Array.isArray(accounts)
-        ? accounts.filter((account, index, self) => {
-            const accountEmailLower = (account.email || '').toLowerCase();
-            return self.findIndex(a => 
-              (a.email || '').toLowerCase() === accountEmailLower && 
-              a.userId === account.userId
-            ) === index;
-          })
-        : [];
-      setConnectedAccounts(uniqueAccounts);
-      setGmailConnected(uniqueAccounts.length > 0);
-      // Set default account email for compose
-      if (uniqueAccounts.length > 0 && !composeAccountEmail) {
-        setComposeAccountEmail(uniqueAccounts[0].email);
+      // Fetch Gmail accounts and users separately to handle errors gracefully
+      let gmailAccounts: any[] = [];
+      let customEmailAccounts: any[] = [];
+      
+      try {
+        const gmailRes = await apiGetConnectedGmailAccounts(userId);
+        const gmailAccountsRaw = gmailRes?.data ?? gmailRes ?? [];
+        // Deduplicate accounts by email (case-insensitive) + userId combination
+        gmailAccounts = Array.isArray(gmailAccountsRaw)
+          ? gmailAccountsRaw.filter((account, index, self) => {
+              const accountEmailLower = (account.email || '').toLowerCase();
+              return self.findIndex(a => 
+                (a.email || '').toLowerCase() === accountEmailLower && 
+                a.userId === account.userId
+              ) === index;
+            })
+          : [];
+      } catch (gmailErr: any) {
+        console.error('[INBOX] Failed to load Gmail accounts:', gmailErr);
+        // Continue even if Gmail accounts fail
       }
+
+      // Always try to load users for custom email addresses
+      try {
+        const usersRes = await apiGetUsers();
+        const users = usersRes?.data ?? usersRes ?? [];
+        customEmailAccounts = Array.isArray(users)
+          ? users
+              .filter((user: any) => user.name && user.id)
+              .map((user: any) => {
+                const customEmail = generateEmailFromName(user.name);
+                return {
+                  email: customEmail,
+                  userId: user.id,
+                  ownerName: user.name,
+                  connectedAt: user.createdAt || new Date().toISOString(),
+                  lastSyncedAt: user.updatedAt || new Date().toISOString(),
+                  isCurrentUser: user.id === userId,
+                  isCustomEmail: true // Flag to identify custom emails
+                };
+              })
+          : [];
+        console.log('[INBOX] Loaded custom email accounts:', customEmailAccounts.length);
+      } catch (usersErr: any) {
+        console.error('[INBOX] Failed to load users for custom emails:', usersErr);
+        // Continue even if users fail - at least show Gmail accounts
+      }
+
+      // Combine Gmail accounts and custom email accounts
+      const allAccounts = [...gmailAccounts, ...customEmailAccounts];
+      
+      console.log('[INBOX] Total accounts loaded:', {
+        gmail: gmailAccounts.length,
+        custom: customEmailAccounts.length,
+        total: allAccounts.length
+      });
+      
+      setConnectedAccounts(allAccounts);
+      setGmailConnected(gmailAccounts.length > 0);
+      // Set default account email for compose (use functional update to avoid dependency)
+      setComposeAccountEmail(prev => {
+        if (allAccounts.length > 0 && !prev) {
+          return allAccounts[0].email;
+        }
+        return prev;
+      });
     } catch (err: any) {
       console.error('[INBOX] Failed to load connected accounts:', err);
-      setConnectedAccounts([]);
-      setGmailConnected(false);
+      // Don't clear accounts completely - try to keep what we have
+      // setConnectedAccounts([]);
+      // setGmailConnected(false);
     }
   }, [userId]);
 
@@ -6354,7 +6416,7 @@ ${currentUser?.name || 'Team'}`;
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {/* Account Selector */}
-              {connectedAccounts.length > 1 && (
+              {connectedAccounts.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
                     From
@@ -6378,7 +6440,7 @@ ${currentUser?.name || 'Team'}`;
               )}
               {connectedAccounts.length === 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-                  No Gmail accounts connected. Please connect a Gmail account to send emails.
+                  No email accounts available. Please connect a Gmail account or ensure users are configured.
                 </div>
               )}
 
