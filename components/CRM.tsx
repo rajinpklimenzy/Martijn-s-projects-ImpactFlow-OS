@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban, Upload
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project } from '../types';
 import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects } from '../utils/api';
@@ -28,6 +28,7 @@ import {
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { usePlaybookInstances, usePlaybookStepCompletions } from '../hooks/usePlaybooks';
 import PlaybookInstanceView from './PlaybookInstanceView';
+import CRMCompanyUploadWizard from './CRMCompanyUploadWizard';
 
 interface CRMProps {
   onNavigate: (tab: string) => void;
@@ -146,6 +147,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [viewingPlaybookInstanceId, setViewingPlaybookInstanceId] = useState<string | null>(null);
+  const [showCompanyUploadWizard, setShowCompanyUploadWizard] = useState(false);
   
   // Fetch playbook instances for selected company (roll-up from all deals and projects)
   const { data: companyPlaybookInstances = [], isLoading: isLoadingPlaybooks } = usePlaybookInstances({
@@ -153,8 +155,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   });
   
   // React Query hooks for data fetching with caching
-  const { data: companies = [], isLoading: isLoadingCompanies } = useCompanies(localSearchQuery);
-  const { data: contacts = [], isLoading: isLoadingContacts } = useContacts(localSearchQuery);
+  const { data: companies = [], isLoading: isLoadingCompanies, isError: isCompaniesError, refetch: refetchCompanies } = useCompanies(localSearchQuery);
+  const { data: contacts = [], isLoading: isLoadingContacts, isError: isContactsError, refetch: refetchContacts } = useContacts(localSearchQuery);
   const { data: deals = [], isLoading: isLoadingDeals } = useDeals();
   const { data: users = [], isLoading: isLoadingUsers } = useUsers();
   const { data: projects = [] } = useQuery({
@@ -940,6 +942,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
+          <button
+            onClick={() => setShowCompanyUploadWizard(true)}
+            className="px-3 sm:px-4 py-2 bg-slate-100 text-slate-700 text-sm font-semibold rounded-lg flex items-center gap-1.5 sm:gap-2 hover:bg-slate-200 transition-all shadow-sm shrink-0"
+            title={`Upload ${view === 'companies' ? 'companies' : 'contacts'} from CSV, Excel, or Google Sheets`}
+          >
+            <Upload className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">Upload</span>
+          </button>
           <button onClick={() => view === 'companies' ? onAddCompany() : onAddContact()} className="px-3 sm:px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg flex items-center gap-1.5 sm:gap-2 hover:bg-indigo-700 transition-all shadow-sm shrink-0">
             <Plus className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">Add {view === 'companies' ? 'Company' : 'Contact'}</span>
           </button>
@@ -973,6 +982,23 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <input type="text" placeholder={`Search ${view}...`} value={localSearchQuery} onChange={(e) => setLocalSearchQuery(e.target.value)} className="w-full min-w-0 pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
           </div>
         </div>
+
+        {/* Load error banner */}
+        {(view === 'companies' && isCompaniesError) || (view === 'contacts' && isContactsError) ? (
+          <div className="flex items-center justify-between gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <p className="text-sm text-amber-800">
+              {view === 'companies' ? 'Companies' : 'Contacts'} could not be loaded. Check your connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => { view === 'companies' ? refetchCompanies() : refetchContacts(); }}
+              className="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         {/* Select All Header */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 pb-2 min-w-0">
@@ -2525,6 +2551,21 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             queryClient.invalidateQueries({ queryKey: ['contacts'] });
           }}
           currentUserId={currentUser?.id || ''}
+        />
+      )}
+
+      {/* Company/Contact Upload Wizard */}
+      {showCompanyUploadWizard && (
+        <CRMCompanyUploadWizard
+          type={view === 'contacts' ? 'contact' : 'company'}
+          onClose={() => setShowCompanyUploadWizard(false)}
+          onSuccess={() => {
+            if (view === 'contacts') {
+              queryClient.invalidateQueries({ queryKey: ['contacts'] });
+            } else {
+              queryClient.invalidateQueries({ queryKey: ['companies'] });
+            }
+          }}
         />
       )}
 

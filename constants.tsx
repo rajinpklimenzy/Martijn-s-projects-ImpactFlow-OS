@@ -1,6 +1,6 @@
 
 import { User, Contact, Company, Deal, Project, Task, Thread, Invoice, Expense, AutomationRule, Notification, NotificationPreference, CalendarEvent } from './types.ts';
-import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt, PieChart, FileSignature, Star, BookOpen, Package, ShieldCheck } from 'lucide-react';
+import { Zap, Home, Calendar, Users, Briefcase, CheckSquare, Mail, Bell, Settings, FileText, DollarSign, Sparkles, Share2, Map, Receipt, PieChart, FileSignature, Star, BookOpen, Package, ShieldCheck, History } from 'lucide-react';
 
 export type NavItem = { id: string; label: string; icon: React.ReactNode };
 
@@ -64,6 +64,7 @@ export const NAV_SYSTEM_GROUP: { id: string; label: string; icon: React.ReactNod
     { id: 'roadmap', label: 'Roadmap', icon: <Map className="w-5 h-5" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
     { id: 'data-hygiene', label: 'Data Hygiene', icon: <ShieldCheck className="w-5 h-5" /> },
+    { id: 'import-history', label: 'Import History', icon: <History className="w-5 h-5" /> },
   ],
 };
 

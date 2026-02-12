@@ -45,19 +45,39 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
         return simulateApi(cleanEndpoint, options);
       }
 
-      // Safely extract error message
+      // Safely extract error message - check multiple possible formats
       let errorMessage = `Server Error ${response.status}`;
       try {
         if (data && typeof data === 'object') {
-          errorMessage = data.message || data.error?.message || errorMessage;
+          // Try different error message locations (prioritize data.message first)
+          // Backend returns: { success: false, message: "...", code: "..." }
+          // or: { success: false, error: { message: "...", code: "..." } }
+          const extractedMessage = data.message || 
+                        data.error?.message || 
+                        data.error?.error?.message ||
+                        (typeof data.error === 'string' ? data.error : null);
+          
+          if (extractedMessage && typeof extractedMessage === 'string' && extractedMessage.trim()) {
+            errorMessage = extractedMessage;
+          }
         }
       } catch {
         // If extraction fails, use default
       }
       
+      // Create error with the extracted message
       const error = new Error(errorMessage);
       (error as any).status = response.status;
-      if (data?.error?.code && typeof data.error.code === 'string') {
+      (error as any).response = response;
+      (error as any).data = data; // Store full backend response for component access
+      // Ensure message property is explicitly set
+      if (errorMessage && errorMessage !== `Server Error ${response.status}`) {
+        error.message = errorMessage;
+      }
+      // Store code from backend response (could be data.code or data.error.code)
+      if (data?.code && typeof data.code === 'string') {
+        (error as any).code = data.code;
+      } else if (data?.error?.code && typeof data.error.code === 'string') {
         (error as any).code = data.error.code;
       }
       throw error;
@@ -505,6 +525,92 @@ export const apiGetDuplicateCompanies = () => apiFetch('/data-hygiene/duplicate-
 export const apiGetDuplicateContacts = () => apiFetch('/data-hygiene/duplicate-contacts');
 export const apiGetIncompleteRecords = () => apiFetch('/data-hygiene/incomplete-records');
 export const apiGetDomainMismatches = () => apiFetch('/data-hygiene/domain-mismatches');
+
+// Industries (Settings > CRM > Industries)
+export const apiGetIndustries = () => apiFetch('/industries');
+export const apiCreateIndustry = (data: { name: string }) =>
+  apiFetch('/industries', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateIndustry = (id: string, data: { name: string }) =>
+  apiFetch(`/industries/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteIndustry = (id: string) => apiFetch(`/industries/${id}`, { method: 'DELETE' });
+
+// CRM Import (company/contact upload)
+export const apiImportUpload = async (file: File, type: 'company' | 'contact' = 'company') => {
+  const token = localStorage.getItem('auth_token');
+  const API_BASE = getApiBase();
+  const form = new FormData();
+  form.append('file', file);
+  form.append('type', type);
+  const res = await fetch(`${API_BASE}/import/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Upload failed');
+  }
+  return res.json();
+};
+export const apiImportGoogleSheets = async (url: string, type: 'company' | 'contact' = 'company') => {
+  try {
+    return await apiFetch('/import/google-sheets', { method: 'POST', body: JSON.stringify({ url, type }) });
+  } catch (error: any) {
+    // Extract error message from multiple possible locations
+    // Backend returns: { success: false, message: "...", code: "..." }
+    // apiFetch attaches this to error.data and also sets error.message
+    let errorMessage = 'Failed to import Google Sheets';
+    
+    // Priority: check error.data.message first (backend response), then error.message
+    if (error.data?.message) {
+      errorMessage = error.data.message;
+    } else if (error.message && error.message !== 'Server Error 400') {
+      errorMessage = error.message;
+    } else if (error.error?.message) {
+      errorMessage = error.error.message;
+    }
+    
+    // Re-throw with better error message extraction
+    // IMPORTANT: Preserve error.data so component can access the full backend response
+    const enhancedError = new Error(errorMessage);
+    (enhancedError as any).response = error.response;
+    (enhancedError as any).data = error.data || error.response?.data; // Preserve data from apiFetch
+    (enhancedError as any).error = error.error || error;
+    (enhancedError as any).code = error.code || error.data?.code;
+    throw enhancedError;
+  }
+};
+export const apiImportMapping = (uploadId: string, mapping: Record<string, string>) =>
+  apiFetch(`/import/${uploadId}/mapping`, { method: 'POST', body: JSON.stringify({ mapping }) });
+export const apiImportPreview = (uploadId: string) => apiFetch(`/import/${uploadId}/preview`);
+export const apiImportExecute = (uploadId: string, targetAccountSelections: Record<string, boolean>, companySelections?: Record<string, string>) =>
+  apiFetch(`/import/${uploadId}/execute`, {
+    method: 'POST',
+    body: JSON.stringify({ targetAccountSelections, ...(companySelections ? { companySelections } : {}) })
+  });
+export const apiGetImportBatch = (batchId: string) => apiFetch(`/import/batch/${batchId}`);
+
+export const apiGetImportBatches = (filters?: {
+  userId?: string;
+  type?: 'company' | 'contact';
+  status?: 'processing' | 'completed' | 'failed';
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const params = new URLSearchParams();
+  if (filters?.userId) params.append('userId', filters.userId);
+  if (filters?.type) params.append('type', filters.type);
+  if (filters?.status) params.append('status', filters.status);
+  if (filters?.startDate) params.append('startDate', filters.startDate);
+  if (filters?.endDate) params.append('endDate', filters.endDate);
+  if (filters?.limit) params.append('limit', String(filters.limit));
+  if (filters?.offset) params.append('offset', String(filters.offset));
+  
+  const queryString = params.toString();
+  return apiFetch(`/import/batches${queryString ? `?${queryString}` : ''}`);
+};
 
 /**
  * EXTERNAL SYNC

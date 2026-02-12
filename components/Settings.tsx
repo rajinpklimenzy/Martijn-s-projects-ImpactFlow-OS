@@ -5,10 +5,10 @@ import {
   Link2, Calendar, RefreshCw, X, Plus, Trash2, Check,
   Mail as MailIcon, Layers, AlertCircle, ArrowRight, Loader2, Upload, Image as ImageIcon,
   Users, UserPlus, Edit2, Ban, CheckCircle2, Search, MoreVertical, MapPin, Globe2, Briefcase,
-  Database, Archive, Download, Trash, Settings as SettingsIcon, FileText, Layout, Eye
+  Database, Archive, Download, Trash, Settings as SettingsIcon, FileText, Layout, Eye, Building2
 } from 'lucide-react';
 import { DEFAULT_NOTIFICATION_PREFERENCES, TIMEZONES, LANGUAGES, getSystemTimezone } from '../constants';
-import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences, apiGetRetentionPolicy, apiUpdateRetentionPolicy, apiGetRetentionStats, apiTriggerArchive, apiTriggerCleanup, apiExportArchivedEmails, apiGetSignatures, apiCreateSignature, apiUpdateSignature, apiDeleteSignature } from '../utils/api';
+import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences, apiGetRetentionPolicy, apiUpdateRetentionPolicy, apiGetRetentionStats, apiTriggerArchive, apiTriggerCleanup, apiExportArchivedEmails, apiGetSignatures, apiCreateSignature, apiUpdateSignature, apiDeleteSignature, apiGetIndustries, apiCreateIndustry, apiUpdateIndustry, apiDeleteIndustry } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import ImageCropper from './ImageCropper';
@@ -819,7 +819,7 @@ const UserPreferencesTab: React.FC<UserPreferencesTabProps> = ({ currentUser, sh
 
 const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   const { showSuccess, showError } = useToast();
-  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'connections' | 'users' | 'workspace' | 'preferences'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'connections' | 'users' | 'workspace' | 'crm' | 'preferences'>('profile');
   const [preferences, setPreferences] = useState(DEFAULT_NOTIFICATION_PREFERENCES);
   const [isSyncing, setIsSyncing] = useState(false);
   const [excludedDomains, setExcludedDomains] = useState<any[]>([]);
@@ -889,6 +889,11 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   const [imageToCrop, setImageToCrop] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [industries, setIndustries] = useState<{ id: string; name: string; usageCount?: number }[]>([]);
+  const [industriesLoading, setIndustriesLoading] = useState(false);
+  const [industryModal, setIndustryModal] = useState<{ open: boolean; industry?: { id: string; name: string }; name: string }>({ open: false, name: '' });
+  const [savingIndustry, setSavingIndustry] = useState(false);
+
   const togglePref = (id: string, type: 'inApp' | 'email') => {
     setPreferences(prev => prev.map(p => p.id === id ? { ...p, [type]: !p[type] } : p));
   };
@@ -923,6 +928,21 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
   }, [activeTab, userSearchQuery]);
+
+  const fetchIndustries = async () => {
+    setIndustriesLoading(true);
+    try {
+      const res = await apiGetIndustries();
+      setIndustries(res?.data || []);
+    } catch {
+      setIndustries([]);
+    } finally {
+      setIndustriesLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'crm') fetchIndustries();
+  }, [activeTab]);
 
   // Load notification preferences when notifications tab is opened
   useEffect(() => {
@@ -1199,6 +1219,7 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
             { id: 'connections', label: 'Connections & Sync', icon: <Link2 className="w-4 h-4" /> },
             { id: 'users', label: 'Team Management', icon: <Users className="w-4 h-4" /> },
             { id: 'workspace', label: 'Workspace Settings', icon: <Database className="w-4 h-4" /> },
+            { id: 'crm', label: 'CRM', icon: <Building2 className="w-4 h-4" /> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1673,6 +1694,144 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
               showSuccess={showSuccess}
               showError={showError}
             />
+          )}
+
+          {activeTab === 'crm' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-indigo-50/30">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center">
+                      <Building2 className="w-6 h-6 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">CRM Settings</h3>
+                      <p className="text-sm text-slate-500 mt-0.5">Manage industries for company imports and CRM data.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <h4 className="text-sm font-bold text-slate-700 mb-3">Industries</h4>
+                  <p className="text-xs text-slate-500 mb-4">Industries are used when uploading companies. Add any industry that may appear in your company import files. Only admins can add, edit, or delete.</p>
+                  {industriesLoading ? (
+                    <div className="flex items-center gap-2 text-slate-500 py-6">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm">Loading industries...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(currentUser?.role === 'Admin') && (
+                        <button
+                          type="button"
+                          onClick={() => setIndustryModal({ open: true, name: '' })}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add industry
+                        </button>
+                      )}
+                      {industries.length === 0 ? (
+                        <p className="text-sm text-slate-500 py-4">No industries yet. Add one to use with company uploads.</p>
+                      ) : (
+                        <ul className="divide-y divide-slate-100">
+                          {industries.map((ind) => (
+                            <li key={ind.id} className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-slate-50">
+                              <div>
+                                <span className="font-medium text-slate-900">{ind.name}</span>
+                                {ind.usageCount !== undefined && (
+                                  <span className="text-xs text-slate-400 ml-2">({ind.usageCount} companies)</span>
+                                )}
+                              </div>
+                              {currentUser?.role === 'Admin' && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIndustryModal({ open: true, industry: ind, name: ind.name })}
+                                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                    title="Edit"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if ((ind.usageCount || 0) > 0) {
+                                        showError('Cannot delete: this industry is in use by companies.');
+                                        return;
+                                      }
+                                      try {
+                                        await apiDeleteIndustry(ind.id);
+                                        showSuccess('Industry deleted');
+                                        fetchIndustries();
+                                      } catch (e: any) {
+                                        showError(e?.message || 'Failed to delete industry');
+                                      }
+                                    }}
+                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {industryModal.open && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+                <h3 className="font-bold text-lg text-slate-900 mb-4">{industryModal.industry ? 'Edit industry' : 'Add industry'}</h3>
+                <input
+                  type="text"
+                  value={industryModal.name}
+                  onChange={e => setIndustryModal(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Industry name"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm mb-4"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setIndustryModal({ open: false, name: '' })} className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-sm">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={savingIndustry}
+                    onClick={async () => {
+                      const name = industryModal.name.trim();
+                      if (!name) {
+                        showError('Name is required');
+                        return;
+                      }
+                      setSavingIndustry(true);
+                      try {
+                        if (industryModal.industry) {
+                          await apiUpdateIndustry(industryModal.industry.id, { name });
+                          showSuccess('Industry updated');
+                        } else {
+                          await apiCreateIndustry({ name });
+                          showSuccess('Industry added');
+                        }
+                        setIndustryModal({ open: false, name: '' });
+                        fetchIndustries();
+                      } catch (e: any) {
+                        showError(e?.message || 'Failed to save industry');
+                      } finally {
+                        setSavingIndustry(false);
+                      }
+                    }}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {savingIndustry && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {industryModal.industry ? 'Save' : 'Add'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
           
           {/* Other tabs remain largely the same, integrated with consistent design */}
