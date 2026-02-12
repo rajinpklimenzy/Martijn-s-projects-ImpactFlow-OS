@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { NAV_ITEMS } from './constants.tsx';
+import { NAV_TOP, NAV_GROUPS, NAV_SYSTEM_GROUP } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import CRM from './components/CRM.tsx';
 import Pipeline from './components/Pipeline.tsx';
@@ -20,6 +20,7 @@ import Roadmap from './components/Roadmap.tsx';
 import Expenses from './components/Expenses.tsx';
 import Budget from './components/Budget.tsx';
 import Contracts from './components/Contracts.tsx';
+import ProductsServices from './components/ProductsServices.tsx';
 import AuthGate from './components/AuthGate.tsx';
 import NotificationsDropdown from './components/NotificationsDropdown.tsx';
 import Notifications from './components/Notifications.tsx';
@@ -28,7 +29,7 @@ import EventModal from './components/EventModal.tsx';
 import BugReportWidget from './components/BugReportWidget.tsx';
 import Help from './components/Help.tsx';
 import PrivacyPolicy from './components/PrivacyPolicy.tsx';
-import { Search, Bell, Menu, X, Settings as SettingsIcon, LogOut, Plus, ShieldCheck } from 'lucide-react';
+import { Search, Bell, Menu, X, LogOut, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { Notification as NotificationType, CalendarEvent } from './types.ts';
 import { apiLogout, apiGetNotifications, apiMarkNotificationAsRead, apiMarkAllNotificationsAsRead } from './utils/api.ts';
 import { ToastProvider } from './contexts/ToastContext.tsx';
@@ -44,6 +45,25 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [allowLayoutTransition, setAllowLayoutTransition] = useState(false);
+  const [navGroupsOpen, setNavGroupsOpen] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('navGroupsOpen');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Record<string, boolean>;
+        return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: true }), {}), system: true, ...parsed };
+      }
+    } catch (_) {}
+    return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: true }), {} as Record<string, boolean>), system: true };
+  });
+  const toggleNavGroup = (groupId: string) => {
+    setNavGroupsOpen((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      try {
+        localStorage.setItem('navGroupsOpen', JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  };
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   
@@ -260,7 +280,7 @@ const App: React.FC = () => {
     const promptOnboarding = urlParams.get('promptOnboarding');
     const dealParam = urlParams.get('deal');
     const templateIdParam = urlParams.get('templateId');
-    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'playbooks', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction'];
+    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'playbooks', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction', 'inbox', 'expenses', 'budget', 'contracts', 'data-hygiene', 'products-services'];
     
     if (tabParam && validTabs.includes(tabParam)) {
       // URL param takes priority (for direct links)
@@ -441,6 +461,7 @@ const App: React.FC = () => {
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       case 'data-hygiene': return <DataHygiene currentUser={currentUser} />;
       case 'integrations': return <Integrations />;
+      case 'products-services': return <ProductsServices />;
       case 'notifications': return <Notifications currentUser={currentUser} onNavigate={setActiveTab} />;
       default: return <Dashboard onNavigate={setActiveTab} />;
     }
@@ -490,14 +511,15 @@ const App: React.FC = () => {
             )}
           </div>
           
-          <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-2">
-            {NAV_ITEMS.map((item) => (
+          <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-2 flex flex-col min-h-0">
+            {/* Top-level: Dashboard, Tasks, Schedule */}
+            {NAV_TOP.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleTabChange(item.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
-                  activeTab === item.id 
-                    ? 'bg-indigo-50 text-indigo-700 shadow-sm' 
+                  activeTab === item.id
+                    ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                     : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
@@ -505,35 +527,121 @@ const App: React.FC = () => {
                 {isSidebarOpen && <span className="font-medium whitespace-nowrap">{item.label}</span>}
               </button>
             ))}
+
+            {/* Collapsible groups */}
+            {NAV_GROUPS.map((group) => {
+              const isOpen = navGroupsOpen[group.id] !== false;
+              return (
+                <div key={group.id} className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleNavGroup(group.id)}
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${group.label}`}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-left ${
+                      group.items.some((i) => i.id === activeTab)
+                        ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    {/* Group category icon (same size as other sidebar items) */}
+                    <div className="shrink-0" aria-hidden>{group.icon}</div>
+                    {isSidebarOpen && (
+                      <>
+                        <span className="flex-1 font-medium whitespace-nowrap min-w-0 truncate">
+                          {group.label}
+                        </span>
+                        {/* Trailing expand/collapse icon (right) */}
+                        <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-md text-slate-400" aria-hidden>
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  {isOpen && (
+                    <div className="space-y-0.5 pl-1 ml-2 border-l border-slate-200">
+                      {group.items.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => handleTabChange(item.id)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                            activeTab === item.id
+                              ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                          }`}
+                        >
+                          <div className="shrink-0">{item.icon}</div>
+                          {isSidebarOpen && <span className="font-medium whitespace-nowrap text-xs">{item.label}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </nav>
 
-          <div className="p-4 border-t border-slate-200 shrink-0">
-            <button 
-              onClick={() => handleTabChange('settings')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
-                activeTab === 'settings' 
-                  ? 'bg-indigo-50 text-indigo-700' 
-                  : 'text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              <SettingsIcon className="w-5 h-5" />
-              {isSidebarOpen && <span className="font-medium">Settings</span>}
-            </button>
-            {currentUser?.role === 'Admin' && (
-              <button 
-                onClick={() => handleTabChange('data-hygiene')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
-                  activeTab === 'data-hygiene' 
-                    ? 'bg-indigo-50 text-indigo-700' 
-                    : 'text-slate-500 hover:bg-slate-50'
-                }`}
-              >
-                <ShieldCheck className="w-5 h-5" />
-                {isSidebarOpen && <span className="font-medium">Data Hygiene</span>}
-              </button>
-            )}
-            
-            <button 
+          <div className="p-4 border-t border-slate-200 shrink-0 space-y-0.5">
+            {/* System group (collapsible, same pattern as above sections) */}
+            {(() => {
+              const group = NAV_SYSTEM_GROUP;
+              const isOpen = navGroupsOpen[group.id] !== false;
+              const systemItems = group.items.filter((item) => item.id !== 'data-hygiene' || currentUser?.role === 'Admin');
+              return (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleNavGroup(group.id)}
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${group.label}`}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-left ${
+                      systemItems.some((i) => i.id === activeTab)
+                        ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <div className="shrink-0" aria-hidden>{group.icon}</div>
+                    {isSidebarOpen && (
+                      <>
+                        <span className="flex-1 font-medium whitespace-nowrap min-w-0 truncate">
+                          {group.label}
+                        </span>
+                        <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-md text-slate-400" aria-hidden>
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  {isOpen && (
+                    <div className="space-y-0.5 pl-1 ml-2 border-l border-slate-200">
+                      {systemItems.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => handleTabChange(item.id)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                            activeTab === item.id
+                              ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                          }`}
+                        >
+                          <div className="shrink-0">{item.icon}</div>
+                          {isSidebarOpen && <span className="font-medium whitespace-nowrap text-xs">{item.label}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <button
               onClick={() => setIsLogoutConfirmOpen(true)}
               className="mt-4 w-full flex items-center gap-3 px-3 py-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-xl transition-all group text-left"
             >
