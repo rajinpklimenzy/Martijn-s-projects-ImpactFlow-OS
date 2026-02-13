@@ -442,11 +442,17 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const target = e.target as HTMLElement;
+      const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      
       if (e.key === 'Escape') { handleCloseRef.current(); return; }
-      if (e.key === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!isReadOnly) setIsEditing((v) => !v); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (hasUnsavedChanges) handleSaveRef.current(); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (hasUnsavedChanges) handleSaveRef.current().then(() => onClose()); return; }
-      if (e.key === 'Delete') { e.preventDefault(); handleDeleteRef.current(); }
+      // Only handle 'e' key if not typing in an input field
+      if (e.key === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey && !isInputElement) { e.preventDefault(); if (!isReadOnly) setIsEditing((v) => !v); return; }
+      // Only handle shortcuts if not typing in an input field (unless it's a modifier key combo)
+      if ((e.metaKey || e.ctrlKey) && e.key === 's' && !isInputElement) { e.preventDefault(); if (hasUnsavedChanges) handleSaveRef.current(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !isInputElement) { e.preventDefault(); if (hasUnsavedChanges) handleSaveRef.current().then(() => onClose()); return; }
+      if (e.key === 'Delete' && !isInputElement) { e.preventDefault(); handleDeleteRef.current(); }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
