@@ -63,9 +63,36 @@ export interface CalendarEvent {
   updatedAt?: string;
   createdBy?: string;
   // Google Calendar specific fields
-  source?: 'google' | 'local';
+  source?: 'google' | 'local' | 'firestore';
   googleEventId?: string;
   htmlLink?: string;
+  /** Google Calendar event status */
+  status?: 'confirmed' | 'tentative' | 'cancelled';
+  /** Video/conference link from Google (Meet, etc.) */
+  conferenceData?: {
+    entryPoints?: Array<{ uri: string; entryPointType?: string; label?: string }>;
+  };
+  /** Attendees with RSVP (backend returns this for Google events) */
+  attendees?: Array<{
+    email: string;
+    displayName?: string;
+    responseStatus?: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+    organizer?: boolean;
+  }>;
+  /** Phase 3 – multi-calendar */
+  calendarId?: string;
+  calendarName?: string;
+  calendarColor?: string;
+}
+
+/** Google Calendar list item (Phase 3) */
+export interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  backgroundColor: string;
+  foregroundColor: string;
+  accessRole: string;
+  primary: boolean;
 }
 
 export interface Note {

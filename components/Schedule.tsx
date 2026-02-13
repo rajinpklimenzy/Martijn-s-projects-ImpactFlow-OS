@@ -6,9 +6,10 @@ import {
   CheckCircle2, Circle, LayoutGrid, List, Info, Tag, User, 
   FileText, Edit2, Eye, Archive, Trash2, MessageSquare, History, Send, AtSign, ImageIcon, Upload as UploadIcon, Save, CheckSquare, Check
 } from 'lucide-react';
-import { CalendarEvent, Task, TaskNote, Project, User as UserType } from '../types';
+import { CalendarEvent, Task, TaskNote, Project, User as UserType, GoogleCalendarListItem } from '../types';
 import { 
   apiGetGoogleCalendarStatus, 
+  apiGetGoogleCalendars,
   apiGetGoogleCalendarEvents,
   apiGetCalendarEvents,
   apiGetTasks,
@@ -21,16 +22,18 @@ import {
 } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { RichTextEditor, RichTextDisplay } from './common/RichTextEditor';
+import EventDetailDrawer from './EventDetailDrawer';
 
 interface ScheduleProps {
   currentUser?: any;
   onNavigate: (tab: string) => void;
   onNewEvent: () => void;
+  onEditEvent?: (event: CalendarEvent) => void;
 }
 
 type ViewMode = 'daily' | 'weekly' | 'monthly';
 
-const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent }) => {
+const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent, onEditEvent }) => {
   const { showError, showSuccess } = useToast();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
@@ -40,8 +43,12 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarListItem[]>([]);
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]); // empty = all
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [refreshEventsTrigger, setRefreshEventsTrigger] = useState(0);
   const [isEditingTask, setIsEditingTask] = useState(false);
   const [isUpdatingTask, setIsUpdatingTask] = useState(false);
   const [editFormData, setEditFormData] = useState({
@@ -94,8 +101,16 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       try {
         const response = await apiGetGoogleCalendarStatus(currentUser.id);
         setIsGoogleConnected(response.connected || false);
+        if (response.connected) {
+          const calRes = await apiGetGoogleCalendars(currentUser.id);
+          const list = Array.isArray((calRes as any)?.data) ? (calRes as any).data : [];
+          setGoogleCalendars(list);
+        } else {
+          setGoogleCalendars([]);
+        }
       } catch (err) {
         setIsGoogleConnected(false);
+        setGoogleCalendars([]);
       }
     };
     checkConnectionStatus();
@@ -178,13 +193,15 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       
       const allEvents: CalendarEvent[] = [];
       
-      // Fetch Google Calendar events
+      // Fetch Google Calendar events (Phase 3: optional calendar filter)
       if (isGoogleConnected && currentUser?.id) {
         try {
+          const calendarIds = selectedCalendarIds.length > 0 ? selectedCalendarIds : undefined;
           const response = await apiGetGoogleCalendarEvents(
             startDate, 
             endDate, 
-            currentUser.id
+            currentUser.id,
+            calendarIds
           );
           const googleEvents = response.data || [];
           // Filter out daily recurring events
@@ -295,7 +312,14 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
     };
 
     fetchData();
-  }, [dateKey, isGoogleConnected, currentUser, viewMode, selectedDate]);
+  }, [dateKey, isGoogleConnected, currentUser, viewMode, selectedDate, refreshEventsTrigger, selectedCalendarIds]);
+
+  // Phase 3: polling refresh every 5 minutes
+  useEffect(() => {
+    if (!isGoogleConnected || !currentUser?.id) return;
+    const interval = setInterval(() => setRefreshEventsTrigger((t) => t + 1), 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isGoogleConnected, currentUser?.id]);
 
   const goToPrevious = () => {
     const prev = new Date(selectedDate);
@@ -345,6 +369,25 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
       case 'Medium': return 'text-amber-500 bg-amber-50 border-amber-100';
       default: return 'text-blue-500 bg-blue-50 border-blue-100';
     }
+  };
+
+  const calendarSourceForEvent = (event: CalendarEvent): { id: string; name: string; color: string; accessRole?: string } => {
+    if (event.calendarId && (event.calendarName || event.calendarColor)) {
+      const cal = googleCalendars.find((c) => c.id === event.calendarId);
+      return {
+        id: event.calendarId,
+        name: event.calendarName || cal?.summary || event.calendarId,
+        color: event.calendarColor || cal?.backgroundColor || event.color || '#6366f1',
+        accessRole: cal?.accessRole,
+      };
+    }
+    const cal = googleCalendars.find((c) => c.primary) || googleCalendars[0];
+    return {
+      id: cal?.id || 'primary',
+      name: event.source === 'google' ? (cal?.summary || 'Google Calendar') : event.source === 'firestore' ? 'Calendar' : 'Calendar',
+      color: event.color || cal?.backgroundColor || '#6366f1',
+      accessRole: cal?.accessRole,
+    };
   };
 
   // Week helpers: Monday to Sunday
@@ -810,10 +853,17 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
             return (
               <div
                 key={event.id}
-                className={`absolute left-28 right-8 p-4 rounded-3xl border shadow-sm transition-all hover:scale-[1.01] hover:shadow-xl group overflow-hidden bg-indigo-50 border-indigo-100`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedEvent(event)}
+                onKeyDown={(e) => e.key === 'Enter' && setSelectedEvent(event)}
+                className={`absolute left-28 right-8 p-4 rounded-3xl border shadow-sm transition-all hover:scale-[1.01] hover:shadow-xl group overflow-hidden bg-indigo-50 border-indigo-100 cursor-pointer`}
                 style={{ top: `${position.top}px`, height: `${position.height}px` }}
               >
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500/20 group-hover:w-2 transition-all" />
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-1 group-hover:w-2 transition-all rounded-l"
+                  style={{ backgroundColor: (event.calendarColor || event.color || '#6366f1') + '40' }}
+                />
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex-1 min-w-0">
                     <h4 className={`font-black text-sm truncate text-indigo-900`}>{event.title}</h4>
@@ -828,7 +878,9 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
                       href={event.htmlLink}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="p-2 bg-white rounded-xl border border-slate-100 shadow-sm text-slate-400 hover:text-indigo-600 transition-all active:scale-95"
+                      aria-label="Open in Google Calendar"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
@@ -939,9 +991,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
                         key={event.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (event.htmlLink) {
-                            window.open(event.htmlLink, '_blank');
-                          }
+                          setSelectedEvent(event);
                         }}
                         className="p-1.5 rounded-lg text-[9px] font-bold cursor-pointer hover:opacity-80 transition-all truncate bg-indigo-100 text-indigo-700"
                         title={event.title}
@@ -1055,9 +1105,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
                         key={event.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (event.htmlLink) {
-                            window.open(event.htmlLink, '_blank');
-                          }
+                          setSelectedEvent(event);
                         }}
                         className="p-1 rounded text-[8px] font-bold cursor-pointer hover:opacity-80 transition-all truncate bg-indigo-100 text-indigo-700"
                         title={event.title}
@@ -1227,14 +1275,35 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-            <div className="flex items-center gap-3">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap justify-between items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Schedule</h3>
               <span className="text-slate-300">•</span>
               <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg">
                 <Clock className="w-3 h-3 text-slate-500" />
                 <span className="text-[9px] font-bold text-slate-500 tracking-wide">{timezone}</span>
               </div>
+              {isGoogleConnected && googleCalendars.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-bold text-slate-500">Calendars:</span>
+                  <select
+                    value={selectedCalendarIds.length ? selectedCalendarIds.join(',') : '__all__'}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '__all__') setSelectedCalendarIds([]);
+                      else setSelectedCalendarIds(v ? v.split(',') : []);
+                    }}
+                    className="text-[10px] font-medium px-2 py-1 border border-slate-200 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="__all__">All calendars</option>
+                    {googleCalendars.map((cal) => (
+                      <option key={cal.id} value={cal.id}>
+                        {cal.summary}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3">
               {isLoadingEvents && <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />}
@@ -1300,6 +1369,31 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
           </div>
         </div>
       </div>
+
+      {/* Event Detail Drawer (Phase 1 + 2) */}
+      {selectedEvent && (
+        <EventDetailDrawer
+          isOpen={!!selectedEvent}
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onEdit={onEditEvent ? (e) => { setSelectedEvent(null); onEditEvent(e); } : undefined}
+          onEventUpdated={(updated) => {
+            setRefreshEventsTrigger((t) => t + 1);
+            if (updated === null) {
+              setSelectedEvent(null);
+              return;
+            }
+            setSelectedEvent(updated);
+          }}
+          onEventDeleted={() => {
+            setRefreshEventsTrigger((t) => t + 1);
+            setSelectedEvent(null);
+          }}
+          calendarSource={calendarSourceForEvent(selectedEvent)}
+          calendars={googleCalendars}
+          currentUserId={currentUser?.id}
+        />
+      )}
 
       {/* Task Detail View Drawer */}
       {selectedTask && (

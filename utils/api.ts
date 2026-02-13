@@ -27,19 +27,35 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     ...options.headers,
   };
 
+  console.log('[API] apiFetch called', {
+    method: options.method || 'GET',
+    url,
+    endpoint: cleanEndpoint,
+    hasToken: !!token
+  });
+
   try {
     const response = await fetch(url, {
       ...options,
       headers,
     });
     
+    console.log('[API] apiFetch response', {
+      url,
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok
+    });
+    
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      // Fallback to simulation for 404s on all main entities to support local testing
+      // Never use simulator for calendar – always surface real API errors (e.g. delete not connected)
+      const isCalendar = cleanEndpoint.includes('google-calendar') || cleanEndpoint.includes('/calendar/');
+      // Fallback to simulation for 404s on other main entities to support local testing
       const entities = ['feedback', 'deals', 'projects', 'tasks', 'invoices', 'companies', 'contacts', 'automations', 'notifications', 'events', 'expenses', 'expense-categories', 'data-hygiene', 'satisfaction'];
-      const isEntityEndpoint = entities.some(e => cleanEndpoint.includes(e));
-      
+      const isEntityEndpoint = !isCalendar && entities.some(e => cleanEndpoint.includes(e));
+
       if (response.status === 404 && isEntityEndpoint) {
         console.warn(`[SYSTEM] Live endpoint ${cleanEndpoint} not found. Engaging Virtual Engine fallback.`);
         return simulateApi(cleanEndpoint, options);
@@ -108,9 +124,11 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const isNetworkError = errorName === 'TypeError' || errorMessage.includes('Failed to fetch');
     const isServiceUnavailable = errorStatus !== undefined && errorStatus >= 500;
     const isClientError = errorStatus !== undefined && errorStatus >= 400 && errorStatus < 500;
+    const isCalendar = cleanEndpoint.includes('google-calendar') || cleanEndpoint.includes('/calendar/');
 
-    // We allow simulation on network errors or 5xx
-    if (isNetworkError || (isServiceUnavailable && !isClientError)) {
+    // Never simulate calendar – always surface real errors (e.g. delete must hit live API)
+    // We allow simulation on network errors or 5xx for other endpoints only
+    if (!isCalendar && (isNetworkError || (isServiceUnavailable && !isClientError))) {
       console.info(`[SYSTEM] Production API unreachable. Engaging Virtual Engine fallback.`);
       return simulateApi(cleanEndpoint, options);
     }
@@ -617,8 +635,18 @@ export const apiGetImportBatches = (filters?: {
  */
 export const apiGetGoogleCalendarStatus = (userId: string) => apiFetch(`/google-calendar/status?userId=${userId}`);
 export const apiGetGoogleCalendarAuthUrl = (userId: string) => apiFetch(`/google-calendar/auth-url?userId=${userId}`);
-export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: string) => apiFetch(`/google-calendar/events?userId=${userId}&startDate=${start}&endDate=${end}`);
+export const apiGetGoogleCalendars = (userId: string) => apiFetch(`/google-calendar/calendars?userId=${userId}`);
+export const apiGetGoogleCalendarEvents = (start: string, end: string, userId: string, calendarIds?: string[]) => {
+  const params = new URLSearchParams({ userId, startDate: start, endDate: end });
+  if (calendarIds?.length) params.set('calendarIds', calendarIds.join(','));
+  return apiFetch(`/google-calendar/events?${params.toString()}`);
+};
 export const apiDisconnectGoogleCalendar = (userId: string) => apiFetch('/google-calendar/disconnect', { method: 'POST', body: JSON.stringify({ userId }) });
+export const apiCreateGoogleCalendarEvent = (
+  userId: string,
+  calendarId: string,
+  payload: { summary: string; description?: string; start: string; end: string; location?: string; isAllDay?: boolean; attendees?: Array<{ email: string }> }
+) => apiFetch('/google-calendar/events/create', { method: 'POST', body: JSON.stringify({ userId, calendarId, ...payload }) });
 
 /** Shared Inbox – uses already connected Gmail (Google Calendar OAuth). scopeDays: number (e.g. 90) or 'all' for all emails. scopeHours e.g. 24 = sync last 24 hrs. */
 export const apiSyncSharedInbox = (userId: string, accountEmail?: string, scopeHours?: number, scopeDays?: number | 'all') => {
@@ -956,10 +984,45 @@ export const apiGetDrivePermissions = (userId: string, fileId: string, accountEm
 };
 
 /**
- * EVENTS
+ * EVENTS (Firestore calendar – Phase 2: use /calendar/events)
  */
-export const apiCreateEvent = (data: any) => apiFetch('/events', { method: 'POST', body: JSON.stringify(data) });
-export const apiUpdateEvent = (id: string, data: any) => apiFetch(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiCreateEvent = (data: any) => apiFetch('/calendar/events', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateEvent = (id: string, data: any) => apiFetch(`/calendar/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteEvent = (id: string) => {
+  console.log('[API] apiDeleteEvent called with id:', id);
+  return apiFetch(`/calendar/events/${id}`, { method: 'DELETE' });
+};
+
+/**
+ * Google Calendar event update/delete (two-way sync)
+ */
+export interface GoogleCalendarEventPayload {
+  summary?: string;
+  description?: string;
+  location?: string;
+  start?: string; // ISO 8601
+  end?: string;
+  isAllDay?: boolean;
+  attendees?: Array<{ email: string }>;
+  reminders?: { minutesBefore: number[] };
+}
+export const apiUpdateGoogleCalendarEvent = (
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  payload: GoogleCalendarEventPayload
+) =>
+  apiFetch('/google-calendar/events/update', {
+    method: 'PATCH',
+    body: JSON.stringify({ userId, calendarId, eventId, ...payload }),
+  });
+export const apiDeleteGoogleCalendarEvent = (userId: string, calendarId: string, eventId: string) => {
+  const url = `/google-calendar/events/delete?userId=${encodeURIComponent(userId)}&calendarId=${encodeURIComponent(calendarId)}&eventId=${encodeURIComponent(eventId)}`;
+  console.log('[API] apiDeleteGoogleCalendarEvent called', { userId, calendarId, eventId, url });
+  return apiFetch(url, {
+    method: 'DELETE',
+  });
+};
 
 /**
  * LEAD SOURCE MANAGEMENT
