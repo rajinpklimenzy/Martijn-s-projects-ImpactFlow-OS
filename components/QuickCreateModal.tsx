@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, CheckCircle2, Building2, FolderKanban, CheckSquare, FileText, Plus, ChevronRight, User, Loader2, AlertCircle, Save, DollarSign, Calendar, Search, ChevronDown, Merge, Upload as UploadIcon, Image as ImageIcon, Tag } from 'lucide-react';
 import { apiCreateContact, apiCreateCompany, apiGetCompanies, apiCreateDeal, apiGetUsers, apiCreateProject, apiCreateTask, apiGetProjects, apiGetTaskCategories, apiCreateInvoice, apiCreateNotification, apiGetContacts, apiMergeContacts, apiUpdateContact } from '../utils/api';
 import { Company, User as UserType, Project, Contact } from '../types';
-import { extractDomain } from '../utils/validate';
+import { extractDomain, getCompanyDomain } from '../utils/validate';
 import { findDuplicateContacts, findFuzzyDuplicateContacts } from '../utils/dedup';
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol } from '../utils/currency';
 import { RichTextEditor } from './common/RichTextEditor';
@@ -314,18 +314,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       }
       // Assignee / Lead (ownerId) is required for company
       if (!formData.ownerId?.trim()) errors.ownerId = 'Assignee / Lead is required';
-      // Check domain - should be auto-populated from website or email
-      let domain = formData.domain;
-      if (!domain && formData.website) {
-        domain = extractDomain(formData.website) || '';
-      }
-      if (!domain && formData.email) {
-        domain = extractDomain(formData.email) || '';
-      }
-      if (!domain || domain.trim() === '') {
-        errors.domain = 'Domain is required (can be auto-populated from website or email)';
-        // Show on website field too so user sees which input to fix (Domain field is hidden when empty)
-        errors.website = 'Add website or email to auto-populate domain';
+      // Check domain: from website, or from email only if not free (no gmail/yahoo etc.)
+      const domain = getCompanyDomain(formData.website, formData.email);
+      if (!domain) {
+        errors.domain = 'Company domain is required (add a company website; personal email domains like Gmail are not allowed)';
+        errors.website = 'Add a company website to set domain';
       }
     } else if (type === 'deal') {
       if (!formData.title?.trim()) errors.title = 'Deal Name is required';
@@ -479,14 +472,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           linkedin: formData.linkedin || undefined 
         });
       } else if (type === 'company') {
-        // Auto-populate domain if not already set
-        let domain = formData.domain;
-        if (!domain && formData.website) {
-          domain = extractDomain(formData.website) || undefined;
-        }
-        if (!domain && formData.email) {
-          domain = extractDomain(formData.email) || undefined;
-        }
+        // Company domain: from website, or from email only if not free (no gmail/yahoo etc.)
+        const domain = getCompanyDomain(formData.website, formData.email) || '';
         
         const companyPayload = { 
           name: formData.name?.trim(), 
@@ -507,7 +494,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
         }
         
         if (!companyPayload.domain) {
-          setFieldErrors({ domain: 'Domain is required (can be auto-populated from website or email)' });
+          setFieldErrors({ domain: 'Company domain is required (add a company website; personal email domains like Gmail are not allowed)' });
           setIsSubmitting(false);
           return;
         }
@@ -1202,10 +1189,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     const website = e.target.value;
                     setFormData(prev => {
                       const updated = { ...prev, website };
-                      // Always re-derive domain from website (or email if website empty)
-                      const domainFromWebsite = website ? extractDomain(website) : null;
-                      const domainFromEmail = prev.email ? extractDomain(prev.email) : null;
-                      updated.domain = domainFromWebsite || domainFromEmail || '';
+                      // Company domain: prefer website; only from email if not free (gmail/yahoo etc.)
+                      updated.domain = getCompanyDomain(website, prev.email) || '';
                       return updated;
                     });
                     if (fieldErrors.domain || fieldErrors.website) {
@@ -1244,10 +1229,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     const email = e.target.value;
                     setFormData(prev => {
                       const updated = { ...prev, email };
-                      // Re-derive domain: prefer website, then email
-                      const domainFromWebsite = prev.website ? extractDomain(prev.website) : null;
-                      const domainFromEmail = email ? extractDomain(email) : null;
-                      updated.domain = domainFromWebsite || domainFromEmail || '';
+                      // Company domain: prefer website; only from email if not free (gmail/yahoo etc.)
+                      updated.domain = getCompanyDomain(prev.website, email) || '';
                       return updated;
                     });
                     if (fieldErrors.email || fieldErrors.domain) {
@@ -1933,8 +1916,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
               </div>
             )}
 
-            {/* Expected Close Date / Due Date - Conditional label based on type */}
-            {type !== 'invoice' && (
+            {/* Expected Close Date / Due Date - Only for deal, project, task (not company or contact) */}
+            {(type === 'deal' || type === 'project' || type === 'task') && (
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
                   {type === 'deal' ? 'Expected Close Date' : 'DUE DATE'}

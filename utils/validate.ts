@@ -6,6 +6,49 @@
 import { Company, Contact, Deal, Project, Invoice } from '../types';
 
 /**
+ * Clean and format a name for display
+ * - Removes trailing IDs/hashes (alphanumeric strings at the end)
+ * - Proper capitalization (Title Case)
+ * - Removes extra whitespace
+ * - Handles edge cases
+ */
+export const formatNameForDisplay = (name: string | null | undefined): string => {
+  if (!name || typeof name !== 'string') return '';
+  
+  let cleaned = name.trim();
+  
+  // Remove trailing alphanumeric IDs/hashes (e.g., "Rajin Pk 714295b8" -> "Rajin Pk")
+  // Pattern: space followed by 6+ alphanumeric characters at the end
+  cleaned = cleaned.replace(/\s+[a-zA-Z0-9]{6,}$/, '');
+  
+  // Remove common prefixes/suffixes that shouldn't be in names
+  cleaned = cleaned.replace(/^(test|Test|TEST)\s+/i, ''); // Remove "test" prefix
+  cleaned = cleaned.replace(/\s+(test|Test|TEST)$/i, ''); // Remove "test" suffix
+  
+  // Remove extra whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  
+  // Convert to Title Case (capitalize first letter of each word)
+  cleaned = cleaned
+    .toLowerCase()
+    .split(' ')
+    .map(word => {
+      // Skip very short words unless it's the first word
+      if (word.length <= 1) return word;
+      // Capitalize first letter
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+  
+  // Handle special cases (Mc, Mac, O', etc.)
+  cleaned = cleaned.replace(/\bMc([a-z])/g, (match, letter) => `Mc${letter.toUpperCase()}`);
+  cleaned = cleaned.replace(/\bMac([a-z])/g, (match, letter) => `Mac${letter.toUpperCase()}`);
+  cleaned = cleaned.replace(/\bO'([a-z])/g, (match, letter) => `O'${letter.toUpperCase()}`);
+  
+  return cleaned;
+};
+
+/**
  * RFC 5322 compliant email validation
  */
 export const isValidEmail = (email: string): boolean => {
@@ -14,6 +57,29 @@ export const isValidEmail = (email: string): boolean => {
   // RFC 5322 compliant regex (simplified but covers most cases)
   const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
   return emailRegex.test(email.trim());
+};
+
+/** Free email provider domains – must not be used as company domain (per CRM redesign plan) */
+export const FREE_EMAIL_DOMAINS = [
+  'gmail.com', 'googlemail.com', 'gmail.co.uk', 'gmail.fr', 'gmail.de', 'gmail.it', 'gmail.es',
+  'yahoo.com', 'yahoo.co.uk', 'yahoo.fr', 'yahoo.de', 'ymail.com',
+  'hotmail.com', 'hotmail.co.uk', 'hotmail.fr', 'live.com', 'live.co.uk', 'outlook.com', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com',
+  'protonmail.com', 'proton.me', 'pm.me',
+  'aol.com', 'zoho.com',
+  'gamil.com', 'gmial.com', 'gmai.com', 'gmal.com', 'gnail.com', 'gmaill.com', 'gmeil.com',
+] as const;
+
+/** Normalized set for fast lookup (includes base domains only; subdomains like mail.google.com not in list) */
+const freeEmailSet = new Set(FREE_EMAIL_DOMAINS);
+
+/**
+ * Returns true if the domain is a known free/personal email provider (e.g. gmail.com).
+ * Used so company domain is never set from personal email addresses.
+ */
+export const isFreeEmailDomain = (domain: string | null | undefined): boolean => {
+  if (!domain || !domain.trim()) return false;
+  return freeEmailSet.has(domain.toLowerCase().trim() as (typeof FREE_EMAIL_DOMAINS)[number]);
 };
 
 /**
@@ -47,6 +113,18 @@ export const extractDomain = (websiteOrEmail: string): string | null => {
     const domain = cleaned.toLowerCase().trim() || null;
     return domain && domain.includes('.') ? domain : null;
   }
+};
+
+/**
+ * Get company domain: from website only, or from email only if it is not a free-email domain.
+ * Prevents personal domains (gmail, yahoo, etc.) from being used as company domain.
+ */
+export const getCompanyDomain = (website?: string | null, email?: string | null): string | null => {
+  const fromWebsite = website ? extractDomain(website) : null;
+  if (fromWebsite) return fromWebsite;
+  const fromEmail = email ? extractDomain(email) : null;
+  if (fromEmail && !isFreeEmailDomain(fromEmail)) return fromEmail;
+  return null;
 };
 
 /**
@@ -86,24 +164,24 @@ export const validateCompany = (company: Partial<Company>): ValidationResult => 
     errors.push('Company name is required');
   }
 
-  // Domain validation and auto-population
-  let domain = company.domain;
+  // Domain: prefer website; only use email if not a free-email provider (no gmail/yahoo etc.)
+  let domain = company.domain && !isFreeEmailDomain(company.domain) ? company.domain : undefined;
   if (!domain && company.website) {
     domain = extractDomain(company.website) || undefined;
-    if (domain) {
-      warnings.push(`Domain auto-populated from website: ${domain}`);
-    }
+    if (domain) warnings.push(`Domain auto-populated from website: ${domain}`);
   }
-  
   if (!domain && company.email) {
-    domain = extractDomain(company.email) || undefined;
-    if (domain) {
+    const fromEmail = extractDomain(company.email) || undefined;
+    if (fromEmail && !isFreeEmailDomain(fromEmail)) {
+      domain = fromEmail;
       warnings.push(`Domain auto-populated from email: ${domain}`);
+    } else if (fromEmail) {
+      warnings.push('Personal email domains (e.g. Gmail, Yahoo) cannot be used as company domain. Add a company website.');
     }
   }
 
   if (!domain) {
-    errors.push('Company domain is required (can be auto-populated from website or email)');
+    errors.push('Company domain is required (add a company website; personal email domains like Gmail are not allowed)');
   }
 
   // Industry is now optional - no validation needed

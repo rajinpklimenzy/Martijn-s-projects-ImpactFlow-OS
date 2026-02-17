@@ -5,11 +5,12 @@ import {
   Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
-  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban, Upload
+  MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban, Upload, List, Grid
 } from 'lucide-react';
-import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project } from '../types';
-import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects } from '../utils/api';
+import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project, Tag, SavedView } from '../types';
+import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects, apiGetTags, apiGetSavedViews } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
+import { formatNameForDisplay } from '../utils/validate';
 import { ImageWithFallback } from './common';
 import { BusinessCardScanner, LinkedInScanner } from './Scanner';
 import { 
@@ -143,7 +144,16 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const currentUser = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}') : null;
   
   const [view, setView] = useState<'companies' | 'contacts'>('companies');
+  const [displayMode, setDisplayMode] = useState<'list' | 'card'>('list'); // Phase 2: Default to table view
   const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(''); // Phase 2: Debounced search
+  // Phase 2: Pagination state
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(50);
+  const [currentPage, setCurrentPage] = useState(1);
+  // Phase 4: Saved views state
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
+  const [isCreatingSavedView, setIsCreatingSavedView] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [viewingPlaybookInstanceId, setViewingPlaybookInstanceId] = useState<string | null>(null);
@@ -154,9 +164,22 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     companyId: selectedCompany?.id
   });
   
-  // React Query hooks for data fetching with caching
-  const { data: companies = [], isLoading: isLoadingCompanies, isError: isCompaniesError, refetch: refetchCompanies } = useCompanies(localSearchQuery);
-  const { data: contacts = [], isLoading: isLoadingContacts, isError: isContactsError, refetch: refetchContacts } = useContacts(localSearchQuery);
+  // Phase 2: Debounced search (300ms delay, min 2 chars)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // Only search if query is empty or >= 2 characters
+      if (localSearchQuery.trim().length === 0 || localSearchQuery.trim().length >= 2) {
+        setDebouncedSearchQuery(localSearchQuery.trim());
+      } else {
+        setDebouncedSearchQuery('');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearchQuery]);
+
+  // React Query hooks for data fetching with caching - use debounced search
+  const { data: companies = [], isLoading: isLoadingCompanies, isError: isCompaniesError, refetch: refetchCompanies } = useCompanies(debouncedSearchQuery || undefined);
+  const { data: contacts = [], isLoading: isLoadingContacts, isError: isContactsError, refetch: refetchContacts } = useContacts(debouncedSearchQuery || undefined);
   const { data: deals = [], isLoading: isLoadingDeals } = useDeals();
   const { data: users = [], isLoading: isLoadingUsers } = useUsers();
   const { data: projects = [] } = useQuery({
@@ -167,6 +190,42 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     },
     staleTime: 5 * 60 * 1000,
   });
+  
+  // Phase 3: Fetch tags
+  const { data: tags = [], isLoading: isLoadingTags } = useQuery({
+    queryKey: ['tags', view],
+    queryFn: async () => {
+      const response = await apiGetTags(view === 'contacts' ? 'contact' : 'company');
+      return response.data || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  // Create tag lookup map
+  const tagsMap = useMemo(() => {
+    const map = new Map<string, Tag>();
+    tags.forEach(tag => map.set(tag.id, tag));
+    return map;
+  }, [tags]);
+  
+  // Phase 4: Fetch saved views
+  const { data: fetchedSavedViews = [], isLoading: isLoadingSavedViews } = useQuery({
+    queryKey: ['savedViews', view],
+    queryFn: async () => {
+      const response = await apiGetSavedViews(view === 'contacts' ? 'contact' : 'company');
+      return response.data || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  useEffect(() => {
+    setSavedViews(fetchedSavedViews);
+    // Set default view if available
+    const defaultView = fetchedSavedViews.find((sv: SavedView) => sv.isDefault);
+    if (defaultView) {
+      setActiveSavedViewId(defaultView.id);
+    }
+  }, [fetchedSavedViews]);
   
   // React Query mutations
   const updateCompanyMutation = useUpdateCompany();
@@ -211,6 +270,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [isBulkMarkingTargetAccount, setIsBulkMarkingTargetAccount] = useState(false);
   const [isBulkUnmarkingTargetAccount, setIsBulkUnmarkingTargetAccount] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
+  // Store items to be deleted separately so they don't disappear from modal during deletion
+  const [itemsToDelete, setItemsToDelete] = useState<{ companies: Company[]; contacts: Contact[] }>({ companies: [], contacts: [] });
 
   // Satisfaction state
   const [companySatisfaction, setCompanySatisfaction] = useState<any>(null);
@@ -808,11 +869,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         setSelectedCompany(null);
         setIsEditingCompany(false);
       }
+      // Only clear selection and close modal AFTER successful deletion
       setSelectedCompanyIds([]);
+      setItemsToDelete({ companies: [], contacts: [] });
       setBulkDeleteConfirmOpen(null);
       showSuccess(`Successfully deleted ${targetIds.length} compan${targetIds.length > 1 ? 'ies' : 'y'}`);
     } catch (err: any) {
       showError(err.message || 'Failed to delete companies');
+      // Don't clear selection or close modal on error - let user retry or cancel
     } finally {
       setIsBulkDeletingCompanies(false);
     }
@@ -827,11 +891,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         setSelectedContact(null);
         setIsEditingContact(false);
       }
+      // Only clear selection and close modal AFTER successful deletion
       setSelectedContactIds([]);
+      setItemsToDelete({ companies: [], contacts: [] });
       setBulkDeleteConfirmOpen(null);
       showSuccess(`Successfully deleted ${targetIds.length} contact${targetIds.length > 1 ? 's' : ''}`);
     } catch (err: any) {
       showError(err.message || 'Failed to delete contacts');
+      // Don't clear selection or close modal on error - let user retry or cancel
     } finally {
       setIsBulkDeletingContacts(false);
     }
@@ -975,11 +1042,85 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col gap-6 w-full min-w-0">
-        {/* Search Bar */}
-        <div className="w-full min-w-0">
-          <div className="relative group w-full min-w-0">
+        {/* Phase 4: Saved Views Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200">
+          <button
+            onClick={() => {
+              setActiveSavedViewId(null);
+              // Reset filters/sort when switching to "All"
+            }}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg whitespace-nowrap transition-colors ${
+              activeSavedViewId === null
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            All {view === 'companies' ? 'Companies' : 'Contacts'}
+          </button>
+          {savedViews.map((savedView) => (
+            <button
+              key={savedView.id}
+              onClick={() => {
+                setActiveSavedViewId(savedView.id);
+                // TODO: Apply filters, sort, and columns from saved view
+              }}
+              className={`px-4 py-2 text-sm font-semibold rounded-lg whitespace-nowrap transition-colors ${
+                activeSavedViewId === savedView.id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              {savedView.name}
+            </button>
+          ))}
+          <button
+            onClick={() => setIsCreatingSavedView(true)}
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors whitespace-nowrap flex items-center gap-1"
+          >
+            <Plus className="w-4 h-4" />
+            New View
+          </button>
+        </div>
+        
+        {/* Search Bar and View Toggle */}
+        <div className="flex items-center gap-3 w-full min-w-0">
+          <div className="relative group flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors shrink-0" />
-            <input type="text" placeholder={`Search ${view}...`} value={localSearchQuery} onChange={(e) => setLocalSearchQuery(e.target.value)} className="w-full min-w-0 pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
+            <input 
+              type="text" 
+              placeholder={`Search ${view}...`} 
+              value={localSearchQuery} 
+              onChange={(e) => setLocalSearchQuery(e.target.value)} 
+              className="w-full min-w-0 pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" 
+            />
+            {localSearchQuery && (
+              <button
+                onClick={() => setLocalSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            )}
+            {isLoadingCompanies || isLoadingContacts ? (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 animate-spin" />
+            ) : null}
+          </div>
+          {/* Phase 2: View Toggle */}
+          <div className="flex bg-white p-1 border border-slate-200 rounded-xl shadow-sm shrink-0">
+            <button 
+              onClick={() => setDisplayMode('list')} 
+              className={`p-2 rounded-lg transition-colors ${displayMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Table View"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setDisplayMode('card')} 
+              className={`p-2 rounded-lg transition-colors ${displayMode === 'card' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Card View"
+            >
+              <Grid className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -1222,8 +1363,213 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </div>
           )}
 
-        {/* Content Grid - Always show grid, skeleton cards when loading */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 min-h-[600px] w-full min-w-0 items-start">
+        {/* Phase 2: Table View or Card Grid */}
+        {displayMode === 'list' ? (
+          /* Table View */
+          <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="px-6 py-4 w-10">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                        checked={
+                          view === 'companies' 
+                            ? filteredCompanies.length > 0 && selectedCompanyIds.length === filteredCompanies.length && filteredCompanies.every(c => selectedCompanyIds.includes(c.id))
+                            : contacts.length > 0 && selectedContactIds.length === contacts.length
+                        }
+                        onChange={view === 'companies' ? selectAllCompanies : selectAllContacts}
+                        disabled={isLoading}
+                      />
+                    </th>
+                    {view === 'companies' ? (
+                      <>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Domain</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Industry</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Region</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Account Manager</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact Count</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tags</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">NPS Score</th>
+                        <th className="px-6 py-4 text-right"></th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Organization</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Role</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tags</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Assignee</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Domain</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created</th>
+                        <th className="px-6 py-4 text-right"></th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {isLoading ? (
+                    <tr><td colSpan={view === 'companies' ? 11 : 11} className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></td></tr>
+                  ) : (view === 'companies' ? filteredCompanies : contacts).length === 0 ? (
+                    <tr><td colSpan={view === 'companies' ? 11 : 11} className="py-10 text-center text-slate-400 text-sm font-medium">No {view} found.</td></tr>
+                  ) : (view === 'companies' ? filteredCompanies : contacts).map((item: Company | Contact) => {
+                    const isSelected = view === 'companies' 
+                      ? selectedCompanyIds.includes(item.id)
+                      : selectedContactIds.includes(item.id);
+                    
+                    if (view === 'companies') {
+                      const company = item as Company;
+                      const owner = users.find(u => u.id === company.ownerId);
+                      return (
+                        <tr 
+                          key={company.id} 
+                          onClick={() => setSelectedCompany(company)}
+                          className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`}
+                        >
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <input 
+                              type="checkbox" 
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                              checked={isSelected}
+                              onChange={() => setSelectedCompanyIds(prev => isSelected ? prev.filter(id => id !== company.id) : [...prev, company.id])}
+                            />
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <ImageWithFallback src={company.logo} fallbackText={company.name} className="w-8 h-8 border border-slate-100 rounded-lg" isAvatar={false} />
+                              <div>
+                                <p className="text-sm font-bold text-slate-900" title={company.name}>
+                                  {formatNameForDisplay(company.name) || '-'}
+                                </p>
+                                {company.isTargetAccount && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase rounded">
+                                    <Target className="w-2.5 h-2.5" /> Target
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company.domain || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company.industry || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company.region || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{owner?.name ? formatNameForDisplay(owner.name) : 'Unassigned'}</td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700">
+                              {company.status || 'Active'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company.contactCount || 0}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {(company.tags || []).length > 0 ? (
+                                (company.tags || []).slice(0, 3).map((tagId: string) => {
+                                  const tag = tagsMap.get(tagId);
+                                  if (!tag) return null;
+                                  return (
+                                    <span 
+                                      key={tagId} 
+                                      className="px-2 py-0.5 text-xs font-semibold rounded text-white"
+                                      style={{ backgroundColor: tag.color }}
+                                    >
+                                      {tag.name}
+                                    </span>
+                                  );
+                                }).filter(Boolean)
+                              ) : (
+                                <span className="text-xs text-slate-400">-</span>
+                              )}
+                              {(company.tags || []).length > 3 && (
+                                <span className="text-xs text-slate-400">+{(company.tags || []).length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company.npsScore || '-'}</td>
+                          <td className="px-6 py-4 text-right">
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                          </td>
+                        </tr>
+                      );
+                    } else {
+                      const contact = item as Contact;
+                      const company = companies.find(c => c.id === contact.companyId);
+                      const assignee = users.find(u => u.id === contact.assigneeId);
+                      return (
+                        <tr 
+                          key={contact.id} 
+                          onClick={() => setSelectedContact(contact)}
+                          className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`}
+                        >
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <input 
+                              type="checkbox" 
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                              checked={isSelected}
+                              onChange={() => setSelectedContactIds(prev => isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id])}
+                            />
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xs uppercase">
+                                {formatNameForDisplay(contact.name).charAt(0) || '?'}
+                              </div>
+                              <p className="text-sm font-bold text-slate-900" title={contact.name}>
+                                {formatNameForDisplay(contact.name) || '-'}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{contact.email || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{company?.name || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{contact.phone || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{contact.role || '-'}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {(contact.tags || []).length > 0 ? (
+                                (contact.tags || []).slice(0, 3).map((tagId: string) => {
+                                  const tag = tagsMap.get(tagId);
+                                  if (!tag) return null;
+                                  return (
+                                    <span 
+                                      key={tagId} 
+                                      className="px-2 py-0.5 text-xs font-semibold rounded text-white"
+                                      style={{ backgroundColor: tag.color }}
+                                    >
+                                      {tag.name}
+                                    </span>
+                                  );
+                                }).filter(Boolean)
+                              ) : (
+                                <span className="text-xs text-slate-400">-</span>
+                              )}
+                              {(contact.tags || []).length > 3 && (
+                                <span className="text-xs text-slate-400">+{(contact.tags || []).length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{assignee?.name ? formatNameForDisplay(assignee.name) : 'Unassigned'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{contact.domain || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                          </td>
+                        </tr>
+                      );
+                    }
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          /* Card Grid View */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 min-h-[600px] w-full min-w-0 items-start">
           {isLoading ? (
             // Show skeleton cards while loading - exact same dimensions as real cards
             Array.from({ length: 8 }).map((_, index) => (
@@ -1308,13 +1654,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   <div className="flex items-center gap-4 mb-6">
                     <ImageWithFallback src={company.logo} fallbackText={company.name} className="w-12 h-12 border border-slate-100" isAvatar={false} />
                     <div className="flex-1 overflow-hidden">
-                      <h3 className="font-bold text-lg text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{company.name}</h3>
+                      <h3 className="font-bold text-lg text-slate-900 truncate group-hover:text-indigo-600 transition-colors" title={company.name}>
+                        {formatNameForDisplay(company.name) || '-'}
+                      </h3>
                       <p className="text-slate-500 text-xs font-bold uppercase">{company.industry}</p>
                     </div>
                   </div>
                   <div className="space-y-3 mb-6 text-sm text-slate-600">
                     <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-slate-400" /><span className="truncate">{company.website || 'No website'}</span></div>
-                    <div className="flex items-center gap-2"><User className="w-4 h-4 text-slate-400" /><span className="truncate font-medium">{owner?.name || 'Unassigned'}</span></div>
+                    <div className="flex items-center gap-2"><User className="w-4 h-4 text-slate-400" /><span className="truncate font-medium">{owner?.name ? formatNameForDisplay(owner.name) : 'Unassigned'}</span></div>
                   </div>
                   <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{getCompanyDealsCount(company.id)} Active Deals</span>
@@ -1342,10 +1690,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     />
                   </div>
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-11 h-11 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-lg uppercase shadow-inner">{contact.name.charAt(0)}</div>
+                    <div className="w-11 h-11 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-lg uppercase shadow-inner">
+                      {formatNameForDisplay(contact.name).charAt(0) || '?'}
+                    </div>
                     <div className="flex-1 overflow-hidden">
-                      <h3 className="font-bold text-base text-slate-900 truncate">{contact.name}</h3>
-                      <p className="text-slate-500 text-[11px] font-bold uppercase truncate">{contact.role} @ {company?.name || 'Partner'}</p>
+                      <h3 className="font-bold text-base text-slate-900 truncate" title={contact.name}>
+                        {formatNameForDisplay(contact.name) || '-'}
+                      </h3>
+                      <p className="text-slate-500 text-[11px] font-bold uppercase truncate">{contact.role} @ {formatNameForDisplay(company?.name) || 'Partner'}</p>
                     </div>
                   </div>
                   <div className="space-y-2 text-sm text-slate-600 flex-1">
@@ -1371,10 +1723,53 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             })
           )
         )}
-        </div>
+          </div>
+        )}
+
+        {/* Phase 2: Pagination */}
+        {!isLoading && ((view === 'companies' ? filteredCompanies : contacts).length > 0) && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-600 font-medium">
+                Showing {Math.min((currentPage - 1) * pageSize + 1, (view === 'companies' ? filteredCompanies : contacts).length)} - {Math.min(currentPage * pageSize, (view === 'companies' ? filteredCompanies : contacts).length)} of {(view === 'companies' ? filteredCompanies : contacts).length}
+              </span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value) as 25 | 50 | 100);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Previous
+              </button>
+              <span className="px-4 py-2 text-sm font-semibold text-slate-700">
+                Page {currentPage} of {Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize) || 1}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize) || 1, prev + 1))}
+                disabled={currentPage >= Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize)}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Bulk Action Bar */}
+      {/* Phase 2: Enhanced Bulk Action Bar */}
       {((view === 'companies' && selectedCompanyIds.length > 0) || (view === 'contacts' && selectedContactIds.length > 0)) && (
         <div className="fixed bottom-6 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-300 max-w-2xl sm:max-w-none mx-auto">
           <div className="bg-slate-900 text-white rounded-2xl sm:rounded-3xl shadow-2xl px-4 sm:px-8 py-3 sm:py-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-8 border border-white/10 ring-4 ring-indigo-500/10">
@@ -1386,6 +1781,19 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             </span>
             <div className="hidden sm:block h-8 w-px bg-white/10 shrink-0" />
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+              {/* Phase 2: Assign Owner */}
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  // TODO: Open assign owner modal/dropdown
+                  showInfo('Assign owner feature - coming soon');
+                }}
+                className="px-3 sm:px-5 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 sm:gap-2 shrink-0"
+                title="Assign Owner"
+              >
+                <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                <span className="whitespace-nowrap">Assign Owner</span>
+              </button>
               {view === 'companies' && (
                 <>
                   <button 
@@ -1420,9 +1828,33 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   </button>
                 </>
               )}
+              {/* Phase 2: Edit Field (placeholder - full implementation in Phase 3) */}
               <button 
                 onClick={(e) => { 
-                  e.stopPropagation(); 
+                  e.stopPropagation();
+                  showInfo('Edit field feature - coming in Phase 3');
+                }}
+                className="px-3 sm:px-5 py-2 bg-slate-600 hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 sm:gap-2 shrink-0"
+                title="Edit Field"
+              >
+                <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                <span className="whitespace-nowrap">Edit Field</span>
+              </button>
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  // Store items to delete before opening modal so they don't disappear during deletion
+                  if (view === 'companies') {
+                    setItemsToDelete({
+                      companies: companies.filter(c => selectedCompanyIds.includes(c.id)),
+                      contacts: []
+                    });
+                  } else {
+                    setItemsToDelete({
+                      companies: [],
+                      contacts: contacts.filter(c => selectedContactIds.includes(c.id))
+                    });
+                  }
                   setBulkDeleteConfirmOpen(view);
                 }}
                 disabled={view === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts}
@@ -1806,8 +2238,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   {contacts.filter(c => c.companyId === selectedCompany.id).map(contact => (
                     <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 transition-all cursor-pointer" onClick={() => setSelectedContact(contact)}>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-xs font-black text-indigo-600 uppercase">{contact.name.charAt(0)}</div>
-                        <div><p className="text-sm font-bold text-slate-900">{contact.name}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{contact.role}</p></div>
+                        <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-xs font-black text-indigo-600 uppercase">
+                          {formatNameForDisplay(contact.name).charAt(0) || '?'}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900" title={contact.name}>
+                            {formatNameForDisplay(contact.name) || '-'}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase">{contact.role}</p>
+                        </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-slate-300" />
                     </div>
@@ -2355,7 +2794,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-slate-900">
-                    Delete {bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} {bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}{bulkDeleteConfirmOpen === 'companies' ? (selectedCompanyIds.length > 1 ? 'ies' : 'y') : (selectedContactIds.length > 1 ? 's' : '')}?
+                    {(() => {
+                      const count = bulkDeleteConfirmOpen === 'companies' 
+                        ? (itemsToDelete.companies.length > 0 ? itemsToDelete.companies.length : selectedCompanyIds.length)
+                        : (itemsToDelete.contacts.length > 0 ? itemsToDelete.contacts.length : selectedContactIds.length);
+                      return `Delete ${count} ${bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}${bulkDeleteConfirmOpen === 'companies' ? (count > 1 ? 'ies' : 'y') : (count > 1 ? 's' : '')}?`;
+                    })()}
                   </h3>
                   <p className="text-xs text-slate-400 font-medium mt-1">
                     This action cannot be undone. {bulkDeleteConfirmOpen === 'companies' 
@@ -2366,8 +2810,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               </div>
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 max-h-48 overflow-y-auto">
                 {(bulkDeleteConfirmOpen === 'companies' 
-                  ? companies.filter(c => selectedCompanyIds.includes(c.id))
-                  : contacts.filter(c => selectedContactIds.includes(c.id))
+                  ? itemsToDelete.companies.length > 0 
+                    ? itemsToDelete.companies 
+                    : companies.filter(c => selectedCompanyIds.includes(c.id))
+                  : itemsToDelete.contacts.length > 0
+                    ? itemsToDelete.contacts
+                    : contacts.filter(c => selectedContactIds.includes(c.id))
                 ).slice(0, 5).map((item: any) => (
                   <div key={item.id} className="flex items-center gap-3 mb-2 last:mb-0">
                     {bulkDeleteConfirmOpen === 'companies' ? (
@@ -2396,16 +2844,25 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     )}
                   </div>
                 ))}
-                {(bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length) > 5 && (
-                  <p className="text-xs text-slate-400 font-medium mt-2 text-center">
-                    + {(bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length) - 5} more
-                  </p>
-                )}
+                {(() => {
+                  const totalCount = bulkDeleteConfirmOpen === 'companies' 
+                    ? (itemsToDelete.companies.length > 0 ? itemsToDelete.companies.length : selectedCompanyIds.length)
+                    : (itemsToDelete.contacts.length > 0 ? itemsToDelete.contacts.length : selectedContactIds.length);
+                  return totalCount > 5 && (
+                    <p className="text-xs text-slate-400 font-medium mt-2 text-center">
+                      + {totalCount - 5} more
+                    </p>
+                  );
+                })()}
               </div>
             </div>
             <div className="p-6 flex gap-3">
               <button
-                onClick={() => setBulkDeleteConfirmOpen(null)}
+                onClick={() => {
+                  setBulkDeleteConfirmOpen(null);
+                  // Clear stored items when canceling
+                  setItemsToDelete({ companies: [], contacts: [] });
+                }}
                 disabled={bulkDeleteConfirmOpen === 'companies' ? isBulkDeletingCompanies : isBulkDeletingContacts}
                 className="flex-1 py-3 border border-slate-200 text-slate-400 font-black uppercase text-xs tracking-widest rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -2428,7 +2885,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     Deleting...
                   </>
                 ) : (
-                  `Delete ${bulkDeleteConfirmOpen === 'companies' ? selectedCompanyIds.length : selectedContactIds.length} ${bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}${bulkDeleteConfirmOpen === 'companies' ? (selectedCompanyIds.length > 1 ? 'ies' : 'y') : (selectedContactIds.length > 1 ? 's' : '')}`
+                  (() => {
+                    const count = bulkDeleteConfirmOpen === 'companies' 
+                      ? (itemsToDelete.companies.length > 0 ? itemsToDelete.companies.length : selectedCompanyIds.length)
+                      : (itemsToDelete.contacts.length > 0 ? itemsToDelete.contacts.length : selectedContactIds.length);
+                    return `Delete ${count} ${bulkDeleteConfirmOpen === 'companies' ? 'Compan' : 'Contact'}${bulkDeleteConfirmOpen === 'companies' ? (count > 1 ? 'ies' : 'y') : (count > 1 ? 's' : '')}`;
+                  })()
                 )}
               </button>
             </div>

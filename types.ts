@@ -114,6 +114,12 @@ export interface Contact {
   linkedin?: string;
   notes?: Note[]; // Changed from string to Note array
   legacyNotes?: string; // Keep old notes field for backward compatibility
+  // Phase 3: Tags and custom fields
+  tags?: string[]; // Array of tag IDs
+  customFields?: Record<string, any>; // Map of custom property keys to values
+  domain?: string; // Email domain (null if free provider)
+  lastActivityAt?: string; // ISO timestamp
+  assigneeId?: string; // Assignee/Owner ID
   // Scanner-specific fields
   leadSourceId?: string; // Reference to LeadSource
   linkedinUrl?: string; // LinkedIn profile URL
@@ -152,6 +158,13 @@ export interface Company {
   isTargetAccount?: boolean;
   socialSignals?: SocialSignal[];
   notes?: Note[];
+  // Phase 3: Tags and custom fields
+  tags?: string[]; // Array of tag IDs
+  customFields?: Record<string, any>; // Map of custom property keys to values
+  contactCount?: number; // Denormalized count of contacts
+  region?: string;
+  status?: string;
+  npsScore?: number;
   // Scanner-specific fields
   domain?: string; // Email domain (e.g., "techcorp.com")
   createdSource?: string; // "business_card_scanner" | "linkedin_scanner" | "manual"
@@ -502,6 +515,48 @@ export interface Survey {
   surveyUrl?: string; // Unique URL for link-based surveys
   recipients: SurveyRecipient[];
   responses: SurveyResponse[];
+}
+
+// Phase 3: Tag and Custom Property types
+export interface Tag {
+  id: string;
+  name: string;
+  color: string; // Hex color code
+  entityTypes: ('contact' | 'company')[]; // Which entity types this tag applies to
+  createdAt?: string;
+  createdBy?: string;
+}
+
+export interface CustomProperty {
+  id: string;
+  name: string;
+  key: string; // Slug (unique per entityType)
+  entityType: 'contact' | 'company';
+  type: 'text' | 'number' | 'dropdown_single' | 'dropdown_multi' | 'date' | 'checkbox' | 'url';
+  options?: string[]; // For dropdown types
+  required: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Phase 4: Saved View type
+export interface SavedView {
+  id: string;
+  name: string;
+  entityType: 'contact' | 'company';
+  filters: Array<{
+    field: string;
+    operator: string;
+    value: any;
+  }>;
+  filterLogic: 'AND' | 'OR';
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  visibleColumns: string[];
+  createdAt?: string;
+  createdBy?: string;
+  isDefault?: boolean;
 }
 
 export interface CompanySatisfactionSummary {

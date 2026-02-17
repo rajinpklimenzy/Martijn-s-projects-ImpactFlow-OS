@@ -226,6 +226,68 @@ export const apiCreateContact = (data: any) => apiFetch('/contacts', { method: '
 export const apiUpdateContact = (id: string, data: any) => apiFetch(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteContact = (id: string) => apiFetch(`/contacts/${id}`, { method: 'DELETE' });
 
+/**
+ * Phase 3: Tags API
+ */
+export const apiGetTags = (entityType?: 'contact' | 'company') => 
+  apiFetch(`/tags${entityType ? `?entityType=${entityType}` : ''}`);
+export const apiGetTag = (id: string) => apiFetch(`/tags/${id}`);
+export const apiCreateTag = (data: { name: string; color?: string; entityTypes: ('contact' | 'company')[] }) => 
+  apiFetch('/tags', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateTag = (id: string, data: Partial<{ name: string; color: string; entityTypes: ('contact' | 'company')[] }>) => 
+  apiFetch(`/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteTag = (id: string) => apiFetch(`/tags/${id}`, { method: 'DELETE' });
+
+/**
+ * Phase 3: Custom Properties API
+ */
+export const apiGetCustomProperties = (entityType?: 'contact' | 'company') => 
+  apiFetch(`/custom-properties${entityType ? `?entityType=${entityType}` : ''}`);
+export const apiGetCustomProperty = (id: string) => apiFetch(`/custom-properties/${id}`);
+export const apiCreateCustomProperty = (data: { 
+  name: string; 
+  entityType: 'contact' | 'company'; 
+  type: 'text' | 'number' | 'dropdown_single' | 'dropdown_multi' | 'date' | 'checkbox' | 'url';
+  options?: string[];
+  required?: boolean;
+  sortOrder?: number;
+}) => apiFetch('/custom-properties', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateCustomProperty = (id: string, data: Partial<{
+  name: string;
+  type: 'text' | 'number' | 'dropdown_single' | 'dropdown_multi' | 'date' | 'checkbox' | 'url';
+  options?: string[];
+  required?: boolean;
+  sortOrder?: number;
+}>) => apiFetch(`/custom-properties/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteCustomProperty = (id: string) => apiFetch(`/custom-properties/${id}`, { method: 'DELETE' });
+
+/**
+ * Phase 4: Saved Views API
+ */
+export const apiGetSavedViews = (entityType?: 'contact' | 'company') => 
+  apiFetch(`/saved-views${entityType ? `?entityType=${entityType}` : ''}`);
+export const apiGetSavedView = (id: string) => apiFetch(`/saved-views/${id}`);
+export const apiCreateSavedView = (data: {
+  name: string;
+  entityType: 'contact' | 'company';
+  filters?: Array<{ field: string; operator: string; value: any }>;
+  filterLogic?: 'AND' | 'OR';
+  sortField?: string;
+  sortDirection?: 'asc' | 'desc';
+  visibleColumns?: string[];
+  isDefault?: boolean;
+}) => apiFetch('/saved-views', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateSavedView = (id: string, data: Partial<{
+  name: string;
+  filters: Array<{ field: string; operator: string; value: any }>;
+  filterLogic: 'AND' | 'OR';
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  visibleColumns: string[];
+  isDefault: boolean;
+}>) => apiFetch(`/saved-views/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiDeleteSavedView = (id: string) => apiFetch(`/saved-views/${id}`, { method: 'DELETE' });
+
 export const apiGetDeals = (userId?: string, stage?: string, companyId?: string) => {
   const params = new URLSearchParams();
   if (userId) params.append('userId', userId);
