@@ -107,19 +107,26 @@ export interface Contact {
   id: string;
   name: string;
   email: string;
-  companyId: string;
+  companyId: string | null; // Can be null if not linked to company
   role: string;
   phone: string;
   lastContacted: string;
   linkedin?: string;
   notes?: Note[]; // Changed from string to Note array
   legacyNotes?: string; // Keep old notes field for backward compatibility
-  // Phase 3: Tags and custom fields
+  // Phase 1: Tags and custom fields
   tags?: string[]; // Array of tag IDs
-  customFields?: Record<string, any>; // Map of custom property keys to values
-  domain?: string; // Email domain (null if free provider)
+  tagsSearchable?: string[]; // Array of lowercase tag names (for filtering)
+  customProperties?: Record<string, any>; // Map of custom property keys to values (alias: customFields)
+  customFields?: Record<string, any>; // Legacy alias for customProperties
+  domain?: string | null; // Email domain (null if free provider)
+  searchIndex?: string; // Lowercase concatenation of searchable fields
   lastActivityAt?: string; // ISO timestamp
   assigneeId?: string; // Assignee/Owner ID
+  assignee?: string; // Legacy field name (maps to assigneeId)
+  organization?: string; // Company name (denormalized from companyId)
+  createdAt?: string; // ISO timestamp
+  updatedAt?: string; // ISO timestamp
   // Scanner-specific fields
   leadSourceId?: string; // Reference to LeadSource
   linkedinUrl?: string; // LinkedIn profile URL
@@ -135,6 +142,8 @@ export interface Contact {
     rawOcrText?: string;
     extractedFields?: any;
   };
+  // Deprecated fields (to be removed in migration)
+  dueDate?: string; // DEPRECATED - Remove in migration
 }
 
 export interface SocialSignal {
@@ -155,21 +164,29 @@ export interface Company {
   email?: string;
   linkedin?: string;
   ownerId?: string; // Account Manager
-  isTargetAccount?: boolean;
+  accountManager?: string; // Legacy field name (maps to ownerId)
+  isTargetAccount?: boolean; // DEPRECATED - Migrate to tag system
   socialSignals?: SocialSignal[];
   notes?: Note[];
-  // Phase 3: Tags and custom fields
+  // Phase 1: Tags and custom fields
   tags?: string[]; // Array of tag IDs
-  customFields?: Record<string, any>; // Map of custom property keys to values
+  tagsSearchable?: string[]; // Array of lowercase tag names (for filtering)
+  customProperties?: Record<string, any>; // Map of custom property keys to values (alias: customFields)
+  customFields?: Record<string, any>; // Legacy alias for customProperties
   contactCount?: number; // Denormalized count of contacts
   region?: string;
   status?: string;
   npsScore?: number;
+  domain?: string | null; // Website domain (e.g., "techcorp.com")
+  searchIndex?: string; // Lowercase concatenation of searchable fields
+  createdAt?: string; // ISO timestamp
+  updatedAt?: string; // ISO timestamp
   // Scanner-specific fields
-  domain?: string; // Email domain (e.g., "techcorp.com")
   createdSource?: string; // "business_card_scanner" | "linkedin_scanner" | "manual"
   createdFromContactId?: string; // If auto-created from contact
   linkedinCompanyUrl?: string; // Company LinkedIn page
+  // Deprecated fields (to be removed in migration)
+  dueDate?: string; // DEPRECATED - Remove in migration
 }
 
 export interface Deal {
@@ -517,13 +534,14 @@ export interface Survey {
   responses: SurveyResponse[];
 }
 
-// Phase 3: Tag and Custom Property types
+// Phase 1: Tag and Custom Property types
 export interface Tag {
   id: string;
   name: string;
-  color: string; // Hex color code
+  color: string; // Hex color code (e.g., "#4F46E5")
   entityTypes: ('contact' | 'company')[]; // Which entity types this tag applies to
   createdAt?: string;
+  updatedAt?: string;
   createdBy?: string;
 }
 
@@ -531,16 +549,19 @@ export interface CustomProperty {
   id: string;
   name: string;
   key: string; // Slug (unique per entityType)
-  entityType: 'contact' | 'company';
+  entityType: 'contact' | 'company' | 'both';
   type: 'text' | 'number' | 'dropdown_single' | 'dropdown_multi' | 'date' | 'checkbox' | 'url';
   options?: string[]; // For dropdown types
   required: boolean;
-  sortOrder: number;
+  defaultValue?: any; // Default value for the property
+  order: number; // Display order (alias: sortOrder)
+  sortOrder?: number; // Legacy alias for order
+  isVisible: boolean; // Show in table by default
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Phase 4: Saved View type
+// Phase 1: Saved View type
 export interface SavedView {
   id: string;
   name: string;
@@ -553,8 +574,9 @@ export interface SavedView {
   filterLogic: 'AND' | 'OR';
   sortField: string;
   sortDirection: 'asc' | 'desc';
-  visibleColumns: string[];
+  visibleColumns: string[]; // Ordered array of column keys
   createdAt?: string;
+  updatedAt?: string;
   createdBy?: string;
   isDefault?: boolean;
 }

@@ -13,6 +13,8 @@ import { useToast } from '../contexts/ToastContext';
 import { formatNameForDisplay } from '../utils/validate';
 import { ImageWithFallback } from './common';
 import { BusinessCardScanner, LinkedInScanner } from './Scanner';
+import EditableCell from './common/EditableCell';
+import ColumnCustomizer, { ColumnDefinition } from './common/ColumnCustomizer';
 import { 
   useCompanies, 
   useContacts, 
@@ -170,8 +172,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       // Only search if query is empty or >= 2 characters
       if (localSearchQuery.trim().length === 0 || localSearchQuery.trim().length >= 2) {
         setDebouncedSearchQuery(localSearchQuery.trim());
+        // Phase 8: Reset to page 1 on new search
+        setCurrentPage(1);
       } else {
         setDebouncedSearchQuery('');
+        setCurrentPage(1);
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -304,6 +309,35 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Manual refresh state
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   
+  // Phase 8: Column customization state
+  const [showColumnCustomizer, setShowColumnCustomizer] = useState(false);
+  const [contactColumns, setContactColumns] = useState<ColumnDefinition[]>([
+    { key: 'name', label: 'Name', locked: true, visible: true, order: 0 },
+    { key: 'email', label: 'Email', visible: true, order: 1 },
+    { key: 'organization', label: 'Organization', visible: true, order: 2 },
+    { key: 'phone', label: 'Phone', visible: true, order: 3 },
+    { key: 'role', label: 'Role', visible: true, order: 4 },
+    { key: 'tags', label: 'Tags', visible: true, order: 5 },
+    { key: 'assignee', label: 'Assignee', visible: true, order: 6 },
+    { key: 'domain', label: 'Domain', visible: true, order: 7 },
+    { key: 'created', label: 'Created', visible: false, order: 8 },
+  ]);
+  const [companyColumns, setCompanyColumns] = useState<ColumnDefinition[]>([
+    { key: 'name', label: 'Name', locked: true, visible: true, order: 0 },
+    { key: 'domain', label: 'Domain', visible: true, order: 1 },
+    { key: 'industry', label: 'Industry', visible: true, order: 2 },
+    { key: 'region', label: 'Region', visible: true, order: 3 },
+    { key: 'accountManager', label: 'Account Manager', visible: true, order: 4 },
+    { key: 'status', label: 'Status', visible: true, order: 5 },
+    { key: 'contactCount', label: 'Contact Count', visible: true, order: 6 },
+    { key: 'tags', label: 'Tags', visible: true, order: 7 },
+    { key: 'npsScore', label: 'NPS Score', visible: true, order: 8 },
+  ]);
+  
+  // Phase 8: Unsaved changes tracking
+  const [hasUnsavedContactChanges, setHasUnsavedContactChanges] = useState(false);
+  const [hasUnsavedCompanyChanges, setHasUnsavedCompanyChanges] = useState(false);
+  
   // Manual refresh function
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
@@ -346,15 +380,73 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     window.addEventListener('refresh-crm', handleRefresh);
     return () => window.removeEventListener('refresh-crm', handleRefresh);
   }, [queryClient]);
+  
+  // Phase 8: Load column preferences from localStorage on mount
+  useEffect(() => {
+    const savedContactCols = localStorage.getItem('crm_contact_columns');
+    const savedCompanyCols = localStorage.getItem('crm_company_columns');
+    
+    if (savedContactCols) {
+      try {
+        setContactColumns(JSON.parse(savedContactCols));
+      } catch (e) {
+        console.error('Failed to load contact column preferences:', e);
+      }
+    }
+    
+    if (savedCompanyCols) {
+      try {
+        setCompanyColumns(JSON.parse(savedCompanyCols));
+      } catch (e) {
+        console.error('Failed to load company column preferences:', e);
+      }
+    }
+  }, []);
 
   const handleUpdateCompany = async (updates: Partial<Company>) => {
     if (!selectedCompany) return;
     try {
       await updateCompanyMutation.mutateAsync({ id: selectedCompany.id, updates });
       setSelectedCompany({ ...selectedCompany, ...updates });
+      setIsEditingCompany(false);
+      setHasUnsavedCompanyChanges(false);
       showSuccess('Account updated');
     } catch (err) { 
       showError('Update failed'); 
+    }
+  };
+  
+  // Phase 8: Handle inline cell save
+  const handleInlineCellSave = async (field: string, value: any, entityId: string, entityType: 'contact' | 'company') => {
+    try {
+      if (entityType === 'contact') {
+        await updateContactMutation.mutateAsync({ 
+          id: entityId, 
+          updates: { [field]: value } 
+        });
+        // Invalidate queries to refresh data
+        queryClient.invalidateQueries({ queryKey: ['contacts'] });
+        // Update selected contact if it's the one being edited
+        if (selectedContact?.id === entityId) {
+          setSelectedContact({ ...selectedContact, [field]: value });
+        }
+      } else {
+        await updateCompanyMutation.mutateAsync({ 
+          id: entityId, 
+          updates: { [field]: value } 
+        });
+        // Invalidate queries to refresh data
+        queryClient.invalidateQueries({ queryKey: ['companies'] });
+        // Update selected company if it's the one being edited
+        if (selectedCompany?.id === entityId) {
+          setSelectedCompany({ ...selectedCompany, [field]: value });
+        }
+      }
+      showSuccess(`${field} updated successfully`);
+    } catch (error: any) {
+      console.error('Inline cell save error:', error);
+      showError(error.message || 'Failed to update');
+      throw error;
     }
   };
 
@@ -382,6 +474,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       const updatedContact = { ...selectedContact, ...normalizedUpdates };
       setSelectedContact(updatedContact);
       setIsEditingContact(false);
+      setHasUnsavedContactChanges(false);
       showSuccess('Contact profile updated successfully');
     } catch (err: any) {
       console.error('Contact update error:', err);
@@ -390,6 +483,27 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setIsUpdatingContact(false);
     }
   };
+  
+  // Phase 8: Track unsaved changes
+  useEffect(() => {
+    if (!selectedContact || !isEditingContact) {
+      setHasUnsavedContactChanges(false);
+      return;
+    }
+    
+    const hasChanges = JSON.stringify(editContactFormData) !== JSON.stringify(selectedContact);
+    setHasUnsavedContactChanges(hasChanges);
+  }, [editContactFormData, selectedContact, isEditingContact]);
+  
+  useEffect(() => {
+    if (!selectedCompany || !isEditingCompany) {
+      setHasUnsavedCompanyChanges(false);
+      return;
+    }
+    
+    const hasChanges = JSON.stringify(editCompanyFormData) !== JSON.stringify(selectedCompany);
+    setHasUnsavedCompanyChanges(hasChanges);
+  }, [editCompanyFormData, selectedCompany, isEditingCompany]);
 
   const handleDeleteCompany = async (id: string) => {
     setIsDeletingCompany(true);
@@ -1090,20 +1204,89 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               type="text" 
               placeholder={`Search ${view}...`} 
               value={localSearchQuery} 
-              onChange={(e) => setLocalSearchQuery(e.target.value)} 
+              onChange={(e) => {
+                setLocalSearchQuery(e.target.value);
+                // Phase 8: Reset to page 1 on search change
+                setCurrentPage(1);
+              }} 
               className="w-full min-w-0 pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 transition-all" 
             />
+            {/* Phase 8: Clear button */}
             {localSearchQuery && (
               <button
-                onClick={() => setLocalSearchQuery('')}
+                onClick={() => {
+                  setLocalSearchQuery('');
+                  setCurrentPage(1);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Clear search"
               >
                 <X className="w-4 h-4 text-slate-400" />
               </button>
             )}
-            {isLoadingCompanies || isLoadingContacts ? (
+            {/* Phase 8: Loading indicator */}
+            {(isLoadingCompanies || isLoadingContacts) && !localSearchQuery && (
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 animate-spin" />
-            ) : null}
+            )}
+          </div>
+          {/* Phase 8: Column Customizer Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowColumnCustomizer(!showColumnCustomizer)}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-indigo-300 transition-all flex items-center gap-2 shrink-0"
+              title="Customize columns"
+            >
+              <Settings2 className="w-4 h-4 text-slate-600" />
+              <span className="text-sm font-semibold text-slate-700 hidden sm:inline">Columns</span>
+            </button>
+            {showColumnCustomizer && (
+              <div className="absolute right-0 top-full mt-2 z-50">
+                <ColumnCustomizer
+                  columns={view === 'contacts' ? contactColumns : companyColumns}
+                  onColumnsChange={(cols) => {
+                    if (view === 'contacts') {
+                      setContactColumns(cols);
+                      localStorage.setItem('crm_contact_columns', JSON.stringify(cols));
+                    } else {
+                      setCompanyColumns(cols);
+                      localStorage.setItem('crm_company_columns', JSON.stringify(cols));
+                    }
+                  }}
+                  onReset={() => {
+                    const defaultContactCols: ColumnDefinition[] = [
+                      { key: 'name', label: 'Name', locked: true, visible: true, order: 0 },
+                      { key: 'email', label: 'Email', visible: true, order: 1 },
+                      { key: 'organization', label: 'Organization', visible: true, order: 2 },
+                      { key: 'phone', label: 'Phone', visible: true, order: 3 },
+                      { key: 'role', label: 'Role', visible: true, order: 4 },
+                      { key: 'tags', label: 'Tags', visible: true, order: 5 },
+                      { key: 'assignee', label: 'Assignee', visible: true, order: 6 },
+                      { key: 'domain', label: 'Domain', visible: true, order: 7 },
+                      { key: 'created', label: 'Created', visible: false, order: 8 },
+                    ];
+                    const defaultCompanyCols: ColumnDefinition[] = [
+                      { key: 'name', label: 'Name', locked: true, visible: true, order: 0 },
+                      { key: 'domain', label: 'Domain', visible: true, order: 1 },
+                      { key: 'industry', label: 'Industry', visible: true, order: 2 },
+                      { key: 'region', label: 'Region', visible: true, order: 3 },
+                      { key: 'accountManager', label: 'Account Manager', visible: true, order: 4 },
+                      { key: 'status', label: 'Status', visible: true, order: 5 },
+                      { key: 'contactCount', label: 'Contact Count', visible: true, order: 6 },
+                      { key: 'tags', label: 'Tags', visible: true, order: 7 },
+                      { key: 'npsScore', label: 'NPS Score', visible: true, order: 8 },
+                    ];
+                    if (view === 'contacts') {
+                      setContactColumns(defaultContactCols);
+                      localStorage.removeItem('crm_contact_columns');
+                    } else {
+                      setCompanyColumns(defaultCompanyCols);
+                      localStorage.removeItem('crm_company_columns');
+                    }
+                  }}
+                  entityType={view}
+                />
+              </div>
+            )}
           </div>
           {/* Phase 2: View Toggle */}
           <div className="flex bg-white p-1 border border-slate-200 rounded-xl shadow-sm shrink-0">
@@ -1456,9 +1639,93 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{company.domain || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{company.industry || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{company.region || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{owner?.name ? formatNameForDisplay(owner.name) : 'Unassigned'}</td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={company.industry || ''}
+                              onSave={async (newValue) => await handleInlineCellSave('industry', newValue, company.id, 'company')}
+                              type="text"
+                              placeholder="Industry"
+                              className="text-sm"
+                            />
+                          </td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={company.region || ''}
+                              onSave={async (newValue) => await handleInlineCellSave('region', newValue || null, company.id, 'company')}
+                              type="select"
+                              options={[
+                                { value: '', label: 'No Region' },
+                                { value: 'North America', label: 'North America' },
+                                { value: 'South America', label: 'South America' },
+                                { value: 'Europe', label: 'Europe' },
+                                { value: 'Asia', label: 'Asia' },
+                                { value: 'Africa', label: 'Africa' },
+                                { value: 'Middle East', label: 'Middle East' },
+                                { value: 'Oceania', label: 'Oceania' },
+                                { value: 'Central America', label: 'Central America' },
+                                { value: 'Caribbean', label: 'Caribbean' },
+                                { value: 'Eastern Europe', label: 'Eastern Europe' },
+                                { value: 'Western Europe', label: 'Western Europe' },
+                                { value: 'Northern Europe', label: 'Northern Europe' },
+                                { value: 'Southern Europe', label: 'Southern Europe' },
+                                { value: 'Southeast Asia', label: 'Southeast Asia' },
+                                { value: 'East Asia', label: 'East Asia' },
+                                { value: 'South Asia', label: 'South Asia' },
+                                { value: 'Central Asia', label: 'Central Asia' },
+                                { value: 'North Africa', label: 'North Africa' },
+                                { value: 'Sub-Saharan Africa', label: 'Sub-Saharan Africa' },
+                                { value: 'Latin America', label: 'Latin America' },
+                                { value: 'United States', label: 'United States' },
+                                { value: 'Canada', label: 'Canada' },
+                                { value: 'Mexico', label: 'Mexico' },
+                                { value: 'United Kingdom', label: 'United Kingdom' },
+                                { value: 'Germany', label: 'Germany' },
+                                { value: 'France', label: 'France' },
+                                { value: 'Italy', label: 'Italy' },
+                                { value: 'Spain', label: 'Spain' },
+                                { value: 'Netherlands', label: 'Netherlands' },
+                                { value: 'Belgium', label: 'Belgium' },
+                                { value: 'Switzerland', label: 'Switzerland' },
+                                { value: 'Austria', label: 'Austria' },
+                                { value: 'Sweden', label: 'Sweden' },
+                                { value: 'Norway', label: 'Norway' },
+                                { value: 'Denmark', label: 'Denmark' },
+                                { value: 'Finland', label: 'Finland' },
+                                { value: 'Poland', label: 'Poland' },
+                                { value: 'Russia', label: 'Russia' },
+                                { value: 'China', label: 'China' },
+                                { value: 'Japan', label: 'Japan' },
+                                { value: 'India', label: 'India' },
+                                { value: 'South Korea', label: 'South Korea' },
+                                { value: 'Singapore', label: 'Singapore' },
+                                { value: 'Australia', label: 'Australia' },
+                                { value: 'New Zealand', label: 'New Zealand' },
+                                { value: 'Brazil', label: 'Brazil' },
+                                { value: 'Argentina', label: 'Argentina' },
+                                { value: 'Chile', label: 'Chile' },
+                                { value: 'United Arab Emirates', label: 'United Arab Emirates' },
+                                { value: 'Saudi Arabia', label: 'Saudi Arabia' },
+                                { value: 'Israel', label: 'Israel' },
+                                { value: 'South Africa', label: 'South Africa' },
+                                { value: 'Global', label: 'Global' },
+                                { value: 'International', label: 'International' }
+                              ]}
+                              className="text-sm"
+                            />
+                          </td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={company.ownerId || ''}
+                              displayValue={owner?.name ? formatNameForDisplay(owner.name) : 'Unassigned'}
+                              onSave={async (newValue) => await handleInlineCellSave('ownerId', newValue || null, company.id, 'company')}
+                              type="select"
+                              options={[
+                                { value: '', label: 'Unassigned' },
+                                ...users.map(u => ({ value: u.id, label: formatNameForDisplay(u.name) }))
+                              ]}
+                              className="text-sm"
+                            />
+                          </td>
                           <td className="px-6 py-4">
                             <span className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700">
                               {company.status || 'Active'}
@@ -1524,9 +1791,45 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{contact.email || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{company?.name || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{contact.phone || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{contact.role || '-'}</td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={contact.companyId || ''}
+                              displayValue={company?.name || contact.organization || '-'}
+                              onSave={async (selectedCompanyId) => {
+                                const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+                                await handleInlineCellSave('companyId', selectedCompanyId || null, contact.id, 'contact');
+                                if (selectedCompany) {
+                                  await handleInlineCellSave('organization', selectedCompany.name, contact.id, 'contact');
+                                } else {
+                                  await handleInlineCellSave('organization', null, contact.id, 'contact');
+                                }
+                              }}
+                              type="select"
+                              options={[
+                                { value: '', label: 'No Organization' },
+                                ...companies.map(c => ({ value: c.id, label: c.name }))
+                              ]}
+                              className="text-sm"
+                            />
+                          </td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={contact.phone || ''}
+                              onSave={async (newValue) => await handleInlineCellSave('phone', newValue, contact.id, 'contact')}
+                              type="tel"
+                              placeholder="Phone"
+                              className="text-sm"
+                            />
+                          </td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={contact.role || ''}
+                              onSave={async (newValue) => await handleInlineCellSave('role', newValue, contact.id, 'contact')}
+                              type="text"
+                              placeholder="Role"
+                              className="text-sm"
+                            />
+                          </td>
                           <td className="px-6 py-4">
                             <div className="flex flex-wrap gap-1">
                               {(contact.tags || []).length > 0 ? (
@@ -1551,7 +1854,19 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{assignee?.name ? formatNameForDisplay(assignee.name) : 'Unassigned'}</td>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <EditableCell
+                              value={contact.assigneeId || ''}
+                              displayValue={assignee?.name ? formatNameForDisplay(assignee.name) : 'Unassigned'}
+                              onSave={async (newValue) => await handleInlineCellSave('assigneeId', newValue || null, contact.id, 'contact')}
+                              type="select"
+                              options={[
+                                { value: '', label: 'Unassigned' },
+                                ...users.map(u => ({ value: u.id, label: formatNameForDisplay(u.name) }))
+                              ]}
+                              className="text-sm"
+                            />
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{contact.domain || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">
                             {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString() : '-'}
@@ -1898,16 +2213,46 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isEditingCompany ? (
-                  <button onClick={async () => { await handleUpdateCompany(editCompanyFormData); setIsEditingCompany(false); }} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg"><Save className="w-5 h-5" /></button>
-                ) : (
+                {!isEditingCompany ? (
                   <>
                     <button onClick={() => { setEditCompanyFormData({ ...selectedCompany }); setIsEditingCompany(true); }} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Edit3 className="w-5 h-5" /></button>
                     <button onClick={() => setDeleteConfirmCompany(selectedCompany)} className="p-2 hover:bg-red-50 rounded-xl text-red-500 transition-all" title="Delete Company"><Trash2 className="w-5 h-5" /></button>
                   </>
-                )}
+                ) : null}
                 <button onClick={closeCompanyDrawer} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-5 h-5" /></button>
               </div>
+              
+              {/* Phase 8: Contextual SAVE/CANCEL bar for company */}
+              {isEditingCompany && hasUnsavedCompanyChanges && (
+                <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 animate-in slide-in-from-bottom duration-300">
+                  <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-amber-500" />
+                      <span className="text-sm font-semibold text-slate-700">Unsaved changes</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => { 
+                          setIsEditingCompany(false); 
+                          setEditCompanyFormData({...selectedCompany}); 
+                          setHasUnsavedCompanyChanges(false);
+                        }} 
+                        className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-slate-300 transition-all flex items-center gap-2"
+                      >
+                        <X className="w-3.5 h-3.5" /> Cancel
+                      </button>
+                      <button 
+                        onClick={async () => { 
+                          await handleUpdateCompany(editCompanyFormData); 
+                        }} 
+                        className="px-4 py-2 bg-indigo-600 border border-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest text-white hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
+                      >
+                        <Save className="w-3.5 h-3.5" /> Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto p-8 space-y-10">
               {isEditingCompany ? (
@@ -2285,36 +2630,48 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                         <a href={`mailto:${selectedContact.email}`} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"><Mail className="w-4 h-4" /></a>
                         {selectedContact.linkedin && <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="p-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006da5] transition-all shadow-lg shadow-blue-100"><Linkedin className="w-4 h-4" /></a>}
                       </>
-                    ) : (
-                      <>
-                        <button 
-                          onClick={handleUpdateContactDetails} 
-                          disabled={isUpdatingContact}
-                          className="px-4 py-2 bg-indigo-600 border border-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest text-white hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isUpdatingContact ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-3.5 h-3.5" /> Save Changes
-                            </>
-                          )}
-                        </button>
-                        <button 
-                          onClick={() => { 
-                            setIsEditingContact(false); 
-                            setEditContactFormData({...selectedContact}); 
-                          }} 
-                          disabled={isUpdatingContact}
-                          className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-slate-300 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <X className="w-3.5 h-3.5" /> Cancel
-                        </button>
-                      </>
-                    )}
+                    ) : null}
                   </div>
+                  
+                  {/* Phase 8: Contextual SAVE/CANCEL bar - shows when editing and has unsaved changes */}
+                  {isEditingContact && hasUnsavedContactChanges && (
+                    <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 animate-in slide-in-from-bottom duration-300">
+                      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-amber-500" />
+                          <span className="text-sm font-semibold text-slate-700">Unsaved changes</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button 
+                            onClick={() => { 
+                              setIsEditingContact(false); 
+                              setEditContactFormData({...selectedContact}); 
+                              setHasUnsavedContactChanges(false);
+                            }} 
+                            disabled={isUpdatingContact}
+                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-slate-300 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <X className="w-3.5 h-3.5" /> Cancel
+                          </button>
+                          <button 
+                            onClick={handleUpdateContactDetails} 
+                            disabled={isUpdatingContact}
+                            className="px-4 py-2 bg-indigo-600 border border-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest text-white hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isUpdatingContact ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5" /> Save Changes
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
