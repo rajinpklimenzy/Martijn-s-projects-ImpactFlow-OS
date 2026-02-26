@@ -101,7 +101,7 @@ interface CRMCompanyUploadWizardProps {
 const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose, onSuccess, type: propType = 'company' }) => {
   const importType = propType;
   const { showSuccess, showError } = useToast();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(importType === 'contact' ? 0 : 1);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadId, setUploadId] = useState<string | null>(null);
@@ -125,6 +125,11 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
   const [googleSheetsUrl, setGoogleSheetsUrl] = useState('');
   const [loadingGoogleSheets, setLoadingGoogleSheets] = useState(false);
   const [googleSheetsError, setGoogleSheetsError] = useState<string | null>(null);
+  // §2C: Contact import declaration (mandatory before file processing)
+  const [declarationSource, setDeclarationSource] = useState('');
+  const [declarationConsentStatus, setDeclarationConsentStatus] = useState<'yes' | 'no' | 'partial'>('no');
+  const [declarationDate, setDeclarationDate] = useState('');
+  const [declarationProofUrl, setDeclarationProofUrl] = useState('');
 
   const targetOptions = importType === 'contact' ? CONTACT_TARGET_OPTIONS : COMPANY_TARGET_OPTIONS;
   const autoMapAliases = importType === 'contact' ? CONTACT_AUTO_MAP_ALIASES : COMPANY_AUTO_MAP_ALIASES;
@@ -366,7 +371,13 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
     
     setExecuting(true);
     try {
-      const data = await apiImportExecute(uploadId, targetSelections, importType === 'contact' ? companySelections : undefined);
+      const consentDeclaration = importType === 'contact' ? {
+        status: declarationConsentStatus,
+        date: declarationConsentStatus === 'yes' ? declarationDate : undefined,
+        source: declarationSource || undefined,
+        proofUrl: declarationProofUrl || undefined
+      } : undefined;
+      const data = await apiImportExecute(uploadId, targetSelections, importType === 'contact' ? companySelections : undefined, consentDeclaration);
       setResult(data.summary || { created: 0, updated: 0, targetAccounts: 0, failed: 0 });
       setStep(5);
       showSuccess(`Import complete: ${data.summary?.created || 0} created, ${data.summary?.updated || 0} updated.`);
@@ -400,7 +411,7 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">Upload {importType === 'contact' ? 'contacts' : 'companies'}</h2>
-              <p className="text-sm text-slate-500">Step {step} of 5</p>
+              <p className="text-sm text-slate-500">Step {importType === 'contact' ? step + 1 : step} of {importType === 'contact' ? 6 : 5}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -409,6 +420,73 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
         </div>
 
         <div className="p-6 overflow-y-auto flex-1">
+          {/* Step 0 (contact only): Consent declaration — mandatory before file processing */}
+          {importType === 'contact' && step === 0 && (
+            <div className="space-y-6">
+              <p className="text-sm text-slate-600">Before importing contacts, we need a short declaration about the source and consent for this data (required under UAE PDPL).</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Source of this data *</label>
+                  <input
+                    type="text"
+                    value={declarationSource}
+                    onChange={(e) => setDeclarationSource(e.target.value)}
+                    placeholder="e.g. Event sign-up, CRM export, partner list"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Was consent obtained for these contacts? *</label>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="radio" name="consentDecl" checked={declarationConsentStatus === 'yes'} onChange={() => setDeclarationConsentStatus('yes')} className="text-indigo-600" />
+                      Yes
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="radio" name="consentDecl" checked={declarationConsentStatus === 'no'} onChange={() => setDeclarationConsentStatus('no')} className="text-indigo-600" />
+                      No
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="radio" name="consentDecl" checked={declarationConsentStatus === 'partial'} onChange={() => setDeclarationConsentStatus('partial')} className="text-indigo-600" />
+                      Partial
+                    </label>
+                  </div>
+                </div>
+                {declarationConsentStatus === 'yes' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Date consent was obtained</label>
+                    <input
+                      type="date"
+                      value={declarationDate}
+                      onChange={(e) => setDeclarationDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Proof of consent (optional — URL or reference)</label>
+                  <input
+                    type="text"
+                    value={declarationProofUrl}
+                    onChange={(e) => setDeclarationProofUrl(e.target.value)}
+                    placeholder="URL or reference to consent record"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={!declarationSource.trim()}
+                  onClick={() => setStep(1)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next: Upload file
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Step 1: File upload */}
           {step === 1 && (
             <div className="space-y-4">
@@ -535,15 +613,26 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
                   </>
                 )}
               </label>
-              <button
-                type="button"
-                disabled={!file || uploading}
-                onClick={handleUpload}
-                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-                Upload and continue
-              </button>
+              <div className="flex gap-2">
+                {importType === 'contact' && (
+                  <button
+                    type="button"
+                    onClick={() => setStep(0)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium text-sm hover:bg-slate-50"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!file || uploading}
+                  onClick={handleUpload}
+                  className={`${importType === 'contact' ? 'flex-1' : 'w-full'} py-3 bg-indigo-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50`}
+                >
+                  {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                  Upload and continue
+                </button>
+              </div>
             </div>
           )}
 

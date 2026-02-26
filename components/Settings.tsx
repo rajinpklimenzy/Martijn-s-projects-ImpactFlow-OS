@@ -53,11 +53,17 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
   const [dataRequestFilter, setDataRequestFilter] = useState<string>('');
   const [selectedDataRequest, setSelectedDataRequest] = useState<any | null>(null);
   const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
+  const [exportReviewRequest, setExportReviewRequest] = useState<any | null>(null);
+  const [exportReviewData, setExportReviewData] = useState<any | null>(null);
+  const [exportReviewLoading, setExportReviewLoading] = useState(false);
   const [processingLocations, setProcessingLocations] = useState<{
     cloudRunRegion?: string;
     firestoreRegion?: string;
     aiProcessingRegion?: string;
     transferMechanism?: string;
+    lastReviewedAt?: string | null;
+    tiaUploadUrl?: string | null;
+    googleCloudDpaUrl?: string | null;
   } | null>(null);
   const [processingLocationsLoading, setProcessingLocationsLoading] = useState(false);
 
@@ -70,6 +76,24 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
   useEffect(() => {
     loadDataRequests();
   }, [dataRequestFilter]);
+
+  useEffect(() => {
+    if (exportReviewRequest) {
+      setExportReviewLoading(true);
+      setExportReviewData(null);
+      apiExportDataRequest(exportReviewRequest.id, 'json')
+        .then((res: any) => {
+          setExportReviewData(res ?? null);
+        })
+        .catch(() => {
+          showError('Failed to load export');
+          setExportReviewRequest(null);
+        })
+        .finally(() => setExportReviewLoading(false));
+    } else {
+      setExportReviewData(null);
+    }
+  }, [exportReviewRequest]);
 
   useEffect(() => {
     loadProcessingLocations();
@@ -575,8 +599,9 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
                 )}
               </button>
               <p className="text-[11px] text-slate-500">
-                The active privacy notice version will be referenced when recording consent and in
-                email footers.
+                The active privacy notice version will be referenced when recording consent and in email footers.
+                Make sure it clearly covers: controller identity, what data is collected, purposes, lawful/legal basis,
+                retention, data subject rights and how to exercise them, cross-border transfers, and DPO contact (if appointed).
               </p>
             </div>
           </div>
@@ -631,13 +656,19 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
                 <tr>
                   <th className="px-4 py-3 font-bold text-slate-700">Type</th>
                   <th className="px-4 py-3 font-bold text-slate-700">Status</th>
-                  <th className="px-4 py-3 font-bold text-slate-700">Due</th>
+                  <th className="px-4 py-3 font-bold text-slate-700">Deadline</th>
                   <th className="px-4 py-3 font-bold text-slate-700">Requested</th>
                   <th className="px-4 py-3 font-bold text-slate-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {dataRequests.map((dr: any) => (
+                {dataRequests.map((dr: any) => {
+                  const dueAt = dr.dueAt ? new Date(dr.dueAt) : null;
+                  const now = new Date();
+                  const daysUntilDue = dueAt ? Math.ceil((dueAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)) : null;
+                  const isOverdue = daysUntilDue !== null && daysUntilDue < 0;
+                  const escalationDue = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 10;
+                  return (
                   <tr key={dr.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className="px-4 py-3 capitalize">{dr.type}</td>
                     <td className="px-4 py-3">
@@ -650,7 +681,18 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
                         {dr.status.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{dr.dueAt ? new Date(dr.dueAt).toLocaleDateString() : '—'}</td>
+                    <td className="px-4 py-3">
+                      {dueAt ? (
+                        <span className={isOverdue ? 'text-rose-600 font-semibold' : escalationDue ? 'text-amber-700 font-medium' : 'text-slate-600'}>
+                          {isOverdue ? `Overdue by ${Math.abs(daysUntilDue)} days` : `Due in ${daysUntilDue} days`}
+                          {escalationDue && dr.status !== 'completed' && (
+                            <span className="ml-1 text-amber-600" title="Escalation: please complete or escalate">⚠️</span>
+                          )}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-slate-600">{dr.createdAt ? new Date(dr.createdAt).toLocaleDateString() : '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -662,33 +704,19 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
                           Handle
                         </button>
                         {dr.type === 'access' && (
-                          <a
-                            href="#"
-                            onClick={async (e) => {
-                              e.preventDefault();
-                              try {
-                                const res = await apiExportDataRequest(dr.id, 'json');
-                                const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `data-request-${dr.id}.json`;
-                                a.click();
-                                window.URL.revokeObjectURL(url);
-                                showSuccess('Export downloaded');
-                              } catch (err: any) {
-                                showError(err?.message || 'Export failed');
-                              }
-                            }}
+                          <button
+                            type="button"
+                            onClick={() => setExportReviewRequest(dr)}
                             className="text-slate-600 hover:underline text-xs"
                           >
-                            Export
-                          </a>
+                            Review export
+                          </button>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -697,6 +725,16 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
               <h4 className="font-bold text-lg text-slate-900 mb-2">Handle data request</h4>
+              {(() => {
+                const dueAt = selectedDataRequest.dueAt ? new Date(selectedDataRequest.dueAt) : null;
+                const daysUntilDue = dueAt ? Math.ceil((dueAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+                const escalationDue = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 10 && selectedDataRequest.status !== 'completed';
+                return escalationDue ? (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                    ⚠️ Due in {daysUntilDue} days — please complete or escalate.
+                  </div>
+                ) : null;
+              })()}
               <p className="text-sm text-slate-600 mb-4">
                 Type: <strong className="capitalize">{selectedDataRequest.type}</strong> · Status: <strong>{selectedDataRequest.status}</strong>
               </p>
@@ -740,6 +778,79 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
             </div>
           </div>
         )}
+
+        {/* §5A: Review export before sending to data subject */}
+        {exportReviewRequest && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] shadow-2xl flex flex-col">
+              <div className="p-6 border-b border-slate-100">
+                <h4 className="font-bold text-lg text-slate-900">Review export before sending to data subject</h4>
+                <p className="text-sm text-slate-500 mt-1">Review the full export below, then download and/or mark as sent.</p>
+              </div>
+              <div className="flex-1 overflow-auto p-6 min-h-0">
+                {exportReviewLoading ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+                  </div>
+                ) : exportReviewData ? (
+                  <pre className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs overflow-auto max-h-[50vh]">
+                    {JSON.stringify(exportReviewData, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+              <div className="p-6 border-t border-slate-100 flex flex-wrap gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setExportReviewRequest(null); setExportReviewData(null); }}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!exportReviewData) return;
+                    const blob = new Blob([JSON.stringify(exportReviewData, null, 2)], { type: 'application/json' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `data-request-${exportReviewRequest.id}.json`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    showSuccess('Export downloaded');
+                  }}
+                  disabled={!exportReviewData}
+                  className="px-4 py-2 bg-slate-700 text-white rounded-xl text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!exportReviewRequest) return;
+                    setUpdatingRequestId(exportReviewRequest.id);
+                    try {
+                      await apiUpdateDataRequest(exportReviewRequest.id, { status: 'completed' });
+                      showSuccess('Marked as sent to data subject');
+                      setExportReviewRequest(null);
+                      setExportReviewData(null);
+                      loadDataRequests();
+                    } catch (err: any) {
+                      showError(err?.message || 'Update failed');
+                    } finally {
+                      setUpdatingRequestId(null);
+                    }
+                  }}
+                  disabled={!exportReviewRequest || updatingRequestId === exportReviewRequest.id}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {updatingRequestId === exportReviewRequest.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Mark as sent to data subject
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Data Processing Locations */}
@@ -758,24 +869,64 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
             <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
           </div>
         ) : processingLocations ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Cloud Run</p>
-              <p className="text-sm font-semibold text-slate-900">{processingLocations.cloudRunRegion || '—'}</p>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Cloud Run</p>
+                <p className="text-sm font-semibold text-slate-900">{processingLocations.cloudRunRegion || '—'}</p>
+              </div>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Firestore</p>
+                <p className="text-sm font-semibold text-slate-900">{processingLocations.firestoreRegion || '—'}</p>
+              </div>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">AI processing</p>
+                <p className="text-sm font-semibold text-slate-900">{processingLocations.aiProcessingRegion || '—'}</p>
+              </div>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl md:col-span-2">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Transfer mechanism</p>
+                <p className="text-sm text-slate-700">
+                  {processingLocations.transferMechanism || 'Standard Contractual Clauses (SCCs), Data Processing Agreement (DPA)'}
+                </p>
+              </div>
             </div>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Firestore</p>
-              <p className="text-sm font-semibold text-slate-900">{processingLocations.firestoreRegion || '—'}</p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-4 border-t border-slate-100">
+              <p className="text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">Last reviewed:</span>{' '}
+                {processingLocations.lastReviewedAt
+                  ? new Date(processingLocations.lastReviewedAt).toLocaleDateString()
+                  : 'Not set'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = processingLocations.tiaUploadUrl;
+                    if (!url) {
+                      showError('TIA upload location is not configured. Ask your admin to set TIA_UPLOAD_URL.');
+                      return;
+                    }
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-700"
+                >
+                  Upload Transfer Impact Assessment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url =
+                      processingLocations.googleCloudDpaUrl ||
+                      'https://cloud.google.com/terms/data-processing-addendum';
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                  className="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-sky-700"
+                >
+                  View Google Cloud DPA
+                </button>
+              </div>
             </div>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">AI processing</p>
-              <p className="text-sm font-semibold text-slate-900">{processingLocations.aiProcessingRegion || '—'}</p>
-            </div>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl md:col-span-2">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Transfer mechanism</p>
-              <p className="text-sm text-slate-700">{processingLocations.transferMechanism || 'Standard Contractual Clauses (SCCs), Data Processing Agreement (DPA)'}</p>
-            </div>
-          </div>
+          </>
         ) : (
           <p className="text-sm text-slate-500">Unable to load processing locations.</p>
         )}

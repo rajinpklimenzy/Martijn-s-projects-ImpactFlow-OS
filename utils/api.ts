@@ -213,6 +213,10 @@ export const apiGetComplianceHealth = () =>
 
 export const apiGetConsentGaps = () => apiFetch('/compliance/consent-gaps');
 export const apiGetRetentionReview = () => apiFetch('/compliance/retention-review');
+export const apiConsentGapsBulkAction = (payload: { action: 'send_consent_request' | 'archive_expired'; contactIds?: string[] }) =>
+  apiFetch('/compliance/consent-gaps/bulk-action', { method: 'POST', body: JSON.stringify(payload) });
+export const apiRetentionReviewBulkAction = (payload: { action: 'anonymize_all' | 'extend_retention'; contactIds: string[]; justification?: string }) =>
+  apiFetch('/compliance/retention-review/bulk-action', { method: 'POST', body: JSON.stringify(payload) });
 export const apiGetProcessingLocations = () => apiFetch('/compliance/processing-locations');
 
 /**
@@ -268,6 +272,7 @@ export const apiGetContacts = (search?: string, companyId?: string) => {
 
 export const apiCreateContact = (data: any) => apiFetch('/contacts', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateContact = (id: string, data: any) => apiFetch(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiWithdrawConsent = (contactId: string) => apiFetch(`/contacts/${contactId}/unsubscribe`, { method: 'POST', body: JSON.stringify({}) });
 export const apiDeleteContact = (id: string) => apiFetch(`/contacts/${id}`, { method: 'DELETE' });
 
 /**
@@ -650,6 +655,52 @@ export const apiGetDuplicateContacts = () => apiFetch('/data-hygiene/duplicate-c
 export const apiGetIncompleteRecords = () => apiFetch('/data-hygiene/incomplete-records');
 export const apiGetDomainMismatches = () => apiFetch('/data-hygiene/domain-mismatches');
 
+// Compliance Audit Log (admin)
+export type AuditLogParams = {
+  userId?: string;
+  eventType?: string;
+  resourceType?: string;
+  resourceId?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  lastDocId?: string;
+};
+export const apiGetAuditLogs = (params: AuditLogParams = {}) => {
+  const q = new URLSearchParams();
+  if (params.userId) q.set('userId', params.userId);
+  if (params.eventType) q.set('eventType', params.eventType);
+  if (params.resourceType) q.set('resourceType', params.resourceType);
+  if (params.resourceId) q.set('resourceId', params.resourceId);
+  if (params.startDate) q.set('startDate', params.startDate);
+  if (params.endDate) q.set('endDate', params.endDate);
+  if (params.limit != null) q.set('limit', String(params.limit));
+  if (params.lastDocId) q.set('lastDocId', params.lastDocId);
+  return apiFetch(`/audit-logs${q.toString() ? `?${q.toString()}` : ''}`);
+};
+export const apiGetComplianceAuditStats = (params?: { startDate?: string; endDate?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.startDate) q.set('startDate', params.startDate);
+  if (params?.endDate) q.set('endDate', params.endDate);
+  return apiFetch(`/audit-logs/stats${q.toString() ? `?${q.toString()}` : ''}`);
+};
+export const apiExportAuditLogs = (params: AuditLogParams & { format?: 'json' | 'csv' } = {}) => {
+  const q = new URLSearchParams();
+  if (params.userId) q.set('userId', params.userId);
+  if (params.eventType) q.set('eventType', params.eventType);
+  if (params.resourceType) q.set('resourceType', params.resourceType);
+  if (params.resourceId) q.set('resourceId', params.resourceId);
+  if (params.startDate) q.set('startDate', params.startDate);
+  if (params.endDate) q.set('endDate', params.endDate);
+  if (params.format) q.set('format', params.format);
+  return fetch(`${getApiBase()}/audit-logs/export${q.toString() ? `?${q.toString()}` : ''}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('auth_token') || ''}` }
+  }).then(r => {
+    if (!r.ok) return r.json().then((d: any) => { throw new Error(d?.message || d?.error?.message || 'Export failed'); });
+    return r.text();
+  });
+};
+
 // Industries (Settings > CRM > Industries)
 export const apiGetIndustries = () => apiFetch('/industries');
 export const apiCreateIndustry = (data: { name: string }) =>
@@ -707,10 +758,19 @@ export const apiImportGoogleSheets = async (url: string, type: 'company' | 'cont
 export const apiImportMapping = (uploadId: string, mapping: Record<string, string>) =>
   apiFetch(`/import/${uploadId}/mapping`, { method: 'POST', body: JSON.stringify({ mapping }) });
 export const apiImportPreview = (uploadId: string) => apiFetch(`/import/${uploadId}/preview`);
-export const apiImportExecute = (uploadId: string, targetAccountSelections: Record<string, boolean>, companySelections?: Record<string, string>) =>
+export const apiImportExecute = (
+  uploadId: string,
+  targetAccountSelections: Record<string, boolean>,
+  companySelections?: Record<string, string>,
+  consentDeclaration?: { status?: string; date?: string; source?: string; proofUrl?: string }
+) =>
   apiFetch(`/import/${uploadId}/execute`, {
     method: 'POST',
-    body: JSON.stringify({ targetAccountSelections, ...(companySelections ? { companySelections } : {}) })
+    body: JSON.stringify({
+      targetAccountSelections,
+      ...(companySelections ? { companySelections } : {}),
+      ...(consentDeclaration ? { consentDeclaration } : {})
+    })
   });
 export const apiGetImportBatch = (batchId: string) => apiFetch(`/import/batch/${batchId}`);
 

@@ -240,7 +240,14 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
 
         {/* Mode: Review */}
         {mode === 'review' && profileData && (
-          <ScannerReviewForm
+          <>
+            <div className="p-4 mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-900">
+                <strong>LinkedIn contacts cannot be used for direct outreach without separate consent</strong> under UAE PDPL and LinkedIn&apos;s Terms of Service. This contact will be saved with consent status &quot;Pending&quot; until you obtain explicit opt-in.
+              </p>
+            </div>
+            <ScannerReviewForm
             extractedData={profileData}
             suggestions={suggestions || { existingContact: null, existingCompany: null, createNewCompany: true }}
             source="linkedin"
@@ -249,6 +256,7 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
             isProcessing={isProcessing}
             companies={companies}
           />
+        </>
         )}
 
         {/* Mode: Success */}

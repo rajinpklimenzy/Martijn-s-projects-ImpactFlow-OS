@@ -126,7 +126,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     startDate: '',
     endDate: '',
     category: '' as string,
-    lineItems: [] as Array<{ description: string; quantity: number; rate: number; amount: number }>
+    lineItems: [] as Array<{ description: string; quantity: number; rate: number; amount: number }>,
+    // §2D/2E Contact compliance (manual/quick add)
+    dataSource: 'manual_entry',
+    dataSourceDetail: '',
+    consentStatus: 'pending' as 'granted' | 'pending' | 'not_required'
   });
 
   useEffect(() => {
@@ -135,7 +139,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       assigneeId: '', ownerId: '', value: '', expectedCloseDate: '',
       stage: initialStage || 'Discovery', status: 'Planning', progress: '0',
       priority: 'Medium', description: '', industry: '', website: '', region: '', domain: '', linkedin: '', assignedUserIds: [],
-      engagement: '', startDate: '', endDate: '', category: ''
+      engagement: '', startDate: '', endDate: '', category: '',
+      dataSource: 'manual_entry', dataSourceDetail: '', consentStatus: 'pending'
     };
     
     // For invoice type, initialize with one empty line item and default currency
@@ -402,6 +407,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
       // Type-specific logic
       if (type === 'contact') {
+        // §2D/2E: Not required consent needs organization with active deal
+        if (formData.consentStatus === 'not_required' && !formData.companyId?.trim()) {
+          setFieldErrors(prev => ({ ...prev, companyId: 'Organization is required when consent is "Not required (active contract)".' }));
+          setIsSubmitting(false);
+          return;
+        }
         // Client-side duplicate check before submitting
         const newContact: Partial<Contact> = {
           name: formData.name,
@@ -470,7 +481,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           email: formData.email, 
           phone: formData.phone, 
           linkedin: formData.linkedin || undefined,
-          contact_compliance: { data_source: 'manual_entry', consent_status: 'pending' }
+          contact_compliance: {
+            data_source: formData.dataSource || 'manual_entry',
+            data_source_detail: formData.dataSourceDetail?.trim() || undefined,
+            consent_status: formData.consentStatus || 'pending'
+          }
         });
       } else if (type === 'company') {
         // Company domain: from website, or from email only if not free (no gmail/yahoo etc.)
@@ -1051,6 +1066,80 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))} 
                   className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300" 
                 />
+              </div>
+            )}
+
+            {/* §2D/2E Contact compliance fields */}
+            {type === 'contact' && (
+              <div className="space-y-4 pt-2 border-t border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Compliance (UAE PDPL)</p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">How did you get this contact?</label>
+                  <select
+                    value={formData.dataSource}
+                    onChange={(e) => setFormData(prev => ({ ...prev, dataSource: e.target.value }))}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold"
+                  >
+                    <option value="manual_entry">Manual entry</option>
+                    <option value="event_registration">Event registration</option>
+                    <option value="referral">Referral</option>
+                    <option value="inbound_inquiry">Inbound inquiry</option>
+                    <option value="business_card_scan">Business card</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Event / context</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Conference 2025, Intro from John"
+                    value={formData.dataSourceDetail}
+                    onChange={(e) => setFormData(prev => ({ ...prev, dataSourceDetail: e.target.value }))}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1 flex items-center gap-1">
+                    Consent status
+                    <span title="Consent status for this contact. Pending requires follow-up within 14 days. Not required is only allowed when the organization has an active deal." className="text-slate-400 cursor-help">ⓘ</span>
+                  </label>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="consentStatus"
+                        checked={formData.consentStatus === 'granted'}
+                        onChange={() => setFormData(prev => ({ ...prev, consentStatus: 'granted' }))}
+                        className="text-indigo-600"
+                      />
+                      Consent given
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="consentStatus"
+                        checked={formData.consentStatus === 'pending'}
+                        onChange={() => setFormData(prev => ({ ...prev, consentStatus: 'pending' }))}
+                        className="text-indigo-600"
+                      />
+                      Pending — will follow up
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="consentStatus"
+                        checked={formData.consentStatus === 'not_required'}
+                        onChange={() => setFormData(prev => ({ ...prev, consentStatus: 'not_required' }))}
+                        className="text-indigo-600"
+                      />
+                      Not required (active contract)
+                    </label>
+                  </div>
+                  {formData.consentStatus === 'not_required' && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Organization must have an active deal (not Lost/Closed). Save will fail if the selected company has no active deal.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2211,9 +2300,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     try {
                       // Create anyway (user confirmed it's not a duplicate)
                       const payload = { ...mergeModal.newContact };
-                      if (!payload.contact_compliance?.data_source || !payload.contact_compliance?.consent_status) {
-                        payload.contact_compliance = { ...(payload.contact_compliance || {}), data_source: 'manual_entry', consent_status: 'pending' };
-                      }
+                      payload.contact_compliance = {
+                        data_source: formData.dataSource || 'manual_entry',
+                        data_source_detail: formData.dataSourceDetail?.trim() || undefined,
+                        consent_status: formData.consentStatus || 'pending'
+                      };
                       await apiCreateContact(payload);
                       setMergeModal(null);
                       setStep('success');

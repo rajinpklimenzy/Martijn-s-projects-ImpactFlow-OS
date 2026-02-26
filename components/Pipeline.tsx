@@ -749,6 +749,12 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                 <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
                   {stageDeals.map(deal => {
                     const company = companies.find(c => c.id === deal.companyId);
+                    const primaryContactId = deal.stakeholderIds?.[0];
+                    const primaryContact = primaryContactId ? contacts.find(c => c.id === primaryContactId) : undefined;
+                    const hasNoValidConsent = primaryContact && (
+                      primaryContact.contact_compliance?.consent_status === 'withdrawn' ||
+                      (primaryContact.contact_compliance?.lawful_basis_expires && new Date(primaryContact.contact_compliance.lawful_basis_expires) < new Date())
+                    );
                     const isSelected = selectedDealIds.includes(deal.id);
                     return (
                       <div 
@@ -758,6 +764,11 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                         key={deal.id} 
                         className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} shadow-sm hover:border-indigo-300 hover:shadow-xl transition-all cursor-move group active:scale-[0.98] relative ${draggingDealId === deal.id ? 'opacity-30' : ''}`}
                       >
+                        {hasNoValidConsent && (
+                          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[10px] font-bold uppercase tracking-wider">
+                            Primary contact has no valid consent — outreach restricted.
+                          </div>
+                        )}
                         <div className="absolute top-3 right-3" onClick={(e) => e.stopPropagation()}>
                           <input 
                             type="checkbox" 

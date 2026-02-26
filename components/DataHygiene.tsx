@@ -15,6 +15,10 @@ import {
   ChevronRight,
   Shield,
   Clock,
+  Download,
+  Send,
+  Archive,
+  FileText,
 } from 'lucide-react';
 import {
   apiGetDuplicateCompanies,
@@ -25,6 +29,8 @@ import {
   apiMergeContacts,
   apiGetConsentGaps,
   apiGetRetentionReview,
+  apiConsentGapsBulkAction,
+  apiRetentionReviewBulkAction,
 } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
@@ -71,6 +77,9 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
   } | null>(null);
   const [isMerging, setIsMerging] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [consentGapsBulkLoading, setConsentGapsBulkLoading] = useState<'send' | 'archive' | null>(null);
+  const [retentionBulkLoading, setRetentionBulkLoading] = useState<'anonymize' | 'extend' | null>(null);
+  const [extendRetentionModal, setExtendRetentionModal] = useState<{ open: boolean; justification: string }>({ open: false, justification: '' });
 
   const fetchDuplicateCompanies = useCallback(async () => {
     setLoading((l) => ({ ...l, companies: true }));
@@ -482,6 +491,73 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
         {!isLoading && activeTab === 'consent-gaps' && (
           <div className="p-6">
             <p className="text-slate-500 text-sm mb-4">Contacts with pending consent, expired lawful basis, or legitimate interest nearing expiry.</p>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                type="button"
+                onClick={async () => {
+                  setConsentGapsBulkLoading('send');
+                  try {
+                    const res = await apiConsentGapsBulkAction({ action: 'send_consent_request' });
+                    const data = (res as any)?.data;
+                    showSuccess(data?.tasksCreated ? `Created ${data.tasksCreated} consent request task(s). Use Consent Recovery template in Shared Inbox.` : 'Done.');
+                    fetchConsentGaps();
+                  } catch (e: any) {
+                    showError(e?.message || 'Bulk action failed');
+                  } finally {
+                    setConsentGapsBulkLoading(null);
+                  }
+                }}
+                disabled={consentGaps.length === 0 || consentGapsBulkLoading !== null}
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {consentGapsBulkLoading === 'send' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Send consent request to all
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConsentGapsBulkLoading('archive');
+                  try {
+                    const res = await apiConsentGapsBulkAction({ action: 'archive_expired' });
+                    const data = (res as any)?.data;
+                    showSuccess(data?.archivedCount != null ? `Archived ${data.archivedCount} expired contact(s).` : 'Done.');
+                    fetchConsentGaps();
+                  } catch (e: any) {
+                    showError(e?.message || 'Archive failed');
+                  } finally {
+                    setConsentGapsBulkLoading(null);
+                  }
+                }}
+                disabled={consentGapsBulkLoading !== null}
+                className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl hover:bg-amber-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {consentGapsBulkLoading === 'archive' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+                Archive all expired
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (consentGaps.length === 0) return;
+                  const header = 'id,name,email,gapReason\n';
+                  const rows = consentGaps.map((c: any) =>
+                    [c.id, (c.name || '').replace(/"/g, '""'), (c.email || '').replace(/"/g, '""'), c.gapReason || ''].join(',')
+                  );
+                  const csv = header + rows.join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `consent-gaps-${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  showSuccess('List exported.');
+                }}
+                disabled={consentGaps.length === 0}
+                className="px-4 py-2 bg-slate-600 text-white text-xs font-bold rounded-xl hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" /> Export list
+              </button>
+            </div>
             {consentGaps.length === 0 ? (
               <p className="text-slate-500 text-sm">No consent gaps found.</p>
             ) : (
@@ -506,6 +582,72 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
         {!isLoading && activeTab === 'retention-review' && (
           <div className="p-6">
             <p className="text-slate-500 text-sm mb-4">Older, inactive contacts with no active deals. Consider anonymization or export before deletion.</p>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                type="button"
+                onClick={async () => {
+                  const ids = retentionReview.map((c: any) => c.id);
+                  if (ids.length === 0) return;
+                  setRetentionBulkLoading('anonymize');
+                  try {
+                    const res = await apiRetentionReviewBulkAction({ action: 'anonymize_all', contactIds: ids });
+                    const data = (res as any)?.data;
+                    showSuccess(
+                      data?.anonymized != null
+                        ? `Anonymized ${data.anonymized} contact(s).${data.blocked ? ` ${data.blocked} blocked (active deal/invoice/DSAR).` : ''}`
+                        : 'Done.'
+                    );
+                    fetchRetentionReview();
+                  } catch (e: any) {
+                    showError(e?.message || 'Bulk anonymize failed');
+                  } finally {
+                    setRetentionBulkLoading(null);
+                  }
+                }}
+                disabled={retentionReview.length === 0 || retentionBulkLoading !== null}
+                className="px-4 py-2 bg-rose-600 text-white text-xs font-bold rounded-xl hover:bg-rose-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {retentionBulkLoading === 'anonymize' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                Anonymize all
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (retentionReview.length === 0) return;
+                  const header = 'id,name,email,lastContacted,retentionReason\n';
+                  const rows = retentionReview.map((c: any) =>
+                    [
+                      c.id,
+                      (c.name || '').replace(/"/g, '""'),
+                      (c.email || '').replace(/"/g, '""'),
+                      c.lastContacted || c.updatedAt || c.createdAt || '',
+                      c.retentionReason || ''
+                    ].join(',')
+                  );
+                  const csv = header + rows.join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `retention-review-export-${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  showSuccess('Export before deletion downloaded.');
+                }}
+                disabled={retentionReview.length === 0}
+                className="px-4 py-2 bg-slate-600 text-white text-xs font-bold rounded-xl hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" /> Export before deletion
+              </button>
+              <button
+                type="button"
+                onClick={() => setExtendRetentionModal({ open: true, justification: '' })}
+                disabled={retentionReview.length === 0 || retentionBulkLoading !== null}
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                <FileText className="w-4 h-4" /> Extend retention (with justification)
+              </button>
+            </div>
             {retentionReview.length === 0 ? (
               <p className="text-slate-500 text-sm">No contacts in retention review.</p>
             ) : (
@@ -559,6 +701,77 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
                   >
                     {isMerging ? <Loader2 className="w-5 h-5 animate-spin" /> : <Merge className="w-5 h-5" />}
                     Merge
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {extendRetentionModal.open && (
+        <div className="fixed inset-0 z-[90] overflow-hidden">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !retentionBulkLoading && setExtendRetentionModal({ open: false, justification: '' })} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-lg font-bold text-slate-900">Extend retention</h3>
+                <button
+                  type="button"
+                  onClick={() => !retentionBulkLoading && setExtendRetentionModal({ open: false, justification: '' })}
+                  className="p-2 hover:bg-slate-100 rounded-full text-slate-400"
+                  disabled={retentionBulkLoading === 'extend'}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-600">
+                  Add a justification to extend retention for the {retentionReview.length} contact(s) in the list. This will record retention_extended_at and your justification on each.
+                </p>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Justification (required)</label>
+                <textarea
+                  value={extendRetentionModal.justification}
+                  onChange={(e) => setExtendRetentionModal((prev) => ({ ...prev, justification: e.target.value }))}
+                  placeholder="e.g. Legal hold; ongoing dispute; regulatory request"
+                  rows={3}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm resize-none"
+                />
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setExtendRetentionModal({ open: false, justification: '' })}
+                    className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl border border-slate-200"
+                    disabled={retentionBulkLoading === 'extend'}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const justification = extendRetentionModal.justification.trim();
+                      if (!justification) {
+                        showError('Please enter a justification.');
+                        return;
+                      }
+                      setRetentionBulkLoading('extend');
+                      try {
+                        const ids = retentionReview.map((c: any) => c.id);
+                        await apiRetentionReviewBulkAction({ action: 'extend_retention', contactIds: ids, justification });
+                        showSuccess(`Retention extended for ${ids.length} contact(s).`);
+                        setExtendRetentionModal({ open: false, justification: '' });
+                        fetchRetentionReview();
+                      } catch (e: any) {
+                        showError(e?.message || 'Extend retention failed');
+                      } finally {
+                        setRetentionBulkLoading(null);
+                      }
+                    }}
+                    disabled={retentionBulkLoading === 'extend' || !extendRetentionModal.justification.trim()}
+                    className="flex-[2] py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {retentionBulkLoading === 'extend' ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+                    Extend retention
                   </button>
                 </div>
               </div>

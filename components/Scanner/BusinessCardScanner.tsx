@@ -24,6 +24,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [suggestions, setSuggestions] = useState<ScanSuggestions | null>(null);
+  const [cardImageUrl, setCardImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -208,6 +209,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
       if (response.success) {
         setExtractedData(response.data.extractedData);
         setSuggestions(response.data.suggestions);
+        setCardImageUrl(response.data.cardImageUrl ?? null);
         setMode('review');
       } else {
         throw new Error('Failed to process business card');
@@ -238,7 +240,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
         scanConfidenceScore: calculateAverageConfidence(extractedData),
         originalScanData: extractedData,
         userId: currentUserId,
-        contactCompliance: compliance
+        contactCompliance: { ...compliance, card_image_url: cardImageUrl || undefined }
       });
 
       if (response.success) {

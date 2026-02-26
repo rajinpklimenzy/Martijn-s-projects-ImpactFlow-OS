@@ -13,6 +13,7 @@ import Invoicing from './components/Invoicing.tsx';
 import UserManagement from './components/UserManagement.tsx';
 import Settings from './components/Settings.tsx';
 import DataHygiene from './components/DataHygiene.tsx';
+import ComplianceAuditLog from './components/ComplianceAuditLog.tsx';
 import ImportHistory from './components/ImportHistory.tsx';
 import Schedule from './components/Schedule.tsx';
 import Integrations from './components/Integrations.tsx';
@@ -281,7 +282,7 @@ const App: React.FC = () => {
     const promptOnboarding = urlParams.get('promptOnboarding');
     const dealParam = urlParams.get('deal');
     const templateIdParam = urlParams.get('templateId');
-    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'playbooks', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction', 'inbox', 'expenses', 'budget', 'contracts', 'data-hygiene', 'products-services', 'import-history'];
+    const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'playbooks', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction', 'inbox', 'expenses', 'budget', 'contracts', 'data-hygiene', 'compliance-audit-log', 'products-services', 'import-history'];
     
     if (tabParam && validTabs.includes(tabParam)) {
       // URL param takes priority (for direct links)
@@ -461,6 +462,7 @@ const App: React.FC = () => {
       case 'users': return <UserManagement />;
       case 'settings': return <Settings currentUser={currentUser} onUserUpdate={setCurrentUser} />;
       case 'data-hygiene': return <DataHygiene currentUser={currentUser} />;
+      case 'compliance-audit-log': return <ComplianceAuditLog currentUser={currentUser} />;
       case 'import-history': return <ImportHistory currentUser={currentUser} />;
       case 'integrations': return <Integrations />;
       case 'products-services': return <ProductsServices />;
@@ -592,7 +594,7 @@ const App: React.FC = () => {
             {(() => {
               const group = NAV_SYSTEM_GROUP;
               const isOpen = navGroupsOpen[group.id] !== false;
-              const systemItems = group.items.filter((item) => item.id !== 'data-hygiene' || currentUser?.role === 'Admin');
+              const systemItems = group.items.filter((item) => (item.id !== 'data-hygiene' && item.id !== 'compliance-audit-log') || currentUser?.role === 'Admin');
               return (
                 <div className="pt-1">
                   <button

@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Building2, User, Globe, Phone, Mail, ChevronRight, Search, Plus, ExternalLink, 
-  Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Settings2, FileSearch, 
+  Calendar, Clock, Sparkles, ArrowRight, X, Trash2, Shield, Lock, Settings2, FileSearch, 
   Loader2, AlertTriangle, CheckSquare, ListChecks, Linkedin, Briefcase, TrendingUp,
   UserPlus, Newspaper, Rocket, Zap, Target, Save, Edit3, Wand2, Info, FileText, History,
   MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban, Upload, List, Grid
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project, Tag, SavedView } from '../types';
-import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects, apiGetTags, apiGetSavedViews, apiCreateDataRequest } from '../utils/api';
+import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects, apiGetTags, apiGetSavedViews, apiCreateDataRequest, apiWithdrawConsent, apiGetAuditLogs } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { formatNameForDisplay } from '../utils/validate';
 import { ImageWithFallback } from './common';
@@ -139,7 +139,7 @@ const CompanyPlaybookInstanceCard: React.FC<{
 };
 
 const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const queryClient = useQueryClient();
   
   // Get current user from localStorage
@@ -169,13 +169,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Phase 2: Debounced search (300ms delay, min 2 chars)
   useEffect(() => {
     const timer = setTimeout(() => {
+      const trimmed = localSearchQuery.trim();
+
       // Only search if query is empty or >= 2 characters
-      if (localSearchQuery.trim().length === 0 || localSearchQuery.trim().length >= 2) {
-        setDebouncedSearchQuery(localSearchQuery.trim());
+      if (trimmed.length === 0 || trimmed.length >= 2) {
+        setDebouncedSearchQuery((prev) => (prev === trimmed ? prev : trimmed));
         // Phase 8: Reset to page 1 on new search
         setCurrentPage(1);
       } else {
-        setDebouncedSearchQuery('');
+        setDebouncedSearchQuery((prev) => (prev === '' ? prev : ''));
         setCurrentPage(1);
       }
     }, 300);
@@ -224,13 +226,21 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   });
   
   useEffect(() => {
-    setSavedViews(fetchedSavedViews);
-    // Set default view if available
+    // Only update local savedViews state when data meaningfully changes
+    setSavedViews((prev) => {
+      if (prev.length === fetchedSavedViews.length &&
+          prev.every((sv, idx) => sv.id === fetchedSavedViews[idx]?.id)) {
+        return prev;
+      }
+      return fetchedSavedViews;
+    });
+
+    // Set default view once, or when default changes
     const defaultView = fetchedSavedViews.find((sv: SavedView) => sv.isDefault);
-    if (defaultView) {
+    if (defaultView && defaultView.id !== activeSavedViewId) {
       setActiveSavedViewId(defaultView.id);
     }
-  }, [fetchedSavedViews]);
+  }, [fetchedSavedViews, activeSavedViewId]);
   
   // React Query mutations
   const updateCompanyMutation = useUpdateCompany();
@@ -263,6 +273,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [dataRequestType, setDataRequestType] = useState<'access' | 'erasure' | 'rectification' | 'restrict'>('access');
   const [dataRequestDetails, setDataRequestDetails] = useState('');
   const [isSubmittingDataRequest, setIsSubmittingDataRequest] = useState(false);
+  const [showRecordWithdrawalConfirm, setShowRecordWithdrawalConfirm] = useState(false);
+  const [isWithdrawingConsent, setIsWithdrawingConsent] = useState(false);
   const [isUpdatingContact, setIsUpdatingContact] = useState(false);
   
   // Delete confirmation state
@@ -281,6 +293,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState<'companies' | 'contacts' | null>(null);
   // Store items to be deleted separately so they don't disappear from modal during deletion
   const [itemsToDelete, setItemsToDelete] = useState<{ companies: Company[]; contacts: Contact[] }>({ companies: [], contacts: [] });
+
+  // §3B: Consent stats for selected contacts (outbound: only granted count for outreach)
+  const selectedContactConsentStats = useMemo(() => {
+    if (selectedContactIds.length === 0) return { withConsent: 0, withoutConsent: 0, total: 0 };
+    const selected = contacts.filter((c: Contact) => selectedContactIds.includes(c.id));
+    const withConsent = selected.filter((c: Contact) => (c.contact_compliance?.consent_status === 'granted')).length;
+    return { withConsent, withoutConsent: selected.length - withConsent, total: selected.length };
+  }, [contacts, selectedContactIds]);
 
   // Satisfaction state
   const [companySatisfaction, setCompanySatisfaction] = useState<any>(null);
@@ -342,6 +362,32 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Phase 8: Unsaved changes tracking
   const [hasUnsavedContactChanges, setHasUnsavedContactChanges] = useState(false);
   const [hasUnsavedCompanyChanges, setHasUnsavedCompanyChanges] = useState(false);
+
+  // §7: Contact History — compliance audit log entries for selected contact
+  const { data: contactAuditData, isLoading: isLoadingContactAudit } = useQuery({
+    queryKey: ['audit-logs', 'contact', selectedContact?.id],
+    queryFn: async () => {
+      const res = await apiGetAuditLogs({
+        resourceType: 'contact',
+        resourceId: selectedContact!.id,
+        limit: 50
+      });
+      return (res as any)?.data ?? (res as any)?.logs ?? [];
+    },
+    enabled: !!(selectedContact?.id && activeContactTab === 'activity')
+  });
+  const contactAuditLogs: Array<{ id: string; eventType: string; timestamp: string | Date; userId?: string; userEmail?: string; metadata?: Record<string, unknown> }> = Array.isArray(contactAuditData) ? contactAuditData : [];
+  const COMPLIANCE_EVENT_TYPES = new Set([
+    'contact_created', 'contact_updated', 'consent_granted', 'consent_withdrawn', 'consent_expired',
+    'lawful_basis_changed', 'outbound_sent', 'outbound_blocked', 'data_exported', 'data_anonymized',
+    'data_deleted', 'processing_restricted', 'processing_unrestricted', 'card_image_deleted',
+    'dsar_access', 'dsar_erasure', 'dsar_rectification', 'dsar_restrict', 'bulk_import', 'cross_border_transfer'
+  ]);
+  const formatAuditEventLabel = (eventType: string) =>
+    eventType
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   
   // Manual refresh function
   const handleManualRefresh = async () => {
@@ -363,8 +409,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   };
 
   useEffect(() => {
-    if (externalSearchQuery !== undefined) setLocalSearchQuery(externalSearchQuery);
-  }, [externalSearchQuery]);
+    if (externalSearchQuery !== undefined && externalSearchQuery !== localSearchQuery) {
+      setLocalSearchQuery(externalSearchQuery);
+    }
+  }, [externalSearchQuery, localSearchQuery]);
 
   // Clear selections when search query or view changes
   useEffect(() => {
@@ -583,54 +631,97 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     setShowContactMentionDropdown(false);
   };
 
-  // Extract mentioned users from text
+  // Extract mentioned users from text (without using regex literals for better bundler compatibility)
   const extractMentionedUsers = (text: string): string[] => {
-    const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
     const mentions: string[] = [];
-    let match;
-    
-    while ((match = mentionRegex.exec(text)) !== null) {
-      const mentionedName = match[1].trim();
-      const user = users.find(u => u.name.toLowerCase() === mentionedName.toLowerCase());
-      if (user) {
-        mentions.push(user.id);
+
+    const isMentionChar = (ch: string) =>
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === ' ';
+
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === '@') {
+        let j = i + 1;
+        while (j < text.length && isMentionChar(text[j])) {
+          j++;
+        }
+        const mentionedName = text.slice(i + 1, j).trim();
+        if (mentionedName) {
+          const user = users.find(
+            (u) => u.name.trim().toLowerCase() === mentionedName.toLowerCase()
+          );
+          if (user) {
+            mentions.push(user.id);
+          }
+        }
+        i = j;
+      } else {
+        i++;
       }
     }
-    
+
     return [...new Set(mentions)];
   };
 
-  // Render note text with highlighted mentions
+  // Render note text with highlighted mentions (regex-free implementation)
   const renderNoteTextWithMentions = (text: string) => {
-    const mentionRegex = /@([A-Za-z0-9\s]+?)(?=\s|$|[.,!?])/g;
-    const parts = [];
+    const parts: React.ReactNode[] = [];
+
+    const isMentionChar = (ch: string) =>
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === ' ';
+
+    let i = 0;
     let lastIndex = 0;
-    let match;
-    
-    while ((match = mentionRegex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index));
-      }
-      
-      const mentionedName = match[1].trim();
-      const user = users.find(u => u.name.toLowerCase() === mentionedName.toLowerCase());
-      if (user) {
-        parts.push(
-          <span key={match.index} className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">
-            @{user.name}
-          </span>
-        );
+
+    while (i < text.length) {
+      if (text[i] === '@') {
+        if (i > lastIndex) {
+          parts.push(text.slice(lastIndex, i));
+        }
+
+        let j = i + 1;
+        while (j < text.length && isMentionChar(text[j])) {
+          j++;
+        }
+
+        const mentionedName = text.slice(i + 1, j).trim();
+
+        if (mentionedName) {
+          const user = users.find(
+            (u) => u.name.trim().toLowerCase() === mentionedName.toLowerCase()
+          );
+
+          if (user) {
+            parts.push(
+              <span
+                key={i}
+                className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold"
+              >
+                @{user.name}
+              </span>
+            );
+          } else {
+            parts.push(text.slice(i, j));
+          }
+        }
+
+        i = j;
+        lastIndex = j;
       } else {
-        parts.push(`@${mentionedName}`);
+        i++;
       }
-      
-      lastIndex = match.index + match[0].length;
     }
-    
+
     if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
+      parts.push(text.slice(lastIndex));
     }
-    
+
     return parts.length > 0 ? parts : text;
   };
 
@@ -1795,7 +1886,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                         <tr 
                           key={contact.id} 
                           onClick={() => setSelectedContact(contact)}
-                          className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`}
+                          className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'} ${(contact as Contact).contact_compliance?.processing_restricted ? 'bg-slate-100/80' : ''}`}
                         >
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                             <input 
@@ -1807,6 +1898,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
+                              {(contact as Contact).contact_compliance?.processing_restricted && (
+                                <Lock className="w-4 h-4 text-slate-500 shrink-0" title="Processing restricted — read-only" />
+                              )}
                               <div className="w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xs uppercase">
                                 {formatNameForDisplay(contact.name).charAt(0) || '?'}
                               </div>
@@ -1835,6 +1929,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                                 ...companies.map(c => ({ value: c.id, label: c.name }))
                               ]}
                               className="text-sm"
+                              disabled={(contact as Contact).contact_compliance?.processing_restricted}
                             />
                           </td>
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -1844,6 +1939,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                               type="tel"
                               placeholder="Phone"
                               className="text-sm"
+                              disabled={(contact as Contact).contact_compliance?.processing_restricted}
                             />
                           </td>
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -1853,6 +1949,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                               type="text"
                               placeholder="Role"
                               className="text-sm"
+                              disabled={(contact as Contact).contact_compliance?.processing_restricted}
                             />
                           </td>
                           <td className="px-6 py-4">
@@ -1890,6 +1987,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                                 ...users.map(u => ({ value: u.id, label: formatNameForDisplay(u.name) }))
                               ]}
                               className="text-sm"
+                              disabled={(contact as Contact).contact_compliance?.processing_restricted}
                             />
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{contact.domain || '-'}</td>
@@ -2026,6 +2124,15 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   onClick={() => setSelectedContact(contact)} 
                   className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm relative flex flex-col h-[220px]`}
                 >
+                  {(contact as Contact).contact_compliance?.processing_restricted && (
+                    <>
+                      <div className="absolute inset-0 bg-slate-400/30 rounded-2xl pointer-events-none z-10" />
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none flex flex-col items-center gap-1">
+                        <Lock className="w-8 h-8 text-slate-600 drop-shadow" />
+                        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Read-only</span>
+                      </div>
+                    </>
+                  )}
                   <div className="absolute top-4 right-4" onClick={(e) => e.stopPropagation()}>
                     <input 
                       type="checkbox" 
@@ -2124,6 +2231,12 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               </div>
               Selected
             </span>
+            {view === 'contacts' && selectedContactConsentStats.total > 0 && (
+              <span className="text-xs text-slate-300 font-medium">
+                {selectedContactConsentStats.withConsent} of {selectedContactConsentStats.total} have valid consent for outreach.
+                {selectedContactConsentStats.withoutConsent > 0 && ` ${selectedContactConsentStats.withoutConsent} will be excluded from email/campaigns.`}
+              </span>
+            )}
             <div className="hidden sm:block h-8 w-px bg-white/10 shrink-0" />
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
               {/* Phase 2: Assign Owner */}
@@ -2611,7 +2724,16 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Contacts</h3>
                 <div className="space-y-3">
                   {contacts.filter(c => c.companyId === selectedCompany.id).map(contact => (
-                    <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 transition-all cursor-pointer" onClick={() => setSelectedContact(contact)}>
+                    <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 transition-all cursor-pointer relative" onClick={() => setSelectedContact(contact)}>
+                      {(contact as Contact).contact_compliance?.processing_restricted && (
+                        <>
+                          <div className="absolute inset-0 bg-slate-400/30 rounded-2xl pointer-events-none z-10" />
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 pointer-events-none flex items-center gap-1.5 text-slate-600">
+                            <Lock className="w-4 h-4" />
+                            <span className="text-[10px] font-bold uppercase">Read-only</span>
+                          </div>
+                        </>
+                      )}
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-xs font-black text-indigo-600 uppercase">
                           {formatNameForDisplay(contact.name).charAt(0) || '?'}
@@ -2639,6 +2761,16 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-in fade-in duration-300" onClick={closeContactDrawer} />
           <div className="absolute right-0 inset-y-0 w-full max-w-xl bg-white shadow-2xl pointer-events-auto animate-in slide-in-from-right duration-500 flex flex-col">
             
+            {/* §5D: Processing restricted banner */}
+            {selectedContact.contact_compliance?.processing_restricted && (
+              <div className="px-6 py-3 bg-slate-200 border-b border-slate-300 flex items-center gap-3">
+                <Lock className="w-5 h-5 text-slate-600 shrink-0" />
+                <p className="text-sm font-semibold text-slate-800">
+                  Processing restricted — this contact is read-only. No outbound, enrichment, or pipeline movement.
+                </p>
+              </div>
+            )}
+
             {/* Business Card Header */}
             <div className="p-8 border-b border-slate-100 bg-slate-50/50 relative">
               <button onClick={closeContactDrawer} className="absolute top-6 right-6 p-2 hover:bg-white rounded-full text-slate-400 transition-all shadow-sm z-10"><X className="w-5 h-5" /></button>
@@ -2656,7 +2788,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   <div className="flex gap-2 mt-4">
                     {!isEditingContact ? (
                       <>
-                        <button onClick={() => { setEditContactFormData({...selectedContact}); setIsEditingContact(true); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"><Edit3 className="w-3.5 h-3.5" /> Edit Profile</button>
+                        {!selectedContact.contact_compliance?.processing_restricted && (
+                          <button onClick={() => { setEditContactFormData({...selectedContact}); setIsEditingContact(true); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"><Edit3 className="w-3.5 h-3.5" /> Edit Profile</button>
+                        )}
                         <a href={`mailto:${selectedContact.email}`} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"><Mail className="w-4 h-4" /></a>
                         {selectedContact.linkedin && <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="p-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006da5] transition-all shadow-lg shadow-blue-100"><Linkedin className="w-4 h-4" /></a>}
                       </>
@@ -2664,7 +2798,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                   </div>
                   
                   {/* Phase 8: Contextual SAVE/CANCEL bar - shows when editing and has unsaved changes */}
-                  {isEditingContact && hasUnsavedContactChanges && (
+                  {isEditingContact && hasUnsavedContactChanges && !selectedContact.contact_compliance?.processing_restricted && (
                     <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 animate-in slide-in-from-bottom duration-300">
                       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
@@ -2727,157 +2861,18 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-              {activeContactTab === 'details' && (
-                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  {isEditingContact ? (
-                    <div className="space-y-8 animate-in slide-in-from-top-2 duration-300">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Legal Name <span className="text-red-500">*</span></label>
-                          <input 
-                            required
-                            type="text" 
-                            value={editContactFormData.name || ''} 
-                            onChange={e => setEditContactFormData({...editContactFormData, name: e.target.value})} 
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Professional Role</label>
-                          <input 
-                            type="text" 
-                            value={editContactFormData.role || ''} 
-                            onChange={e => setEditContactFormData({...editContactFormData, role: e.target.value})} 
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Linked Organization</label>
-                        <select 
-                          value={editContactFormData.companyId || ''} 
-                          onChange={e => setEditContactFormData({...editContactFormData, companyId: e.target.value})} 
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
-                        >
-                          <option value="">No Organization</option>
-                          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      
-                      <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-6">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-200 pb-2">Communication Registry</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Enterprise Email <span className="text-red-500">*</span></label>
-                            <input 
-                              required
-                              type="email" 
-                              value={editContactFormData.email || ''} 
-                              onChange={e => setEditContactFormData({...editContactFormData, email: e.target.value})} 
-                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Mobile Contact</label>
-                            <input 
-                              type="tel" 
-                              value={editContactFormData.phone || ''} 
-                              onChange={e => setEditContactFormData({...editContactFormData, phone: e.target.value})} 
-                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
-                            />
-                          </div>
-                          <div className="space-y-2 md:col-span-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">LinkedIn Intelligence URL</label>
-                            <input 
-                              type="url" 
-                              value={editContactFormData.linkedin || ''} 
-                              onChange={e => setEditContactFormData({...editContactFormData, linkedin: e.target.value})} 
-                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all" 
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between group hover:bg-white hover:border-indigo-200 transition-all shadow-sm">
-                           <div className="flex justify-between items-start mb-4">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Contact Channel</p>
-                              <Mail className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-                           </div>
-                           <p className="text-sm font-black text-slate-900 truncate">{selectedContact.email}</p>
-                           <p className="text-[10px] text-indigo-500 font-bold uppercase mt-2">Verified Enterprise Mail</p>
-                        </div>
-                        <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-between group hover:bg-white hover:border-indigo-200 transition-all shadow-sm">
-                           <div className="flex justify-between items-start mb-4">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Voice Registry</p>
-                              <Phone className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-                           </div>
-                           <p className="text-sm font-black text-slate-900">{selectedContact.phone || 'Registry Pending'}</p>
-                           <p className="text-[10px] text-slate-400 font-bold uppercase mt-2">Direct Terminal</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Building2 className="w-4 h-4 text-indigo-500" /> Account Context</h3>
-                        <div className="p-6 bg-white border border-slate-100 rounded-[36px] shadow-sm flex items-center gap-5 hover:border-indigo-300 transition-all group">
-                          <ImageWithFallback src={companies.find(c => c.id === selectedContact.companyId)?.logo} className="w-16 h-16 border-2 border-slate-50" fallbackText="C" isAvatar={false} />
-                          <div className="flex-1">
-                             <p className="font-black text-lg text-slate-900 leading-none mb-1 group-hover:text-indigo-600 transition-colors">{companies.find(c => c.id === selectedContact.companyId)?.name || 'Independent Partner'}</p>
-                             <div className="flex items-center gap-2">
-                               <span className="text-[10px] text-slate-400 font-black uppercase">{companies.find(c => c.id === selectedContact.companyId)?.industry || 'Uncategorized'}</span>
-                               <span className="w-1 h-1 rounded-full bg-slate-200" />
-                               <span className="text-[10px] text-indigo-500 font-black uppercase">Primary Stakeholder</span>
-                             </div>
-                          </div>
-                          <button className="p-3 text-indigo-600 bg-indigo-50 rounded-2xl hover:bg-indigo-100 transition-all"><ExternalLink className="w-5 h-5" /></button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-500" /> Intelligence Summary</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                           <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 flex items-center gap-3">
-                              <UserCheck className="w-5 h-5 text-emerald-600" />
-                              <div>
-                                 <p className="text-[10px] font-black text-emerald-600 uppercase">Influence</p>
-                                 <p className="text-xs font-bold text-slate-900">Decision Maker</p>
-                              </div>
-                           </div>
-                           <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex items-center gap-3">
-                              <Share2 className="w-5 h-5 text-blue-600" />
-                              <div>
-                                 <p className="text-[10px] font-black text-blue-600 uppercase">Network</p>
-                                 <p className="text-xs font-bold text-slate-900">Executive Hub</p>
-                              </div>
-                           </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4 text-indigo-500" /> Compliance</h3>
-                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <span className="text-xs text-slate-600">
-                              Consent: <span className="font-semibold capitalize">{selectedContact.contact_compliance?.consent_status || 'pending'}</span>
-                              {selectedContact.contact_compliance?.lawful_basis && (
-                                <span className="text-slate-500 ml-1">· {String(selectedContact.contact_compliance.lawful_basis).replace('_', ' ')}</span>
-                              )}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => { setDataRequestType('access'); setDataRequestDetails(''); setShowHandleDataRequestModal(true); }}
-                              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
-                            >
-                              <FileSearch className="w-3.5 h-3.5" /> Handle Data Request
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
+              {activeContactTab === 'details' && selectedContact && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                    Overview
+                  </h3>
+                  <div className="p-6 bg-white border border-slate-200 rounded-2xl space-y-2">
+                    <p className="text-sm font-bold text-slate-900">{selectedContact.name}</p>
+                    <p className="text-sm text-slate-600">{selectedContact.email || 'No email'}</p>
+                    <p className="text-xs text-slate-500">
+                      {companies.find(c => c.id === selectedContact.companyId)?.name || 'Independent Partner'}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -2901,8 +2896,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                         value={contactNoteText}
                         onChange={handleContactNoteTextChange}
                         onBlur={() => setTimeout(() => setShowContactMentionDropdown(false), 200)}
-                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
-                        placeholder="Add strategic context, decision-making patterns, or meeting insights... (Use @ to mention users)"
+                        disabled={selectedContact.contact_compliance?.processing_restricted}
+                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-50"
+                        placeholder={selectedContact.contact_compliance?.processing_restricted ? 'Processing restricted — cannot add notes' : 'Add strategic context, decision-making patterns, or meeting insights... (Use @ to mention users)'}
                       />
                       
                       {/* Mention Dropdown */}
@@ -2935,7 +2931,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
 
                     <button
                       onClick={handleAddContactNote}
-                      disabled={isAddingContactNote || !contactNoteText.trim()}
+                      disabled={isAddingContactNote || !contactNoteText.trim() || selectedContact.contact_compliance?.processing_restricted}
                       className="w-full px-6 py-3 bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isAddingContactNote ? (
@@ -3029,25 +3025,58 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <div className="space-y-8 animate-in fade-in slide-in-from-left-4 duration-300">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Operational Engagement Timeline</h3>
-                    <button className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-all flex items-center gap-1.5"><FileSearch className="w-3 h-3" /> Audit Log</button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('compliance-audit-log')}
+                      className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-all flex items-center gap-1.5"
+                    >
+                      <FileSearch className="w-3 h-3" /> Full Audit Log
+                    </button>
                   </div>
                   <div className="relative border-l-2 border-slate-100 ml-4 pl-10 space-y-12">
-                     <div className="relative">
-                       <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-indigo-600 shadow-xl flex items-center justify-center">
-                         <div className="w-2 h-2 rounded-full bg-indigo-600" />
-                       </div>
-                       <p className="text-[10px] font-black text-indigo-600 uppercase mb-1 tracking-widest">Digital Touchpoint • Yesterday</p>
-                       <h4 className="text-sm font-black text-slate-900">Enterprise Email Receipt</h4>
-                       <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Confirmed receipt of Logistics Transformation Proposal V3. Stakeholder requested EMEA regional review by Friday.</p>
-                     </div>
-                     <div className="relative">
-                       <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-slate-200 shadow-sm flex items-center justify-center">
-                         <div className="w-2 h-2 rounded-full bg-slate-300" />
-                       </div>
-                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Registry Update • Last Week</p>
-                       <h4 className="text-sm font-black text-slate-900">Registry Association Linked</h4>
-                       <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Manually associated with the 'Q4 Global Logistics Consolidation' opportunity by Alex Rivera (Admin).</p>
-                     </div>
+                    {isLoadingContactAudit ? (
+                      <div className="flex items-center gap-2 text-slate-400 text-xs">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
+                      </div>
+                    ) : (
+                      <>
+                        {contactAuditLogs.map((log) => {
+                          const ts = log.timestamp && (typeof log.timestamp === 'string' ? new Date(log.timestamp) : (log as any).timestamp?.toDate ? (log as any).timestamp.toDate() : new Date((log as any).timestamp));
+                          const isCompliance = COMPLIANCE_EVENT_TYPES.has(log.eventType);
+                          const dateLabel = ts ? (ts.getTime() > Date.now() - 86400000 ? 'Today' : ts.getTime() > Date.now() - 604800000 ? 'This week' : ts.toLocaleDateString()) : '—';
+                          return (
+                            <div key={log.id} className="relative">
+                              <div className={`absolute -left-[51px] top-1.5 w-8 h-8 rounded-full border-2 shadow-sm flex items-center justify-center ${isCompliance ? 'bg-blue-50 border-blue-400 text-blue-600' : 'bg-white border-slate-200'}`}>
+                                {isCompliance ? <Shield className="w-4 h-4" /> : <div className="w-2 h-2 rounded-full bg-slate-300" />}
+                              </div>
+                              <p className={`text-[10px] font-black uppercase mb-1 tracking-widest ${isCompliance ? 'text-blue-600' : 'text-slate-400'}`}>
+                                {isCompliance ? 'Compliance' : 'Activity'} • {dateLabel}
+                              </p>
+                              <h4 className="text-sm font-black text-slate-900">{formatAuditEventLabel(log.eventType)}</h4>
+                              <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">
+                                {log.metadata && typeof log.metadata === 'object' && (log.metadata as any).description ? String((log.metadata as any).description) : (log.userEmail ? `By ${log.userEmail}` : '—')}
+                              </p>
+                            </div>
+                          );
+                        })}
+                        <div className="relative">
+                          <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-indigo-600 shadow-xl flex items-center justify-center">
+                            <div className="w-2 h-2 rounded-full bg-indigo-600" />
+                          </div>
+                          <p className="text-[10px] font-black text-indigo-600 uppercase mb-1 tracking-widest">Digital Touchpoint • Recent</p>
+                          <h4 className="text-sm font-black text-slate-900">Enterprise Email Receipt</h4>
+                          <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Confirmed receipt of Logistics Transformation Proposal V3. Stakeholder requested EMEA regional review by Friday.</p>
+                        </div>
+                        <div className="relative">
+                          <div className="absolute -left-[51px] top-1.5 w-8 h-8 rounded-full bg-white border-2 border-slate-200 shadow-sm flex items-center justify-center">
+                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                          </div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Registry Update • Last Week</p>
+                          <h4 className="text-sm font-black text-slate-900">Registry Association Linked</h4>
+                          <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm">Manually associated with the &apos;Q4 Global Logistics Consolidation&apos; opportunity by Alex Rivera (Admin).</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -3056,8 +3085,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             {/* Premium Footer */}
             <div className="p-8 border-t border-slate-100 bg-white flex gap-4">
               <button 
-                onClick={() => setDeleteConfirmContact(selectedContact)} 
-                className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-[28px] transition-all group shrink-0 active:scale-95"
+                onClick={() => !selectedContact.contact_compliance?.processing_restricted && setDeleteConfirmContact(selectedContact)} 
+                disabled={selectedContact.contact_compliance?.processing_restricted}
+                className="px-6 py-4 border border-slate-200 bg-white text-red-500 hover:bg-red-50 rounded-[28px] transition-all group shrink-0 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
               >
                 <Trash2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
               </button>
@@ -3135,6 +3165,52 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               >
                 {isSubmittingDataRequest ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* §4C: Record Withdrawal confirmation */}
+      {selectedContact && showRecordWithdrawalConfirm && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isWithdrawingConsent && setShowRecordWithdrawalConfirm(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Record withdrawal</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              Record that <strong>{selectedContact.name}</strong> has withdrawn consent? This will set consent status to &quot;Withdrawn&quot;, clear consent purposes, log the event, and notify the assignee. No further marketing communications will be sent.
+            </p>
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowRecordWithdrawalConfirm(false)}
+                disabled={isWithdrawingConsent}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!selectedContact?.id) return;
+                  setIsWithdrawingConsent(true);
+                  try {
+                    const res = await apiWithdrawConsent(selectedContact.id);
+                    const updatedCompliance = (res as any)?.data?.contact_compliance;
+                    setSelectedContact(prev => prev ? { ...prev, contact_compliance: updatedCompliance || { ...prev.contact_compliance, consent_status: 'withdrawn', consent_purposes: [] } } : null);
+                    queryClient.invalidateQueries({ queryKey: ['contacts'] });
+                    showSuccess('Consent withdrawn. Assignee has been notified.');
+                    setShowRecordWithdrawalConfirm(false);
+                  } catch (err: any) {
+                    showError(err?.message || 'Failed to record withdrawal');
+                  } finally {
+                    setIsWithdrawingConsent(false);
+                  }
+                }}
+                disabled={isWithdrawingConsent}
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {isWithdrawingConsent ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Record withdrawal
               </button>
             </div>
           </div>
@@ -3286,6 +3362,17 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       ? 'All associated contacts, deals, and projects will be affected.'
                       : 'The contacts will be permanently removed from the enterprise registry.'}
                   </p>
+                  {bulkDeleteConfirmOpen === 'contacts' && (() => {
+                    const list = itemsToDelete.contacts.length > 0 ? itemsToDelete.contacts : contacts.filter((c: Contact) => selectedContactIds.includes(c.id));
+                    const withConsent = list.filter((c: Contact) => (c as Contact).contact_compliance?.consent_status === 'granted').length;
+                    const withoutConsent = list.length - withConsent;
+                    if (list.length === 0) return null;
+                    return (
+                      <p className="text-xs text-amber-700 font-medium mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        {withConsent} of {list.length} selected have valid consent for outreach. {withoutConsent > 0 ? `${withoutConsent} will be excluded from future email/campaigns. ` : ''}Confirm to proceed with deletion.
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 max-h-48 overflow-y-auto">
