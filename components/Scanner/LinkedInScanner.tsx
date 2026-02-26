@@ -120,7 +120,7 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
   };
 
   // Confirm and create contact
-  const handleConfirm = async (contactData: any, companyData: any, linkToExistingCompany: string | null) => {
+  const handleConfirm = async (contactData: any, companyData: any, linkToExistingCompany: string | null, compliance: any) => {
     setIsProcessing(true);
     setError(null);
 
@@ -138,7 +138,8 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
         companyData,
         linkToExistingCompany,
         leadSourceId: linkedInSource?.id || '',
-        userId: currentUserId
+        userId: currentUserId,
+        contactCompliance: compliance
       });
 
       if (response.success) {

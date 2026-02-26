@@ -127,6 +127,26 @@ export interface Contact {
   organization?: string; // Company name (denormalized from companyId)
   createdAt?: string; // ISO timestamp
   updatedAt?: string; // ISO timestamp
+  // Compliance block from backend
+  contact_compliance?: {
+    data_source: string;
+    data_source_detail?: string | null;
+    data_source_date?: string | null;
+    lawful_basis: string;
+    lawful_basis_expires?: string | null;
+    consent_status: 'granted' | 'pending' | 'withdrawn' | 'not_required';
+    consent_purposes?: string[];
+    consent_method?: string | null;
+    consent_granted_at?: string | null;
+    consent_withdrawn_at?: string | null;
+    consent_recorded_by?: string | null;
+    privacy_notice_version?: string | null;
+    region?: string;
+    processing_restricted?: boolean;
+    gdpr_applicable?: boolean;
+    card_image_url?: string | null;
+    card_image_expiry?: string | null;
+  };
   // Scanner-specific fields
   leadSourceId?: string; // Reference to LeadSource
   linkedinUrl?: string; // LinkedIn profile URL

@@ -13,6 +13,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  Shield,
+  Clock,
 } from 'lucide-react';
 import {
   apiGetDuplicateCompanies,
@@ -21,6 +23,8 @@ import {
   apiGetDomainMismatches,
   apiMergeCompanies,
   apiMergeContacts,
+  apiGetConsentGaps,
+  apiGetRetentionReview,
 } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 
@@ -28,7 +32,7 @@ interface DataHygieneProps {
   currentUser: any;
 }
 
-type TabId = 'companies' | 'contacts' | 'incomplete' | 'mismatches';
+type TabId = 'companies' | 'contacts' | 'incomplete' | 'mismatches' | 'consent-gaps' | 'retention-review';
 
 const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
   const { showSuccess, showError } = useToast();
@@ -40,6 +44,8 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
     contacts: false,
     incomplete: false,
     mismatches: false,
+    'consent-gaps': false,
+    'retention-review': false,
   });
   const [duplicateCompanies, setDuplicateCompanies] = useState<{ groups: { domain: string; companies: any[]; count: number }[]; totalDuplicates: number }>({ groups: [], totalDuplicates: 0 });
   const [duplicateContacts, setDuplicateContacts] = useState<{ groups: { email: string; contacts: any[]; count: number }[]; totalDuplicates: number }>({ groups: [], totalDuplicates: 0 });
@@ -51,6 +57,8 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
     invoices: { record: any; errors: string[]; warnings: string[] }[];
   }>({ companies: [], contacts: [], deals: [], projects: [], invoices: [] });
   const [domainMismatches, setDomainMismatches] = useState<{ mismatches: any[]; count: number }>({ mismatches: [], count: 0 });
+  const [consentGaps, setConsentGaps] = useState<any[]>([]);
+  const [retentionReview, setRetentionReview] = useState<any[]>([]);
 
   const [mergeModal, setMergeModal] = useState<{
     open: boolean;
@@ -135,19 +143,51 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
     }
   }, [showError]);
 
+  const fetchConsentGaps = useCallback(async () => {
+    setLoading((l) => ({ ...l, 'consent-gaps': true }));
+    try {
+      const res = await apiGetConsentGaps();
+      const data = res?.data ?? res;
+      setConsentGaps(Array.isArray(data) ? data : []);
+    } catch (e) {
+      showError('Failed to load consent gaps');
+      setConsentGaps([]);
+    } finally {
+      setLoading((l) => ({ ...l, 'consent-gaps': false }));
+    }
+  }, [showError]);
+
+  const fetchRetentionReview = useCallback(async () => {
+    setLoading((l) => ({ ...l, 'retention-review': true }));
+    try {
+      const res = await apiGetRetentionReview();
+      const data = res?.data ?? res;
+      setRetentionReview(Array.isArray(data) ? data : []);
+    } catch (e) {
+      showError('Failed to load retention review');
+      setRetentionReview([]);
+    } finally {
+      setLoading((l) => ({ ...l, 'retention-review': false }));
+    }
+  }, [showError]);
+
   useEffect(() => {
     if (!isAdmin) return;
     if (activeTab === 'companies') fetchDuplicateCompanies();
     else if (activeTab === 'contacts') fetchDuplicateContacts();
     else if (activeTab === 'incomplete') fetchIncomplete();
     else if (activeTab === 'mismatches') fetchMismatches();
-  }, [isAdmin, activeTab, fetchDuplicateCompanies, fetchDuplicateContacts, fetchIncomplete, fetchMismatches]);
+    else if (activeTab === 'consent-gaps') fetchConsentGaps();
+    else if (activeTab === 'retention-review') fetchRetentionReview();
+  }, [isAdmin, activeTab, fetchDuplicateCompanies, fetchDuplicateContacts, fetchIncomplete, fetchMismatches, fetchConsentGaps, fetchRetentionReview]);
 
   const refreshActive = () => {
     if (activeTab === 'companies') fetchDuplicateCompanies();
     else if (activeTab === 'contacts') fetchDuplicateContacts();
     else if (activeTab === 'incomplete') fetchIncomplete();
-    else fetchMismatches();
+    else if (activeTab === 'mismatches') fetchMismatches();
+    else if (activeTab === 'consent-gaps') fetchConsentGaps();
+    else if (activeTab === 'retention-review') fetchRetentionReview();
   };
 
   const openMergeModal = (
@@ -219,6 +259,8 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
         incompleteRecords.invoices.length,
     },
     { id: 'mismatches', label: 'Domain Mismatches', icon: <Globe className="w-4 h-4" />, count: domainMismatches.count },
+    { id: 'consent-gaps', label: 'Consent Gaps', icon: <Shield className="w-4 h-4" />, count: consentGaps.length },
+    { id: 'retention-review', label: 'Retention Review', icon: <Clock className="w-4 h-4" />, count: retentionReview.length },
   ];
 
   const isLoading = loading[activeTab];
@@ -430,6 +472,54 @@ const DataHygiene: React.FC<DataHygieneProps> = ({ currentUser }) => {
                         Contact domain: <strong>{m.contactDomain}</strong> → Company domain: <strong>{m.companyDomain}</strong> ({m.company?.name})
                       </p>
                     </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!isLoading && activeTab === 'consent-gaps' && (
+          <div className="p-6">
+            <p className="text-slate-500 text-sm mb-4">Contacts with pending consent, expired lawful basis, or legitimate interest nearing expiry.</p>
+            {consentGaps.length === 0 ? (
+              <p className="text-slate-500 text-sm">No consent gaps found.</p>
+            ) : (
+              <ul className="space-y-3">
+                {consentGaps.map((c: any) => (
+                  <li key={c.id} className="flex items-center justify-between gap-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <div>
+                      <p className="font-medium text-slate-900">{c.name || c.email || c.id}</p>
+                      <p className="text-xs text-slate-600">{c.email}</p>
+                      <span className="inline-block mt-1 px-2 py-0.5 rounded text-xs font-semibold bg-amber-200 text-amber-900">
+                        {c.gapReason === 'pending_consent' ? 'Pending consent' : c.gapReason === 'expired_basis' ? 'Expired basis' : 'Nearing expiry'}
+                      </span>
+                    </div>
+                    <a href={`/?tab=crm`} className="text-indigo-600 text-sm font-semibold hover:underline">View in CRM</a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!isLoading && activeTab === 'retention-review' && (
+          <div className="p-6">
+            <p className="text-slate-500 text-sm mb-4">Older, inactive contacts with no active deals. Consider anonymization or export before deletion.</p>
+            {retentionReview.length === 0 ? (
+              <p className="text-slate-500 text-sm">No contacts in retention review.</p>
+            ) : (
+              <ul className="space-y-3">
+                {retentionReview.map((c: any) => (
+                  <li key={c.id} className="flex items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div>
+                      <p className="font-medium text-slate-900">{c.name || c.email || c.id}</p>
+                      <p className="text-xs text-slate-600">{c.email}</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Last contacted: {c.lastContacted || c.updatedAt || c.createdAt ? new Date(c.lastContacted || c.updatedAt || c.createdAt).toLocaleDateString() : '—'}
+                      </p>
+                    </div>
+                    <a href={`/?tab=crm`} className="text-indigo-600 text-sm font-semibold hover:underline">View in CRM</a>
                   </li>
                 ))}
               </ul>

@@ -6,7 +6,7 @@ interface ScannerReviewFormProps {
   extractedData: ExtractedData | any;
   suggestions: ScanSuggestions;
   source: 'business_card' | 'linkedin';
-  onConfirm: (contactData: any, companyData: any, linkToExistingCompany: string | null) => void;
+  onConfirm: (contactData: any, companyData: any, linkToExistingCompany: string | null, compliance: any) => void;
   onCancel: () => void;
   isProcessing?: boolean;
   companies: Company[];
@@ -30,6 +30,8 @@ export const ScannerReviewForm: React.FC<ScannerReviewFormProps> = ({
   const [companyWebsite, setCompanyWebsite] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [consentOption, setConsentOption] = useState<'verbal_consent' | 'follow_up_needed' | 'not_discussed'>('follow_up_needed');
+  const [eventDetail, setEventDetail] = useState('');
 
   useEffect(() => {
     // Pre-populate from extracted data
@@ -83,6 +85,9 @@ export const ScannerReviewForm: React.FC<ScannerReviewFormProps> = ({
     if (!selectedCompanyId && !companyName.trim()) {
       newErrors.company = 'Company is required';
     }
+    if (!eventDetail.trim()) {
+      newErrors.eventDetail = 'Event / context is required';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -105,8 +110,12 @@ export const ScannerReviewForm: React.FC<ScannerReviewFormProps> = ({
       name: companyName,
       website: companyWebsite
     };
+    const compliance = {
+      data_source_detail: eventDetail || undefined,
+      consent_option: consentOption
+    };
 
-    onConfirm(contactData, companyData, selectedCompanyId);
+    onConfirm(contactData, companyData, selectedCompanyId, compliance);
   };
 
   return (
@@ -341,6 +350,61 @@ export const ScannerReviewForm: React.FC<ScannerReviewFormProps> = ({
             </div>
           </>
         )}
+      </div>
+
+      {/* Compliance */}
+      <div className="mb-6 border-t border-gray-100 pt-5">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Compliance</h3>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Where did you meet this person? *
+          </label>
+          <input
+            type="text"
+            value={eventDetail}
+            onChange={(e) => setEventDetail(e.target.value)}
+            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              errors.eventDetail ? 'border-red-500' : 'border-gray-300'
+            }`}
+            placeholder="e.g. GITEX Global 2026, Dubai"
+          />
+          {errors.eventDetail && <p className="text-xs text-red-600 mt-1">{errors.eventDetail}</p>}
+        </div>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Consent discussed?
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              value="verbal_consent"
+              checked={consentOption === 'verbal_consent'}
+              onChange={() => setConsentOption('verbal_consent')}
+              className="text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <span>Yes — verbal consent given at event</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              value="follow_up_needed"
+              checked={consentOption === 'follow_up_needed'}
+              onChange={() => setConsentOption('follow_up_needed')}
+              className="text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <span>Will follow up for consent</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              value="not_discussed"
+              checked={consentOption === 'not_discussed'}
+              onChange={() => setConsentOption('not_discussed')}
+              className="text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <span>Not discussed</span>
+          </label>
+        </div>
       </div>
 
       {/* Action Buttons */}

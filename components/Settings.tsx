@@ -8,7 +8,7 @@ import {
   Database, Archive, Download, Trash, Settings as SettingsIcon, FileText, Layout, Eye, Building2
 } from 'lucide-react';
 import { DEFAULT_NOTIFICATION_PREFERENCES, TIMEZONES, LANGUAGES, getSystemTimezone } from '../constants';
-import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences, apiGetRetentionPolicy, apiUpdateRetentionPolicy, apiGetRetentionStats, apiTriggerArchive, apiTriggerCleanup, apiExportArchivedEmails, apiGetSignatures, apiCreateSignature, apiUpdateSignature, apiDeleteSignature, apiGetIndustries, apiCreateIndustry, apiUpdateIndustry, apiDeleteIndustry } from '../utils/api';
+import { apiUpdateUserProfile, apiMe, apiGetGoogleCalendarStatus, apiGetGoogleCalendarAuthUrl, apiDisconnectGoogleCalendar, apiGetUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetExcludedDomains, apiAddExcludedDomain, apiRemoveExcludedDomain, apiGetNotificationPreferences, apiUpdateNotificationPreferences, apiGetRetentionPolicy, apiUpdateRetentionPolicy, apiGetRetentionStats, apiTriggerArchive, apiTriggerCleanup, apiExportArchivedEmails, apiGetSignatures, apiCreateSignature, apiUpdateSignature, apiDeleteSignature, apiGetIndustries, apiCreateIndustry, apiUpdateIndustry, apiDeleteIndustry, apiGetPrivacyNotices, apiCreatePrivacyNotice, apiUpdatePrivacyNotice, apiGetActivePrivacyNotice, apiGetDataRequests, apiGetDataRequestById, apiUpdateDataRequest, apiExportDataRequest, apiGetProcessingLocations } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { ImageWithFallback } from './common';
 import ImageCropper from './ImageCropper';
@@ -44,11 +44,64 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
   const [isArchiving, setIsArchiving] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [privacyNotices, setPrivacyNotices] = useState<any[]>([]);
+  const [activeNoticeId, setActiveNoticeId] = useState<string | null>(null);
+  const [newNotice, setNewNotice] = useState({ title: '', version: '', content: '' });
+  const [isSavingNotice, setIsSavingNotice] = useState(false);
+  const [dataRequests, setDataRequests] = useState<any[]>([]);
+  const [dataRequestsLoading, setDataRequestsLoading] = useState(false);
+  const [dataRequestFilter, setDataRequestFilter] = useState<string>('');
+  const [selectedDataRequest, setSelectedDataRequest] = useState<any | null>(null);
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
+  const [processingLocations, setProcessingLocations] = useState<{
+    cloudRunRegion?: string;
+    firestoreRegion?: string;
+    aiProcessingRegion?: string;
+    transferMechanism?: string;
+  } | null>(null);
+  const [processingLocationsLoading, setProcessingLocationsLoading] = useState(false);
 
   useEffect(() => {
     loadRetentionPolicy();
     loadRetentionStats();
+    loadPrivacyNotices();
   }, []);
+
+  useEffect(() => {
+    loadDataRequests();
+  }, [dataRequestFilter]);
+
+  useEffect(() => {
+    loadProcessingLocations();
+  }, []);
+
+  const loadProcessingLocations = async () => {
+    setProcessingLocationsLoading(true);
+    try {
+      const res = await apiGetProcessingLocations();
+      if (res?.success && res?.data) setProcessingLocations(res.data);
+      else setProcessingLocations(null);
+    } catch {
+      setProcessingLocations(null);
+    } finally {
+      setProcessingLocationsLoading(false);
+    }
+  };
+
+  const loadDataRequests = async () => {
+    setDataRequestsLoading(true);
+    try {
+      const res = await apiGetDataRequests(
+        dataRequestFilter ? { status: dataRequestFilter } : undefined
+      );
+      setDataRequests(res?.data ?? []);
+    } catch (err) {
+      showError('Failed to load data requests');
+      setDataRequests([]);
+    } finally {
+      setDataRequestsLoading(false);
+    }
+  };
 
   const loadRetentionPolicy = async () => {
     setIsLoading(true);
@@ -150,6 +203,51 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
       showError(err.message || 'Failed to export archived emails');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const loadPrivacyNotices = async () => {
+    try {
+      const [listRes, activeRes] = await Promise.all([
+        apiGetPrivacyNotices(),
+        apiGetActivePrivacyNotice()
+      ]);
+      if (listRes?.data) setPrivacyNotices(listRes.data);
+      if (activeRes?.data) setActiveNoticeId(activeRes.data.id);
+    } catch (err) {
+      console.error('Failed to load privacy notices:', err);
+    }
+  };
+
+  const handleCreateNotice = async () => {
+    if (!newNotice.title || !newNotice.version || !newNotice.content) {
+      showError('Title, version, and content are required');
+      return;
+    }
+    setIsSavingNotice(true);
+    try {
+      await apiCreatePrivacyNotice({
+        ...newNotice,
+        isActive: privacyNotices.length === 0 // first one becomes active
+      });
+      setNewNotice({ title: '', version: '', content: '' });
+      await loadPrivacyNotices();
+      showSuccess('Privacy notice created');
+    } catch (err: any) {
+      showError(err.message || 'Failed to create privacy notice');
+    } finally {
+      setIsSavingNotice(false);
+    }
+  };
+
+  const handleSetActiveNotice = async (id: string) => {
+    try {
+      await apiUpdatePrivacyNotice(id, { isActive: true });
+      setActiveNoticeId(id);
+      await loadPrivacyNotices();
+      showSuccess('Active privacy notice updated');
+    } catch (err: any) {
+      showError(err.message || 'Failed to update privacy notice');
     }
   };
 
@@ -361,6 +459,326 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
             <span className="text-xs text-green-600">Download CSV</span>
           </button>
         </div>
+      </div>
+
+      {/* Privacy Notices */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+            <Shield className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Privacy Notices</h3>
+            <p className="text-xs text-slate-500">Manage versions of your external privacy notice</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-4">
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Existing Notices</h4>
+            {privacyNotices.length === 0 ? (
+              <p className="text-xs text-slate-500">No privacy notices created yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {privacyNotices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    className="p-3 border border-slate-200 rounded-xl flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        {notice.title}{' '}
+                        <span className="text-xs font-mono text-slate-500">({notice.version})</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Created {notice.createdAt ? new Date(notice.createdAt).toLocaleDateString() : '-'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSetActiveNotice(notice.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${
+                        activeNoticeId === notice.id
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {activeNoticeId === notice.id ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" />
+                          Active
+                        </>
+                      ) : (
+                        'Set Active'
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Create New Notice</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={newNotice.title}
+                  onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  placeholder="Impact 24x7 Privacy Notice"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  Version ID
+                </label>
+                <input
+                  type="text"
+                  value={newNotice.version}
+                  onChange={(e) => setNewNotice({ ...newNotice, version: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                  placeholder="pn-v1.0"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  Content
+                </label>
+                <textarea
+                  value={newNotice.content}
+                  onChange={(e) => setNewNotice({ ...newNotice, content: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm h-32"
+                  placeholder="Paste or write the full privacy notice text here..."
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateNotice}
+                disabled={isSavingNotice}
+                className="w-full px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {isSavingNotice ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Privacy Notice
+                  </>
+                )}
+              </button>
+              <p className="text-[11px] text-slate-500">
+                The active privacy notice version will be referenced when recording consent and in
+                email footers.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Requests (DSAR) */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+            <FileText className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Data Requests</h3>
+            <p className="text-xs text-slate-500">Manage data subject access, erasure, rectification, and restrict-processing requests</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Status</label>
+          <select
+            value={dataRequestFilter}
+            onChange={(e) => setDataRequestFilter(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+          >
+            <option value="">All</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="completed">Completed</option>
+            <option value="overdue">Overdue</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => loadDataRequests()}
+            disabled={dataRequestsLoading}
+            className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-slate-200 disabled:opacity-60"
+          >
+            {dataRequestsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Refresh
+          </button>
+        </div>
+        {dataRequestsLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
+          </div>
+        ) : dataRequests.length === 0 ? (
+          <p className="text-sm text-slate-500 py-4">No data requests found.</p>
+        ) : (
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 font-bold text-slate-700">Type</th>
+                  <th className="px-4 py-3 font-bold text-slate-700">Status</th>
+                  <th className="px-4 py-3 font-bold text-slate-700">Due</th>
+                  <th className="px-4 py-3 font-bold text-slate-700">Requested</th>
+                  <th className="px-4 py-3 font-bold text-slate-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dataRequests.map((dr: any) => (
+                  <tr key={dr.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-4 py-3 capitalize">{dr.type}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        dr.status === 'overdue' ? 'bg-rose-100 text-rose-800' :
+                        dr.status === 'open' ? 'bg-amber-100 text-amber-800' :
+                        dr.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {dr.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{dr.dueAt ? new Date(dr.dueAt).toLocaleDateString() : '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{dr.createdAt ? new Date(dr.createdAt).toLocaleDateString() : '—'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDataRequest(dr)}
+                          className="text-violet-600 font-semibold hover:underline"
+                        >
+                          Handle
+                        </button>
+                        {dr.type === 'access' && (
+                          <a
+                            href="#"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              try {
+                                const res = await apiExportDataRequest(dr.id, 'json');
+                                const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `data-request-${dr.id}.json`;
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                showSuccess('Export downloaded');
+                              } catch (err: any) {
+                                showError(err?.message || 'Export failed');
+                              }
+                            }}
+                            className="text-slate-600 hover:underline text-xs"
+                          >
+                            Export
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {selectedDataRequest && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
+              <h4 className="font-bold text-lg text-slate-900 mb-2">Handle data request</h4>
+              <p className="text-sm text-slate-600 mb-4">
+                Type: <strong className="capitalize">{selectedDataRequest.type}</strong> · Status: <strong>{selectedDataRequest.status}</strong>
+              </p>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-500 uppercase">Update status</label>
+                <select
+                  defaultValue={selectedDataRequest.status}
+                  onChange={async (e) => {
+                    const status = e.target.value;
+                    setUpdatingRequestId(selectedDataRequest.id);
+                    try {
+                      await apiUpdateDataRequest(selectedDataRequest.id, { status });
+                      showSuccess('Request updated');
+                      setSelectedDataRequest((prev: any) => prev ? { ...prev, status } : null);
+                      loadDataRequests();
+                    } catch (err: any) {
+                      showError(err?.message || 'Update failed');
+                    } finally {
+                      setUpdatingRequestId(null);
+                    }
+                  }}
+                  disabled={updatingRequestId === selectedDataRequest.id}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDataRequest(null)}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Data Processing Locations */}
+      <div className="bg-white p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6 text-left">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 bg-sky-100 rounded-xl flex items-center justify-center">
+            <MapPin className="w-5 h-5 text-sky-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Data Processing Locations</h3>
+            <p className="text-xs text-slate-500">Where your data is processed and transfer mechanisms (SCCs, DPA)</p>
+          </div>
+        </div>
+        {processingLocationsLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
+          </div>
+        ) : processingLocations ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Cloud Run</p>
+              <p className="text-sm font-semibold text-slate-900">{processingLocations.cloudRunRegion || '—'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Firestore</p>
+              <p className="text-sm font-semibold text-slate-900">{processingLocations.firestoreRegion || '—'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">AI processing</p>
+              <p className="text-sm font-semibold text-slate-900">{processingLocations.aiProcessingRegion || '—'}</p>
+            </div>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl md:col-span-2">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Transfer mechanism</p>
+              <p className="text-sm text-slate-700">{processingLocations.transferMechanism || 'Standard Contractual Clauses (SCCs), Data Processing Agreement (DPA)'}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Unable to load processing locations.</p>
+        )}
       </div>
     </div>
   );

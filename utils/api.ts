@@ -206,6 +206,50 @@ export const apiUpdateUserProfile = (userId: string, data: any) =>
   apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(data) });
 
 /**
+ * COMPLIANCE
+ */
+export const apiGetComplianceHealth = () =>
+  apiFetch('/compliance/health');
+
+export const apiGetConsentGaps = () => apiFetch('/compliance/consent-gaps');
+export const apiGetRetentionReview = () => apiFetch('/compliance/retention-review');
+export const apiGetProcessingLocations = () => apiFetch('/compliance/processing-locations');
+
+/**
+ * Privacy Notices
+ */
+export const apiGetPrivacyNotices = () => apiFetch('/privacy-notices');
+export const apiCreatePrivacyNotice = (data: any) =>
+  apiFetch('/privacy-notices', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdatePrivacyNotice = (id: string, data: any) =>
+  apiFetch(`/privacy-notices/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiGetActivePrivacyNotice = () =>
+  apiFetch('/privacy-notices/active');
+
+/**
+ * Data Requests (DSAR)
+ */
+export const apiGetDataRequests = (params?: { status?: string; type?: string; contactId?: string }) => {
+  const search = new URLSearchParams();
+  if (params?.status) search.append('status', params.status);
+  if (params?.type) search.append('type', params.type);
+  if (params?.contactId) search.append('contactId', params.contactId);
+  const q = search.toString();
+  return apiFetch(`/data-requests${q ? `?${q}` : ''}`);
+};
+export const apiGetDataRequestById = (id: string) => apiFetch(`/data-requests/${id}`);
+export const apiCreateDataRequest = (data: {
+  contactId: string;
+  type: 'access' | 'erasure' | 'rectification' | 'restrict';
+  channel?: string;
+  details?: string | null;
+}) => apiFetch('/data-requests', { method: 'POST', body: JSON.stringify(data) });
+export const apiUpdateDataRequest = (id: string, data: { status?: string; resolutionNotes?: string }) =>
+  apiFetch(`/data-requests/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiExportDataRequest = (id: string, format?: 'json' | 'csv') =>
+  apiFetch(`/data-requests/${id}/export${format ? `?format=${format}` : ''}`);
+
+/**
  * CRM & PIPELINE
  */
 export const apiGetCompanies = (search?: string) => apiFetch(`/companies${search ? `?search=${encodeURIComponent(search)}` : ''}`);

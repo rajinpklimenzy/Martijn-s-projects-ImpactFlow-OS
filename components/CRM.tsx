@@ -8,7 +8,7 @@ import {
   MessageSquare, UserCheck, Share2, MoreVertical, Filter, CheckCircle2, Circle, AtSign, Send, Scan, RefreshCw, Star, BookOpen, FolderKanban, Upload, List, Grid
 } from 'lucide-react';
 import { Company, Contact, Deal, User as UserType, SocialSignal, Note, Project, Tag, SavedView } from '../types';
-import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects, apiGetTags, apiGetSavedViews } from '../utils/api';
+import { apiCreateNotification, apiGetCompanySatisfaction, apiGetProjects, apiGetTags, apiGetSavedViews, apiCreateDataRequest } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { formatNameForDisplay } from '../utils/validate';
 import { ImageWithFallback } from './common';
@@ -259,6 +259,10 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editContactFormData, setEditContactFormData] = useState<Partial<Contact>>({});
   const [activeContactTab, setActiveContactTab] = useState<'details' | 'notes' | 'activity'>('details');
+  const [showHandleDataRequestModal, setShowHandleDataRequestModal] = useState(false);
+  const [dataRequestType, setDataRequestType] = useState<'access' | 'erasure' | 'rectification' | 'restrict'>('access');
+  const [dataRequestDetails, setDataRequestDetails] = useState('');
+  const [isSubmittingDataRequest, setIsSubmittingDataRequest] = useState(false);
   const [isUpdatingContact, setIsUpdatingContact] = useState(false);
   
   // Delete confirmation state
@@ -320,7 +324,8 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     { key: 'tags', label: 'Tags', visible: true, order: 5 },
     { key: 'assignee', label: 'Assignee', visible: true, order: 6 },
     { key: 'domain', label: 'Domain', visible: true, order: 7 },
-    { key: 'created', label: 'Created', visible: false, order: 8 },
+    { key: 'consent', label: 'Consent', visible: true, order: 8 },
+    { key: 'created', label: 'Created', visible: false, order: 9 },
   ]);
   const [companyColumns, setCompanyColumns] = useState<ColumnDefinition[]>([
     { key: 'name', label: 'Name', locked: true, visible: true, order: 0 },
@@ -1590,6 +1595,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tags</th>
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Assignee</th>
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Domain</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Consent</th>
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created</th>
                         <th className="px-6 py-4 text-right"></th>
                       </>
@@ -1598,9 +1604,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {isLoading ? (
-                    <tr><td colSpan={view === 'companies' ? 11 : 11} className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></td></tr>
+                    <tr><td colSpan={view === 'companies' ? 11 : 12} className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></td></tr>
                   ) : (view === 'companies' ? filteredCompanies : contacts).length === 0 ? (
-                    <tr><td colSpan={view === 'companies' ? 11 : 11} className="py-10 text-center text-slate-400 text-sm font-medium">No {view} found.</td></tr>
+                    <tr><td colSpan={view === 'companies' ? 11 : 12} className="py-10 text-center text-slate-400 text-sm font-medium">No {view} found.</td></tr>
                   ) : (view === 'companies' ? filteredCompanies : contacts).map((item: Company | Contact) => {
                     const isSelected = view === 'companies' 
                       ? selectedCompanyIds.includes(item.id)
@@ -1766,6 +1772,25 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       const contact = item as Contact;
                       const company = companies.find(c => c.id === contact.companyId);
                       const assignee = users.find(u => u.id === contact.assigneeId);
+
+                      const consentStatus = contact.contact_compliance?.consent_status || 'pending';
+                      const consentLabel =
+                        consentStatus === 'granted'
+                          ? 'Granted'
+                          : consentStatus === 'withdrawn'
+                          ? 'Withdrawn'
+                          : consentStatus === 'not_required'
+                          ? 'Not Required'
+                          : 'Pending';
+                      const consentClass =
+                        consentStatus === 'granted'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : consentStatus === 'withdrawn'
+                          ? 'bg-rose-50 text-rose-700 border-rose-100'
+                          : consentStatus === 'not_required'
+                          ? 'bg-slate-50 text-slate-600 border-slate-100'
+                          : 'bg-amber-50 text-amber-700 border-amber-100';
+
                       return (
                         <tr 
                           key={contact.id} 
@@ -1868,6 +1893,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                             />
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{contact.domain || '-'}</td>
+                          <td className="px-6 py-4 text-sm">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-widest ${consentClass}`}>
+                              {consentLabel}
+                            </span>
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">
                             {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString() : '-'}
                           </td>
@@ -2825,6 +2855,27 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                            </div>
                         </div>
                       </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4 text-indigo-500" /> Compliance</h3>
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <span className="text-xs text-slate-600">
+                              Consent: <span className="font-semibold capitalize">{selectedContact.contact_compliance?.consent_status || 'pending'}</span>
+                              {selectedContact.contact_compliance?.lawful_basis && (
+                                <span className="text-slate-500 ml-1">· {String(selectedContact.contact_compliance.lawful_basis).replace('_', ' ')}</span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => { setDataRequestType('access'); setDataRequestDetails(''); setShowHandleDataRequestModal(true); }}
+                              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+                            >
+                              <FileSearch className="w-3.5 h-3.5" /> Handle Data Request
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
@@ -3012,6 +3063,78 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               </button>
               <button onClick={() => { setSelectedContact(null); setIsEditingContact(false); }} className="flex-1 py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[28px] hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3">
                 <UserCheck className="w-5 h-5" /> Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Handle Data Request (DSAR) modal */}
+      {selectedContact && showHandleDataRequestModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSubmittingDataRequest && setShowHandleDataRequestModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Create data request</h3>
+            <p className="text-sm text-slate-500 mb-4">For {selectedContact.name}</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Request type</label>
+                <select
+                  value={dataRequestType}
+                  onChange={e => setDataRequestType(e.target.value as any)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm"
+                >
+                  <option value="access">Access (export data)</option>
+                  <option value="erasure">Erasure (delete/anonymize)</option>
+                  <option value="rectification">Rectification (correct data)</option>
+                  <option value="restrict">Restrict processing</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Details (optional)</label>
+                <textarea
+                  value={dataRequestDetails}
+                  onChange={e => setDataRequestDetails(e.target.value)}
+                  placeholder="Notes or context for this request"
+                  rows={3}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm resize-none"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowHandleDataRequestModal(false)}
+                disabled={isSubmittingDataRequest}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!selectedContact?.id) return;
+                  setIsSubmittingDataRequest(true);
+                  try {
+                    await apiCreateDataRequest({
+                      contactId: selectedContact.id,
+                      type: dataRequestType,
+                      channel: 'in_app',
+                      details: dataRequestDetails.trim() || null
+                    });
+                    showSuccess('Data request created. Handle it in Settings → Workspace → Data Requests.');
+                    setShowHandleDataRequestModal(false);
+                    setDataRequestDetails('');
+                  } catch (err: any) {
+                    showError(err?.message || 'Failed to create data request');
+                  } finally {
+                    setIsSubmittingDataRequest(false);
+                  }
+                }}
+                disabled={isSubmittingDataRequest}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSubmittingDataRequest ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Submit
               </button>
             </div>
           </div>

@@ -222,7 +222,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
   };
 
   // Confirm and create contact
-  const handleConfirm = async (contactData: any, companyData: any, linkToExistingCompany: string | null) => {
+  const handleConfirm = async (contactData: any, companyData: any, linkToExistingCompany: string | null, compliance: any) => {
     setIsProcessing(true);
     setError(null);
 
@@ -237,7 +237,8 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
         leadSourceId: businessCardSource?.id || '',
         scanConfidenceScore: calculateAverageConfidence(extractedData),
         originalScanData: extractedData,
-        userId: currentUserId
+        userId: currentUserId,
+        contactCompliance: compliance
       });
 
       if (response.success) {

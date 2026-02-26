@@ -469,7 +469,8 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           role: formData.role, 
           email: formData.email, 
           phone: formData.phone, 
-          linkedin: formData.linkedin || undefined 
+          linkedin: formData.linkedin || undefined,
+          contact_compliance: { data_source: 'manual_entry', consent_status: 'pending' }
         });
       } else if (type === 'company') {
         // Company domain: from website, or from email only if not free (no gmail/yahoo etc.)
@@ -2209,7 +2210,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     setIsMerging(true);
                     try {
                       // Create anyway (user confirmed it's not a duplicate)
-                      await apiCreateContact(mergeModal.newContact);
+                      const payload = { ...mergeModal.newContact };
+                      if (!payload.contact_compliance?.data_source || !payload.contact_compliance?.consent_status) {
+                        payload.contact_compliance = { ...(payload.contact_compliance || {}), data_source: 'manual_entry', consent_status: 'pending' };
+                      }
+                      await apiCreateContact(payload);
                       setMergeModal(null);
                       setStep('success');
                       if (onSuccess) onSuccess();

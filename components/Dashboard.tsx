@@ -6,11 +6,11 @@ import {
 import {
   TrendingUp, Users, DollarSign, Briefcase, ChevronRight,
   Star, CheckSquare, ArrowRight, Activity, Mail, X, Globe, GripVertical, Save,
-  Maximize2, Minimize2, Square, MessageSquare
+  Maximize2, Minimize2, Square, MessageSquare, Loader2
 } from 'lucide-react';
 import { MOCK_USERS } from '../constants.tsx';
 import { ImageWithFallback } from './common.tsx';
-import { apiGetDeals, apiGetProjects, apiGetTasks, apiGetInvoices, apiGetSharedInboxEmails, apiGetProject, apiGetUsers, apiGetRevenueVelocity, apiGetDashboardLayout, apiUpdateDashboardLayout, apiGetSatisfactionStats } from '../utils/api';
+import { apiGetDeals, apiGetProjects, apiGetTasks, apiGetInvoices, apiGetSharedInboxEmails, apiGetProject, apiGetUsers, apiGetRevenueVelocity, apiGetDashboardLayout, apiUpdateDashboardLayout, apiGetSatisfactionStats, apiGetComplianceHealth } from '../utils/api';
 import { useToast } from '../contexts/ToastContext';
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencySymbol, formatCurrency, getCurrencyByCode } from '../utils/currency';
 
@@ -39,7 +39,8 @@ const DEFAULT_LAYOUT: WidgetConfig[] = [
   { id: 'nps-average', order: 7, size: 'medium' },
   { id: 'nps-needing-attention', order: 8, size: 'medium' },
   { id: 'nps-recent-feedback', order: 9, size: 'medium' },
-  { id: 'nps-awaiting-feedback', order: 10, size: 'medium' }
+  { id: 'nps-awaiting-feedback', order: 10, size: 'medium' },
+  { id: 'compliance-health', order: 11, size: 'medium' }
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
@@ -81,6 +82,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     awaitingFeedback: Array<{ companyId: string; companyName: string; daysElapsed: number }>;
   } | null>(null);
   const [isLoadingSatisfactionStats, setIsLoadingSatisfactionStats] = useState(false);
+  const [complianceHealth, setComplianceHealth] = useState<{
+    pendingConsent: number;
+    expiredLegitimateInterest: number;
+    withdrawnConsent: number;
+    openDataRequests: number;
+    overdueDataRequests: number;
+  } | null>(null);
+  const [isLoadingCompliance, setIsLoadingCompliance] = useState(false);
 
   useEffect(() => {
     const userData = JSON.parse(localStorage.getItem('user_data') || 'null');
@@ -412,6 +421,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     fetchSatisfactionStats();
   }, []);
 
+  useEffect(() => {
+    const fetchComplianceHealth = async () => {
+      setIsLoadingCompliance(true);
+      try {
+        const res = await apiGetComplianceHealth();
+        setComplianceHealth(res.data || res);
+      } catch (err) {
+        console.warn('[DASHBOARD] Failed to load compliance health:', err);
+      } finally {
+        setIsLoadingCompliance(false);
+      }
+    };
+    fetchComplianceHealth();
+  }, []);
+
   const formatCurrencyDisplay = (value: number, currencyCode: string = mostUsedCurrency) => {
     const symbol = getCurrencySymbol(currencyCode);
     if (value >= 1000) {
@@ -610,6 +634,59 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 </div>
               </div>
             </button>
+          </div>
+        );
+
+      case 'compliance-health':
+        return (
+          <div key={widgetId} {...commonProps}>
+            {isEditMode && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <GripVertical className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Compliance Health</span>
+                </div>
+              </div>
+            )}
+            <div className="bg-white p-4 lg:p-7 rounded-[24px] lg:rounded-[28px] border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-400 text-[9px] lg:text-[10px] font-black uppercase tracking-[0.15em]">Compliance Health</p>
+                  <h3 className="text-lg lg:text-xl font-black text-slate-900 mt-1">Privacy & Consent</h3>
+                </div>
+              </div>
+              {isLoadingCompliance || !complianceHealth ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 lg:gap-4">
+                  <div className="p-3 rounded-2xl border border-amber-100 bg-amber-50/60">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Pending Consent</p>
+                    <p className="mt-1 text-xl font-black text-amber-900">{complianceHealth.pendingConsent}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl border border-rose-100 bg-rose-50/60">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">Expired Legitimate Interest</p>
+                    <p className="mt-1 text-xl font-black text-rose-900">{complianceHealth.expiredLegitimateInterest}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl border border-rose-100 bg-rose-50/40">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">Withdrawn Consent</p>
+                    <p className="mt-1 text-xl font-black text-rose-900">{complianceHealth.withdrawnConsent}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl border border-slate-200 bg-slate-50">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Open Data Requests</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">
+                      {complianceHealth.openDataRequests}
+                      {complianceHealth.overdueDataRequests > 0 && (
+                        <span className="ml-2 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-rose-600 text-white">
+                          {complianceHealth.overdueDataRequests} Overdue
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         );
 
