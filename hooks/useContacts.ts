@@ -18,7 +18,9 @@ export const useContacts = (search?: string, companyId?: string) => {
   return useQuery({
     queryKey: contactKeys.list({ search, companyId }),
     queryFn: async () => {
-      const response = await apiGetContacts(search, companyId);
+      // Request a larger page size so the CRM UI
+      // has enough records for its own pagination.
+      const response = await apiGetContacts(search, companyId, 500);
       return response.data || response || [];
     },
     staleTime: 2 * 60 * 1000, // 2 minutes - contacts change less frequently

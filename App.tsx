@@ -4,6 +4,8 @@ import { NAV_TOP, NAV_GROUPS, NAV_SYSTEM_GROUP } from './constants.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import CRM from './components/CRM.tsx';
 import Pipeline from './components/Pipeline.tsx';
+import ContactRecordPage from './components/ContactRecordPage.tsx';
+import CompanyRecordPage from './components/CompanyRecordPage.tsx';
 import Projects from './components/Projects.tsx';
 import Playbooks from './components/Playbooks';
 import ClientSatisfaction from './components/ClientSatisfaction.tsx';
@@ -273,6 +275,9 @@ const App: React.FC = () => {
   const [satisfactionCompanyIdFromUrl, setSatisfactionCompanyIdFromUrl] = useState<string | null>(null);
   // Playbook onboarding prompt from URL (e.g. from "Deal Won - Activate Onboarding Playbook?" notification)
   const [playbookPromptFromUrl, setPlaybookPromptFromUrl] = useState<{ dealId?: string; templateId?: string } | null>(null);
+  // Phase 1: Record page navigation state
+  const [recordPage, setRecordPage] = useState<{ type: 'contact' | 'company'; id: string } | null>(null);
+  const [previousTab, setPreviousTab] = useState<string>('crm'); // Store previous tab for back navigation
 
   useEffect(() => {
     // Check URL params first (for direct links/sharing), then use localStorage (already initialized in useState)
@@ -282,7 +287,37 @@ const App: React.FC = () => {
     const promptOnboarding = urlParams.get('promptOnboarding');
     const dealParam = urlParams.get('deal');
     const templateIdParam = urlParams.get('templateId');
+    // Phase 1: Record page params
+    const contactIdParam = urlParams.get('contactId');
+    const companyIdParam = urlParams.get('companyId');
     const validTabs = ['dashboard', 'schedule', 'crm', 'pipeline', 'projects', 'playbooks', 'tasks', 'invoices', 'roadmap', 'users', 'settings', 'integrations', 'satisfaction', 'inbox', 'expenses', 'budget', 'contracts', 'data-hygiene', 'compliance-audit-log', 'products-services', 'import-history'];
+    
+    // Phase 1: Handle record page navigation
+    if (contactIdParam) {
+      setRecordPage({ type: 'contact', id: contactIdParam });
+      setPreviousTab(tabParam || activeTab || 'crm');
+      setActiveTab('crm'); // Set CRM as active tab for navigation context
+      // Clean up URL param
+      urlParams.delete('contactId');
+      const newUrl = urlParams.toString() 
+        ? `${window.location.pathname}?${urlParams.toString()}`
+        : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      return;
+    }
+    
+    if (companyIdParam) {
+      setRecordPage({ type: 'company', id: companyIdParam });
+      setPreviousTab(tabParam || activeTab || 'crm');
+      setActiveTab('crm'); // Set CRM as active tab for navigation context
+      // Clean up URL param
+      urlParams.delete('companyId');
+      const newUrl = urlParams.toString() 
+        ? `${window.location.pathname}?${urlParams.toString()}`
+        : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      return;
+    }
     
     if (tabParam && validTabs.includes(tabParam)) {
       // URL param takes priority (for direct links)
@@ -310,7 +345,7 @@ const App: React.FC = () => {
       window.history.replaceState({}, '', newUrl);
     }
     // If no URL param, useState initialization already handled localStorage, so we're good
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -444,10 +479,45 @@ const App: React.FC = () => {
   }
 
   const renderContent = () => {
+    // Phase 1: Render record pages if active
+    if (recordPage) {
+      if (recordPage.type === 'contact') {
+        return (
+          <ContactRecordPage
+            contactId={recordPage.id}
+            onBack={() => {
+              setRecordPage(null);
+              setActiveTab(previousTab);
+            }}
+            onNavigate={(tabId: string) => {
+              // Leaving record page – clear it and switch main tab
+              setRecordPage(null);
+              setActiveTab(tabId);
+            }}
+          />
+        );
+      }
+      if (recordPage.type === 'company') {
+        return (
+          <CompanyRecordPage
+            companyId={recordPage.id}
+            onBack={() => {
+              setRecordPage(null);
+              setActiveTab(previousTab);
+            }}
+            onNavigate={(tabId: string) => {
+              setRecordPage(null);
+              setActiveTab(tabId);
+            }}
+          />
+        );
+      }
+    }
+    
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={setActiveTab} />;
       case 'schedule': return <Schedule currentUser={currentUser} onNavigate={setActiveTab} onNewEvent={() => openEventModal()} onEditEvent={(event) => openEventModal(event)} />;
-      case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} />;
+      case 'crm': return <CRM onNavigate={setActiveTab} onAddCompany={() => openCreateModal('company')} onAddContact={() => openCreateModal('contact')} externalSearchQuery={globalSearchQuery} onNavigateToRecord={(type, id) => { setPreviousTab(activeTab); setRecordPage({ type, id }); }} />;
       case 'pipeline': return <Pipeline onNavigate={setActiveTab} onNewDeal={(stage?: string) => openCreateModal('deal', stage)} currentUser={currentUser} />;
       case 'projects': return <Projects onNavigate={setActiveTab} onCreateProject={() => openCreateModal('project')} currentUser={currentUser} />;
       case 'playbooks': return <Playbooks onNavigate={setActiveTab} currentUser={currentUser} playbookPrompt={playbookPromptFromUrl} onClearPlaybookPrompt={() => setPlaybookPromptFromUrl(null)} />;
@@ -472,6 +542,10 @@ const App: React.FC = () => {
   };
 
   const handleTabChange = (id: string) => {
+    // When switching main tabs from the sidebar, ensure we exit any open record page
+    if (recordPage) {
+      setRecordPage(null);
+    }
     setActiveTab(id);
     localStorage.setItem('activeTab', id);
     setGlobalSearchQuery(''); 

@@ -661,19 +661,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 lg:gap-4">
-                  <div className="p-3 rounded-2xl border border-amber-100 bg-amber-50/60">
+                  <button
+                    onClick={() => !isEditMode && onNavigate('data-hygiene?tab=consent-gaps&filter=pending')}
+                    className="p-3 rounded-2xl border border-amber-100 bg-amber-50/60 hover:bg-amber-50 transition-colors text-left cursor-pointer"
+                    disabled={isEditMode}
+                  >
                     <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Pending Consent</p>
                     <p className="mt-1 text-xl font-black text-amber-900">{complianceHealth.pendingConsent}</p>
-                  </div>
-                  <div className="p-3 rounded-2xl border border-rose-100 bg-rose-50/60">
+                  </button>
+                  <button
+                    onClick={() => !isEditMode && onNavigate('data-hygiene?tab=consent-gaps&filter=expired')}
+                    className="p-3 rounded-2xl border border-rose-100 bg-rose-50/60 hover:bg-rose-50 transition-colors text-left cursor-pointer"
+                    disabled={isEditMode}
+                  >
                     <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">Expired Legitimate Interest</p>
                     <p className="mt-1 text-xl font-black text-rose-900">{complianceHealth.expiredLegitimateInterest}</p>
-                  </div>
-                  <div className="p-3 rounded-2xl border border-rose-100 bg-rose-50/40">
+                  </button>
+                  <button
+                    onClick={() => !isEditMode && onNavigate('data-hygiene?tab=consent-gaps&filter=withdrawn')}
+                    className="p-3 rounded-2xl border border-rose-100 bg-rose-50/40 hover:bg-rose-50 transition-colors text-left cursor-pointer"
+                    disabled={isEditMode}
+                  >
                     <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">Withdrawn Consent</p>
                     <p className="mt-1 text-xl font-black text-rose-900">{complianceHealth.withdrawnConsent}</p>
-                  </div>
-                  <div className="p-3 rounded-2xl border border-slate-200 bg-slate-50">
+                  </button>
+                  <button
+                    onClick={() => !isEditMode && onNavigate('settings?section=data-requests')}
+                    className="p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-left cursor-pointer"
+                    disabled={isEditMode}
+                  >
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Open Data Requests</p>
                     <p className="mt-1 text-xl font-black text-slate-900">
                       {complianceHealth.openDataRequests}
@@ -683,7 +699,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                         </span>
                       )}
                     </p>
-                  </div>
+                  </button>
                 </div>
               )}
             </div>

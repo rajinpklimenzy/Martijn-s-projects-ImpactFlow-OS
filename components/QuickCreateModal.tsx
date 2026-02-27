@@ -12,6 +12,7 @@ interface QuickCreateModalProps {
   type: 'deal' | 'project' | 'task' | 'invoice' | 'company' | 'contact';
   stage?: string;
   lockedType?: boolean;
+  prefillCompanyId?: string; // Pre-fill companyId when creating contact/deal from company page
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -74,7 +75,7 @@ const REGIONS = [
   'International'
 ];
 
-const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, stage: initialStage, lockedType, onClose, onSuccess }) => {
+const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, stage: initialStage, lockedType, prefillCompanyId, onClose, onSuccess }) => {
   const [type, setType] = useState(initialType);
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -133,9 +134,16 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     consentStatus: 'pending' as 'granted' | 'pending' | 'not_required'
   });
 
+  // Ensure type is synced with initialType when lockedType is true
+  useEffect(() => {
+    if (lockedType && initialType) {
+      setType(initialType);
+    }
+  }, [lockedType, initialType]);
+
   useEffect(() => {
     const resetData: any = {
-      name: '', title: '', companyId: '', projectId: '', role: '', email: '', phone: '',
+      name: '', title: '', companyId: prefillCompanyId || '', projectId: '', role: '', email: '', phone: '',
       assigneeId: '', ownerId: '', value: '', expectedCloseDate: '',
       stage: initialStage || 'Discovery', status: 'Planning', progress: '0',
       priority: 'Medium', description: '', industry: '', website: '', region: '', domain: '', linkedin: '', assignedUserIds: [],
@@ -912,10 +920,17 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 <button 
                   key={tab} 
                   type="button" 
-                  onClick={() => setType(tab as any)} 
-                  className={`flex-1 min-w-[80px] flex items-center justify-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${type === tab ? 'bg-white text-indigo-600 shadow-md border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                  onClick={() => !lockedType && setType(tab as any)} 
+                  disabled={lockedType}
+                  className={`flex-1 min-w-[80px] flex items-center justify-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    type === tab 
+                      ? 'bg-white text-indigo-600 shadow-md border border-slate-100' 
+                      : lockedType 
+                        ? 'text-slate-300 cursor-not-allowed' 
+                        : 'text-slate-400 hover:text-slate-600'
+                  }`}
                 >
-                  {tab}
+                  {tab === 'invoice' ? 'INVOCE' : tab.toUpperCase()}
                 </button>
               ))}
             </div>

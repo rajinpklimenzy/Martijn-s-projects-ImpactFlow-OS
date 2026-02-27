@@ -257,21 +257,28 @@ export const apiExportDataRequest = (id: string, format?: 'json' | 'csv') =>
  * CRM & PIPELINE
  */
 export const apiGetCompanies = (search?: string) => apiFetch(`/companies${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+export const apiGetCompany = (id: string) => apiFetch(`/companies/${id}`);
 export const apiCreateCompany = (data: any) => apiFetch('/companies', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateCompany = (id: string, data: any) => apiFetch(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiPatchCompany = (id: string, fieldName: string, newValue: any) => 
+  apiFetch(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify({ fieldName, newValue }) });
 export const apiDeleteCompany = (id: string) => apiFetch(`/companies/${id}`, { method: 'DELETE' });
 
-// Fix: Support both search and companyId filtering for contacts
-export const apiGetContacts = (search?: string, companyId?: string) => {
+// Fix: Support search, companyId filtering and page size for contacts
+export const apiGetContacts = (search?: string, companyId?: string, pageSize?: number) => {
   const params = new URLSearchParams();
   if (search) params.append('search', search);
   if (companyId) params.append('companyId', companyId);
+  if (pageSize) params.append('page_size', String(pageSize));
   const query = params.toString();
   return apiFetch(`/contacts${query ? `?${query}` : ''}`);
 };
 
+export const apiGetContact = (id: string) => apiFetch(`/contacts/${id}`);
 export const apiCreateContact = (data: any) => apiFetch('/contacts', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateContact = (id: string, data: any) => apiFetch(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const apiPatchContact = (id: string, fieldName: string, newValue: any) => 
+  apiFetch(`/contacts/${id}`, { method: 'PATCH', body: JSON.stringify({ fieldName, newValue }) });
 export const apiWithdrawConsent = (contactId: string) => apiFetch(`/contacts/${contactId}/unsubscribe`, { method: 'POST', body: JSON.stringify({}) });
 export const apiDeleteContact = (id: string) => apiFetch(`/contacts/${id}`, { method: 'DELETE' });
 
@@ -306,7 +313,9 @@ export const apiUpdateCustomProperty = (id: string, data: Partial<{
   type: 'text' | 'number' | 'dropdown_single' | 'dropdown_multi' | 'date' | 'checkbox' | 'url';
   options?: string[];
   required?: boolean;
+  order?: number;
   sortOrder?: number;
+  isVisible?: boolean;
 }>) => apiFetch(`/custom-properties/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteCustomProperty = (id: string) => apiFetch(`/custom-properties/${id}`, { method: 'DELETE' });
 

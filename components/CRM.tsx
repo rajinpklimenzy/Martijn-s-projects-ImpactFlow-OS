@@ -38,6 +38,8 @@ interface CRMProps {
   onAddCompany: () => void;
   onAddContact: () => void;
   externalSearchQuery?: string;
+  // Phase 1: Optional callback to navigate to record pages
+  onNavigateToRecord?: (type: 'contact' | 'company', id: string) => void;
 }
 
 // Playbook Instance Card Component for CRM - fetches completions to calculate accurate progress
@@ -138,14 +140,45 @@ const CompanyPlaybookInstanceCard: React.FC<{
   );
 };
 
-const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '' }) => {
+const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, externalSearchQuery = '', onNavigateToRecord }) => {
+  // Phase 1: Feature flag for record page navigation (can be moved to settings later)
+  const USE_RECORD_PAGES = true; // Set to false to use drawer view
+  
+  // Phase 1: Helper to navigate to record page
+  const navigateToRecord = (type: 'contact' | 'company', id: string) => {
+    if (USE_RECORD_PAGES) {
+      if (onNavigateToRecord) {
+        onNavigateToRecord(type, id);
+      } else {
+        // Fallback: use URL params
+        const params = new URLSearchParams(window.location.search);
+        params.set(type === 'contact' ? 'contactId' : 'companyId', id);
+        window.location.search = params.toString();
+      }
+    } else {
+      // Legacy drawer view
+      if (type === 'company') {
+        const company = companies.find(c => c.id === id);
+        if (company) setSelectedCompany(company);
+      } else {
+        const contact = contacts.find(c => c.id === id);
+        if (contact) setSelectedContact(contact);
+      }
+    }
+  };
   const { showSuccess, showError, showInfo } = useToast();
   const queryClient = useQueryClient();
   
   // Get current user from localStorage
   const currentUser = localStorage.getItem('user_data') ? JSON.parse(localStorage.getItem('user_data') || '{}') : null;
   
-  const [view, setView] = useState<'companies' | 'contacts'>('companies');
+  // Initialize view and optional company filter from URL params
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialCrmCompanyId = urlParams?.get('crmCompanyId') || null;
+  const initialCrmView: 'companies' | 'contacts' =
+    urlParams?.get('crmView') === 'contacts' || initialCrmCompanyId ? 'contacts' : 'companies';
+
+  const [view, setView] = useState<'companies' | 'contacts'>(initialCrmView);
   const [displayMode, setDisplayMode] = useState<'list' | 'card'>('list'); // Phase 2: Default to table view
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(''); // Phase 2: Debounced search
@@ -160,19 +193,20 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [viewingPlaybookInstanceId, setViewingPlaybookInstanceId] = useState<string | null>(null);
   const [showCompanyUploadWizard, setShowCompanyUploadWizard] = useState(false);
-  
+  const [companyFilterId, setCompanyFilterId] = useState<string | null>(initialCrmCompanyId);
+ 
   // Fetch playbook instances for selected company (roll-up from all deals and projects)
   const { data: companyPlaybookInstances = [], isLoading: isLoadingPlaybooks } = usePlaybookInstances({
     companyId: selectedCompany?.id
   });
   
-  // Phase 2: Debounced search (300ms delay, min 2 chars)
+  // Phase 2: Debounced search (300ms delay)
   useEffect(() => {
     const timer = setTimeout(() => {
       const trimmed = localSearchQuery.trim();
 
-      // Only search if query is empty or >= 2 characters
-      if (trimmed.length === 0 || trimmed.length >= 2) {
+      // Trigger search for any non-empty input
+      if (trimmed.length === 0 || trimmed.length >= 1) {
         setDebouncedSearchQuery((prev) => (prev === trimmed ? prev : trimmed));
         // Phase 8: Reset to page 1 on new search
         setCurrentPage(1);
@@ -189,6 +223,14 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   const { data: contacts = [], isLoading: isLoadingContacts, isError: isContactsError, refetch: refetchContacts } = useContacts(debouncedSearchQuery || undefined);
   const { data: deals = [], isLoading: isLoadingDeals } = useDeals();
   const { data: users = [], isLoading: isLoadingUsers } = useUsers();
+
+  const activeCompanyFilterName = useMemo(() => {
+    if (!companyFilterId) return null;
+    const companyMatch = companies.find(c => c.id === companyFilterId);
+    if (companyMatch?.name) return companyMatch.name;
+    const contactMatch = contacts.find(c => c.companyId === companyFilterId && c.organization);
+    return contactMatch?.organization || null;
+  }, [companyFilterId, companies, contacts]);
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
@@ -408,11 +450,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     }
   };
 
+  // Sync external search query (e.g. from URL) once, without overriding
+  // user typing on every keystroke. Ignore empty external values.
   useEffect(() => {
-    if (externalSearchQuery !== undefined && externalSearchQuery !== localSearchQuery) {
+    if (externalSearchQuery !== undefined && externalSearchQuery !== '' && externalSearchQuery !== localSearchQuery) {
       setLocalSearchQuery(externalSearchQuery);
     }
-  }, [externalSearchQuery, localSearchQuery]);
+  }, [externalSearchQuery]);
 
   // Clear selections when search query or view changes
   useEffect(() => {
@@ -1016,6 +1060,21 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
     });
   }, [companies, targetAccountFilters, assignedFilters, dealsFilters, hasDeals]);
 
+  // Filter contacts by company when a company filter is active (e.g. from Company Record page)
+  const filteredContactsByCompany = useMemo(() => {
+    if (!companyFilterId) return contacts;
+    return contacts.filter((c: Contact) => c.companyId === companyFilterId);
+  }, [contacts, companyFilterId]);
+
+  // Derived list and pagination for current view (companies vs contacts)
+  const allItemsForCurrentView = view === 'companies' ? filteredCompanies : filteredContactsByCompany;
+  const totalItemsForCurrentView = allItemsForCurrentView.length;
+  const paginatedItemsForCurrentView = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return allItemsForCurrentView.slice(startIndex, endIndex);
+  }, [allItemsForCurrentView, currentPage, pageSize]);
+
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => 
     targetAccountFilters.length > 0 || assignedFilters.length > 0 || dealsFilters.length > 0,
@@ -1190,6 +1249,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <button 
               onClick={() => {
                 setView('companies');
+                setCompanyFilterId(null);
                 setSelectedCompanyIds([]);
                 setSelectedContactIds([]);
               }} 
@@ -1200,12 +1260,13 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             <button 
               onClick={() => {
                 setView('contacts');
+                setCompanyFilterId(null);
                 setSelectedCompanyIds([]);
                 setSelectedContactIds([]);
               }} 
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors whitespace-nowrap ${view === 'contacts' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
-              Contacts ({contacts.length})
+              Contacts ({view === 'contacts' && companyFilterId ? filteredContactsByCompany.length : contacts.length})
             </button>
           </div>
         </div>
@@ -1292,8 +1353,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
           </button>
         </div>
         
-        {/* Search Bar and View Toggle */}
-        <div className="flex items-center gap-3 w-full min-w-0">
+        {/* Search Bar, Active Filters, and View Toggle */}
+        <div className="flex flex-col gap-2 w-full min-w-0">
+          <div className="flex items-center gap-3 w-full">
           <div className="relative group flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors shrink-0" />
             <input 
@@ -1325,6 +1387,30 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 animate-spin" />
             )}
           </div>
+          {companyFilterId && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-500 font-semibold uppercase tracking-wide">Active filter:</span>
+              <button
+                onClick={() => {
+                  setCompanyFilterId(null);
+                  // Clean URL params if present
+                  try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('crmCompanyId');
+                    url.searchParams.delete('crmView');
+                    window.history.replaceState({}, '', url.toString());
+                  } catch {
+                    // ignore if URL parsing fails
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 text-[11px] font-semibold text-indigo-700 border border-indigo-100 hover:bg-indigo-100"
+              >
+                <span>{activeCompanyFilterName || 'Company contacts only'}</span>
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
           {/* Phase 8: Column Customizer Button */}
           <div className="relative">
             <button
@@ -1696,9 +1782,9 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <tbody className="divide-y divide-slate-50">
                   {isLoading ? (
                     <tr><td colSpan={view === 'companies' ? 11 : 12} className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" /></td></tr>
-                  ) : (view === 'companies' ? filteredCompanies : contacts).length === 0 ? (
+                  ) : totalItemsForCurrentView === 0 ? (
                     <tr><td colSpan={view === 'companies' ? 11 : 12} className="py-10 text-center text-slate-400 text-sm font-medium">No {view} found.</td></tr>
-                  ) : (view === 'companies' ? filteredCompanies : contacts).map((item: Company | Contact) => {
+                  ) : paginatedItemsForCurrentView.map((item: Company | Contact) => {
                     const isSelected = view === 'companies' 
                       ? selectedCompanyIds.includes(item.id)
                       : selectedContactIds.includes(item.id);
@@ -1709,7 +1795,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       return (
                         <tr 
                           key={company.id} 
-                          onClick={() => setSelectedCompany(company)}
+                          onClick={() => navigateToRecord('company', company.id)}
                           className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`}
                         >
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -1885,7 +1971,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                       return (
                         <tr 
                           key={contact.id} 
-                          onClick={() => setSelectedContact(contact)}
+                          onClick={() => navigateToRecord('contact', contact.id)}
                           className={`group transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'} ${(contact as Contact).contact_compliance?.processing_restricted ? 'bg-slate-100/80' : ''}`}
                         >
                           <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -2082,7 +2168,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               return (
                 <div 
                   key={company.id} 
-                  onClick={() => setSelectedCompany(company)} 
+                  onClick={() => navigateToRecord('company', company.id)} 
                   className={`bg-white p-6 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : company.isTargetAccount ? 'border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.1)]' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group flex flex-col relative`}
                 >
                   {company.isTargetAccount && <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black uppercase rounded shadow-sm flex items-center gap-1 whitespace-nowrap"><Target className="w-2.5 h-2.5" /> Target Account</div>}
@@ -2121,7 +2207,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
               return (
                 <div 
                   key={contact.id}
-                  onClick={() => setSelectedContact(contact)} 
+                  onClick={() => navigateToRecord('contact', contact.id)} 
                   className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group shadow-sm relative flex flex-col h-[220px]`}
                 >
                   {(contact as Contact).contact_compliance?.processing_restricted && (
@@ -2179,11 +2265,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
         )}
 
         {/* Phase 2: Pagination */}
-        {!isLoading && ((view === 'companies' ? filteredCompanies : contacts).length > 0) && (
+        {!isLoading && totalItemsForCurrentView > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-600 font-medium">
-                Showing {Math.min((currentPage - 1) * pageSize + 1, (view === 'companies' ? filteredCompanies : contacts).length)} - {Math.min(currentPage * pageSize, (view === 'companies' ? filteredCompanies : contacts).length)} of {(view === 'companies' ? filteredCompanies : contacts).length}
+                Showing {Math.min((currentPage - 1) * pageSize + 1, totalItemsForCurrentView)} - {Math.min(currentPage * pageSize, totalItemsForCurrentView)} of {totalItemsForCurrentView}
               </span>
               <select
                 value={pageSize}
@@ -2207,11 +2293,11 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 Previous
               </button>
               <span className="px-4 py-2 text-sm font-semibold text-slate-700">
-                Page {currentPage} of {Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize) || 1}
+                Page {currentPage} of {Math.ceil(totalItemsForCurrentView / pageSize) || 1}
               </span>
               <button
-                onClick={() => setCurrentPage(prev => Math.min(Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize) || 1, prev + 1))}
-                disabled={currentPage >= Math.ceil((view === 'companies' ? filteredCompanies : contacts).length / pageSize)}
+                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalItemsForCurrentView / pageSize) || 1, prev + 1))}
+                disabled={currentPage >= Math.ceil(totalItemsForCurrentView / pageSize)}
                 className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Next
@@ -2724,7 +2810,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Contacts</h3>
                 <div className="space-y-3">
                   {contacts.filter(c => c.companyId === selectedCompany.id).map(contact => (
-                    <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 transition-all cursor-pointer relative" onClick={() => setSelectedContact(contact)}>
+                    <div key={contact.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 transition-all cursor-pointer relative" onClick={() => navigateToRecord('contact', contact.id)}>
                       {(contact as Contact).contact_compliance?.processing_restricted && (
                         <>
                           <div className="absolute inset-0 bg-slate-400/30 rounded-2xl pointer-events-none z-10" />
@@ -2772,7 +2858,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             )}
 
             {/* Business Card Header */}
-            <div className="p-8 border-b border-slate-100 bg-slate-50/50 relative">
+              <div className="p-8 border-b border-slate-100 bg-slate-50/50 relative">
               <button onClick={closeContactDrawer} className="absolute top-6 right-6 p-2 hover:bg-white rounded-full text-slate-400 transition-all shadow-sm z-10"><X className="w-5 h-5" /></button>
               
               <div className="flex items-center gap-6">
@@ -2789,13 +2875,49 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                     {!isEditingContact ? (
                       <>
                         {!selectedContact.contact_compliance?.processing_restricted && (
-                          <button onClick={() => { setEditContactFormData({...selectedContact}); setIsEditingContact(true); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"><Edit3 className="w-3.5 h-3.5" /> Edit Profile</button>
+                          <button
+                            onClick={() => { setEditContactFormData({ ...selectedContact }); setIsEditingContact(true); }}
+                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-600 hover:border-indigo-300 transition-all flex items-center gap-2"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" /> Edit Profile
+                          </button>
                         )}
-                        <a href={`mailto:${selectedContact.email}`} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"><Mail className="w-4 h-4" /></a>
+                        {/* LinkedIn import: block direct outreach from profile header until consent granted */}
+                        {selectedContact.scannedFrom === 'linkedin' &&
+                        selectedContact.contact_compliance?.consent_status !== 'granted' ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="p-2.5 bg-slate-200 text-slate-400 rounded-xl cursor-not-allowed flex items-center justify-center"
+                            title="LinkedIn contacts cannot be used for direct outreach without separate consent under UAE PDPL and LinkedIn's Terms of Service."
+                          >
+                            <Mail className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <a
+                            href={`mailto:${selectedContact.email}`}
+                            className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+                          >
+                            <Mail className="w-4 h-4" />
+                          </a>
+                        )}
                         {selectedContact.linkedin && <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="p-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006da5] transition-all shadow-lg shadow-blue-100"><Linkedin className="w-4 h-4" /></a>}
                       </>
                     ) : null}
                   </div>
+
+                  {/* LinkedIn-specific compliance banner */}
+                  {selectedContact.scannedFrom === 'linkedin' &&
+                    selectedContact.contact_compliance?.consent_status !== 'granted' && (
+                      <div className="mt-3 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5" />
+                        <p className="text-xs text-amber-900">
+                          <strong>LinkedIn contacts cannot be used for direct outreach without separate consent</strong>{' '}
+                          under UAE PDPL and LinkedIn&apos;s Terms of Service. This contact will remain in a pending consent
+                          state until you obtain explicit opt-in.
+                        </p>
+                      </div>
+                    )}
                   
                   {/* Phase 8: Contextual SAVE/CANCEL bar - shows when editing and has unsaved changes */}
                   {isEditingContact && hasUnsavedContactChanges && !selectedContact.contact_compliance?.processing_restricted && (
