@@ -91,7 +91,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({
     <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">{title}</h3>
+        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider truncate" title={title}>{title}</h3>
         <div className="flex items-center gap-2">
           {onManageProperties && isAdmin && (
             <button
@@ -203,7 +203,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({
       {/* Properties List */}
       <div className="space-y-4">
         {displayProperties.map((property) => (
-          <div key={property.key}>
+          <div key={property.key} className="min-w-0">
             {property.onSave ? (
               <InlineEditField
                 value={property.value}
@@ -215,9 +215,9 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({
                 calculatedValue={property.calculatedValue}
               />
             ) : (
-              <div>
-                <div className="text-xs font-medium text-slate-500 mb-1">{property.label}</div>
-                <div className="text-sm text-slate-600">
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 mb-1 truncate" title={property.label}>{property.label}</div>
+                <div className="text-sm text-slate-600 break-words">
                   {property.calculatedValue !== undefined 
                     ? property.calculatedValue 
                     : property.value || '--'}

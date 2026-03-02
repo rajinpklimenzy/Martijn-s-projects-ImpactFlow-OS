@@ -1252,6 +1252,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 setCompanyFilterId(null);
                 setSelectedCompanyIds([]);
                 setSelectedContactIds([]);
+                setCurrentPage(1);
               }} 
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors whitespace-nowrap ${view === 'companies' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
@@ -1263,6 +1264,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
                 setCompanyFilterId(null);
                 setSelectedCompanyIds([]);
                 setSelectedContactIds([]);
+                setCurrentPage(1);
               }} 
               className={`text-sm font-semibold pb-1 border-b-2 transition-colors whitespace-nowrap ${view === 'contacts' ? 'border-indigo-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >

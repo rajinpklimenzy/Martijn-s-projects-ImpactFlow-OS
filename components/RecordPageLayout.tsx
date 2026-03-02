@@ -1,23 +1,43 @@
 /**
  * Phase 1-5: Three-column layout shell for Contact and Company record pages
  * REQ-01, 3.1, 5.4, REQ-09 - Responsive layout
+ * Second Update: optional right-side "About" drawer with session persistence
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Menu } from 'lucide-react';
+import { X, Menu, PanelRightOpen } from 'lucide-react';
+
+const ABOUT_PANEL_KEY = 'recordPageAboutPanelOpen';
 
 interface RecordPageLayoutProps {
   left: React.ReactNode;
   center: React.ReactNode;
   right?: React.ReactNode;
   breadcrumbs?: React.ReactNode;
+  /** When true, left panel (About) can be shown in a right-side drawer on desktop */
+  aboutAsRightDrawer?: boolean;
 }
 
-const RecordPageLayout: React.FC<RecordPageLayoutProps> = ({ left, center, right, breadcrumbs }) => {
+const RecordPageLayout: React.FC<RecordPageLayoutProps> = ({ left, center, right, breadcrumbs, aboutAsRightDrawer }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
+  const [aboutPanelOpen, setAboutPanelOpen] = useState(() => {
+    try {
+      const s = sessionStorage.getItem(ABOUT_PANEL_KEY);
+      return s ? JSON.parse(s) : true;
+    } catch (_) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    const v = aboutPanelOpen;
+    try {
+      sessionStorage.setItem(ABOUT_PANEL_KEY, JSON.stringify(v));
+    } catch (_) {}
+  }, [aboutPanelOpen]);
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -116,31 +136,43 @@ const RecordPageLayout: React.FC<RecordPageLayoutProps> = ({ left, center, right
     );
   }
 
-  // Desktop: Full three-column layout
+  // Desktop: Full three-column layout, or center + optional right About drawer
+  const showAboutDrawer = aboutAsRightDrawer && left;
   return (
     <div className="h-full flex flex-col">
-      {/* Breadcrumbs */}
       {breadcrumbs && (
-        <div className="px-8 pt-6 pb-2 border-b border-slate-200">
-          {breadcrumbs}
+        <div className={`px-8 pt-6 pb-2 border-b border-slate-200 flex items-center justify-between gap-4 ${showAboutDrawer ? '' : ''}`}>
+          <div className="flex-1 min-w-0">{breadcrumbs}</div>
+          {showAboutDrawer && (
+            <button
+              type="button"
+              onClick={() => setAboutPanelOpen((o) => !o)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+              aria-label={aboutPanelOpen ? 'Hide about panel' : 'Show about panel'}
+            >
+              <PanelRightOpen className="w-4 h-4" />
+              {aboutPanelOpen ? 'Hide about' : 'About'}
+            </button>
+          )}
         </div>
       )}
       
-      {/* Three-column layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - ~280px fixed */}
-        <div className="w-[280px] border-r border-slate-200 overflow-y-auto bg-white">
-          {left}
-        </div>
-        
-        {/* Center Content - flexible */}
-        <div className="flex-1 overflow-y-auto bg-slate-50">
+        {!showAboutDrawer && (
+          <div className="w-[280px] min-w-[200px] border-r border-slate-200 overflow-y-auto bg-white shrink-0">
+            {left}
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto bg-slate-50 min-w-0">
           {center}
         </div>
-        
-        {/* Right Sidebar - ~300px fixed (optional) */}
-        {right && (
-          <div className="w-[300px] border-l border-slate-200 overflow-y-auto bg-white">
+        {showAboutDrawer && aboutPanelOpen && (
+          <div className="w-[320px] border-l border-slate-200 overflow-y-auto bg-white shrink-0">
+            {left}
+          </div>
+        )}
+        {right && !showAboutDrawer && (
+          <div className="w-[300px] border-l border-slate-200 overflow-y-auto bg-white shrink-0">
             {right}
           </div>
         )}

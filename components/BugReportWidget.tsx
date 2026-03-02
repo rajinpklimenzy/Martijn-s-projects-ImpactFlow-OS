@@ -318,12 +318,13 @@ const BugReportWidget: React.FC<{ currentUser: any }> = ({ currentUser }) => {
   };
 
   return (
-    <div className="fixed right-0 top-1/2 -translate-y-1/2 z-[100] flex items-center pointer-events-none">
+    <div className="fixed bottom-6 right-6 z-[100] flex items-center justify-end pointer-events-none">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`pointer-events-auto h-32 w-10 bg-slate-900 text-white flex flex-col items-center justify-center rounded-l-2xl shadow-2xl hover:w-12 group border-l border-y border-white/10 ${allowTransition ? 'transition-all duration-300' : ''} ${isOpen ? 'translate-x-full' : ''}`}
+        className={`pointer-events-auto w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:shadow-xl transition-all ${allowTransition ? 'duration-200' : ''} ${isOpen ? 'scale-95' : ''}`}
+        aria-label={isOpen ? 'Close feedback' : 'Open feedback'}
       >
-        <span className="[writing-mode:vertical-lr] text-[11px] font-black uppercase tracking-[0.3em] rotate-180">Feedback</span>
+        <MessageSquare className="w-5 h-5" />
       </button>
 
       <div

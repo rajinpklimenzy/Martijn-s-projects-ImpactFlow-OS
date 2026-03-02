@@ -77,11 +77,38 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   const [showEvents, setShowEvents] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
+  const [deliverablesExpanded, setDeliverablesExpanded] = useState(() => {
+    try {
+      const s = localStorage.getItem('scheduleDeliverablesExpanded');
+      return s ? JSON.parse(s) : true;
+    } catch (_) { return true; }
+  });
   
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const noteImageInputRef = useRef<HTMLInputElement>(null);
+  const dailyScrollRef = useRef<HTMLDivElement>(null);
   
   const hours = Array.from({ length: 24 }, (_, i) => i); // 12 AM to 11 PM (full day)
+
+  useEffect(() => {
+    const v = deliverablesExpanded;
+    try { localStorage.setItem('scheduleDeliverablesExpanded', JSON.stringify(v)); } catch (_) {}
+  }, [deliverablesExpanded]);
+
+  // Scroll to current time when daily view and today
+  useEffect(() => {
+    if (viewMode !== 'daily' || !dailyScrollRef.current) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sel = new Date(selectedDate);
+    sel.setHours(0, 0, 0, 0);
+    if (today.getTime() !== sel.getTime()) return;
+    const currentHour = new Date().getHours();
+    const el = dailyScrollRef.current.querySelector(`[data-schedule-hour="${currentHour}"]`);
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100);
+    }
+  }, [viewMode, selectedDate]);
 
   // Auto-detect browser timezone
   const timezone = useMemo(() => {
@@ -838,7 +865,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
           {hours.map((hour) => {
             const hourTop = hour * 80 + 20; // Add 20px offset to prevent cutting off the first hour
             return (
-              <div key={hour} className="absolute left-0 right-0 group" style={{ top: `${hourTop}px` }}>
+              <div key={hour} className="absolute left-0 right-0 group" style={{ top: `${hourTop}px` }} data-schedule-hour={hour}>
                 <span className="absolute left-4 top-0 -translate-y-1/2 text-[10px] font-black text-slate-300 w-16 text-right pr-6 uppercase tracking-widest">
                   {hour === 0 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
                 </span>
@@ -1313,14 +1340,22 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto relative bg-white">
+          <div className="flex-1 overflow-y-auto relative bg-white" ref={dailyScrollRef}>
             {viewMode === 'daily' && showTasks && dailyTasks.length > 0 && (
-              <div className="px-6 py-6 bg-slate-50/50 border-b border-slate-100 space-y-3">
-                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                   <CheckCircle2 className="w-3 h-3" /> Today's Deliverables
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {dailyTasks.map(task => (
+              <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeliverablesExpanded((e) => !e)}
+                  className="w-full flex items-center justify-between gap-2 text-left"
+                >
+                  <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                    <CheckCircle2 className="w-3 h-3" /> Today's Deliverables
+                  </h4>
+                  <span className="text-slate-400">{deliverablesExpanded ? '−' : '+'}</span>
+                </button>
+                {deliverablesExpanded && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    {dailyTasks.map(task => (
                     <div key={task.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm group hover:border-indigo-200 transition-all flex items-start gap-3">
                       <div className="mt-1">
                         {task.status === 'Done' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Circle className="w-4 h-4 text-slate-300 group-hover:text-indigo-400" />}
@@ -1333,7 +1368,8 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 

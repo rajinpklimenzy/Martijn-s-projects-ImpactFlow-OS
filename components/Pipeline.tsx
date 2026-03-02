@@ -736,12 +736,18 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
         ) : (
           activePipeline.stages.map(stage => {
             const stageDeals = deals.filter(d => d.stage === stage);
+            const stageTotal = stageDeals.reduce((sum, d) => sum + (d.value || 0), 0);
             return (
               <div key={stage} onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, stage)} className="flex flex-col min-h-0 w-[85vw] sm:w-72 lg:w-80 shrink-0 bg-slate-100/40 rounded-3xl p-4 border border-slate-200/50">
                 <div className="flex justify-between items-center mb-6 px-1">
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-black text-slate-900 text-xs uppercase tracking-widest">{stage}</h3>
-                    <span className="text-[10px] bg-white text-slate-400 px-2 py-0.5 rounded-full border border-slate-200 font-bold">{stageDeals.length}</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-black text-slate-900 text-xs uppercase tracking-widest">{stage}</h3>
+                      <span className="text-[10px] bg-white text-slate-400 px-2 py-0.5 rounded-full border border-slate-200 font-bold">{stageDeals.length}</span>
+                    </div>
+                    {stageTotal > 0 && (
+                      <p className="text-[10px] font-semibold text-indigo-600">{formatCurrency(stageTotal, DEFAULT_CURRENCY)}</p>
+                    )}
                   </div>
                   <Plus onClick={() => onNewDeal(stage)} className="w-4 h-4 text-slate-300 hover:text-indigo-600 cursor-pointer transition-colors" />
                 </div>
@@ -762,7 +768,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
                         draggable 
                         onDragStart={e => handleDragStart(e, deal.id)} 
                         key={deal.id} 
-                        className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} shadow-sm hover:border-indigo-300 hover:shadow-xl transition-all cursor-move group active:scale-[0.98] relative ${draggingDealId === deal.id ? 'opacity-30' : ''}`}
+                        className={`bg-white p-5 rounded-2xl border ${isSelected ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-200'} shadow-sm hover:border-indigo-300 hover:shadow-xl transition-all cursor-move group active:scale-[0.98] relative ${draggingDealId === deal.id ? 'opacity-90 shadow-lg scale-[1.02] ring-2 ring-indigo-200' : ''}`}
                       >
                         {hasNoValidConsent && (
                           <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[10px] font-bold uppercase tracking-wider">

@@ -98,6 +98,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
   const [isMerging, setIsMerging] = useState(false);
   const [noteImagePreview, setNoteImagePreview] = useState<string>('');
   const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const noteImageInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -895,42 +896,42 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
   return (
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="bg-white rounded-[48px] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="bg-white border-t-4 border-t-[#4F46E5] rounded-xl w-full max-w-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div className="flex items-center gap-5">
-            <div className="p-4 bg-indigo-600 rounded-[20px] text-white shadow-2xl shadow-indigo-100 ring-4 ring-indigo-50">
-              {(type === 'deal' || type === 'company') && <Building2 className="w-6 h-6" />}
-              {type === 'project' && <FolderKanban className="w-6 h-6" />}
-              {type === 'task' && <CheckSquare className="w-6 h-6" />}
-              {type === 'invoice' && <FileText className="w-6 h-6" />}
-              {type === 'contact' && <User className="w-6 h-6" />}
+            <div className="text-[#4F46E5]" aria-hidden>
+              {(type === 'deal' || type === 'company') && <Building2 className="w-6 h-6" strokeWidth={1.5} />}
+              {type === 'project' && <FolderKanban className="w-6 h-6" strokeWidth={1.5} />}
+              {type === 'task' && <CheckSquare className="w-6 h-6" strokeWidth={1.5} />}
+              {type === 'invoice' && <FileText className="w-6 h-6" strokeWidth={1.5} />}
+              {type === 'contact' && <User className="w-6 h-6" strokeWidth={1.5} />}
             </div>
             <div>
               <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-1">{getTitle()}</h3>
-              <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-black">WORKSPACE UPDATE</p>
+              <p className="text-[13px] text-[#9CA3AF] mt-0.5">Add to your Sales Pipeline</p>
             </div>
           </div>
           <button onClick={handleClose} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X className="w-6 h-6" /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[75vh] overflow-y-auto custom-scrollbar">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
           {!lockedType && (
-            <div className="flex bg-slate-100 p-1 rounded-[20px] mb-4 overflow-x-auto scrollbar-hide border border-slate-200">
+            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
               {['deal', 'project', 'task', 'invoice', 'company', 'contact'].map(tab => (
                 <button 
                   key={tab} 
                   type="button" 
                   onClick={() => !lockedType && setType(tab as any)} 
                   disabled={lockedType}
-                  className={`flex-1 min-w-[80px] flex items-center justify-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  className={`min-w-[80px] flex items-center justify-center py-1.5 px-4 rounded-[20px] text-[13px] font-medium transition-all ${
                     type === tab 
-                      ? 'bg-white text-indigo-600 shadow-md border border-slate-100' 
+                      ? 'bg-[#4F46E5] text-white' 
                       : lockedType 
                         ? 'text-slate-300 cursor-not-allowed' 
-                        : 'text-slate-400 hover:text-slate-600'
+                        : 'bg-transparent text-[#6B7280] hover:text-slate-700 cursor-pointer'
                   }`}
                 >
-                  {tab === 'invoice' ? 'INVOCE' : tab.toUpperCase()}
+                  {tab === 'invoice' ? 'Invoice' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
             </div>
@@ -944,10 +945,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Common Name/Title Field */}
             <div className="md:col-span-2 space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+              <label className="text-[13px] font-medium text-[#6B7280] px-1">
                 {type === 'deal' || type === 'project' || type === 'task' ? 'Name' : 'Name'} <RequiredAsterisk />
               </label>
               <input 
@@ -967,10 +968,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     });
                   }
                 }} 
-                className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                   fieldErrors.title || fieldErrors.name 
                     ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                    : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                    : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                 }`}
               />
               {(fieldErrors.title || fieldErrors.name) && (
@@ -984,7 +985,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Entity Associations */}
             {(type === 'deal' || type === 'project' || type === 'invoice' || type === 'contact') && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Organization {(type === 'deal' || type === 'invoice') && <RequiredAsterisk />}
                 </label>
                 <select 
@@ -1001,10 +1002,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium appearance-none bg-[length:20px_20px] bg-[right_14px_center] bg-no-repeat ${
                     fieldErrors.companyId 
                       ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   } bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22${fieldErrors.companyId ? '%23ef4444' : '%236b7280'}%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]`}
                 >
                   <option value="">{type === 'deal' || type === 'invoice' ? 'Select Organization' : 'No Organization'}</option>
@@ -1022,7 +1023,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Contact Email Field */}
             {type === 'contact' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Email <RequiredAsterisk />
                 </label>
                 <input 
@@ -1041,10 +1042,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                     fieldErrors.email 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
                 />
                 {fieldErrors.email && type === 'contact' && (
@@ -1059,13 +1060,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Contact Role Field */}
             {type === 'contact' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Role / Title</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Role / Title</label>
                 <input 
                   type="text" 
                   placeholder="e.g., CEO, Manager" 
                   value={formData.role} 
                   onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} 
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300" 
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 font-medium placeholder:text-slate-300" 
                 />
               </div>
             )}
@@ -1073,13 +1074,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Contact Phone Field */}
             {type === 'contact' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Phone Number</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Phone Number</label>
                 <input 
                   type="tel" 
                   placeholder="+1 (555) 000-0000" 
                   value={formData.phone} 
                   onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))} 
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300" 
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 font-medium placeholder:text-slate-300" 
                 />
               </div>
             )}
@@ -1087,13 +1088,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* §2D/2E Contact compliance fields */}
             {type === 'contact' && (
               <div className="space-y-4 pt-2 border-t border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Compliance (UAE PDPL)</p>
+                <p className="text-[13px] font-medium text-[#6B7280] px-1">Compliance (UAE PDPL)</p>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">How did you get this contact?</label>
+                  <label className="text-[13px] font-medium text-[#6B7280] px-1">How did you get this contact?</label>
                   <select
                     value={formData.dataSource}
                     onChange={(e) => setFormData(prev => ({ ...prev, dataSource: e.target.value }))}
-                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold"
+                    className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 font-medium"
                   >
                     <option value="manual_entry">Manual entry</option>
                     <option value="event_registration">Event registration</option>
@@ -1103,17 +1104,17 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Event / context</label>
+                  <label className="text-[13px] font-medium text-[#6B7280] px-1">Event / context</label>
                   <input
                     type="text"
                     placeholder="e.g. Conference 2025, Intro from John"
                     value={formData.dataSourceDetail}
                     onChange={(e) => setFormData(prev => ({ ...prev, dataSourceDetail: e.target.value }))}
-                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 font-bold placeholder:text-slate-300"
+                    className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 font-medium placeholder:text-slate-300"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1 flex items-center gap-1">
+                  <label className="text-[13px] font-medium text-[#6B7280] px-1 flex items-center gap-1">
                     Consent status
                     <span title="Consent status for this contact. Pending requires follow-up within 14 days. Not required is only allowed when the organization has an active deal." className="text-slate-400 cursor-help">ⓘ</span>
                   </label>
@@ -1161,7 +1162,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Company Industry Field */}
             {type === 'company' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Industry
                 </label>
                 <input 
@@ -1178,10 +1179,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                     fieldErrors.industry 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
                 />
                 {fieldErrors.industry && (
@@ -1196,7 +1197,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Company Region Field - Searchable Select */}
             {type === 'company' && (
               <div className="space-y-2 relative" ref={regionDropdownRef}>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Region <RequiredAsterisk />
                 </label>
                 <div className="relative">
@@ -1208,10 +1209,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         setRegionSearch('');
                       }
                     }}
-                    className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold text-left flex items-center justify-between ${
+                    className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium text-left flex items-center justify-between ${
                       fieldErrors.region 
                         ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                        : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                     } ${!formData.region ? 'text-slate-400' : 'text-slate-900'}`}
                   >
                     <span>{formData.region || 'Select Region'}</span>
@@ -1219,7 +1220,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   </button>
                   
                   {isRegionDropdownOpen && (
-                    <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-[20px] shadow-2xl max-h-64 overflow-hidden">
+                    <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-64 overflow-hidden">
                       {/* Search Input */}
                       <div className="p-3 border-b border-slate-100">
                         <div className="relative">
@@ -1285,7 +1286,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Company Website Field */}
             {type === 'company' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Website</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Website</label>
                 <input 
                   type="url" 
                   placeholder="https://www.example.com" 
@@ -1307,10 +1308,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                     fieldErrors.website 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
                 />
                 {fieldErrors.website && (
@@ -1325,7 +1326,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Company Email Field */}
             {type === 'company' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Email</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Email</label>
                 <input 
                   type="email" 
                   placeholder="contact@company.com" 
@@ -1347,10 +1348,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                     fieldErrors.email 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
                 />
                 {fieldErrors.email && type === 'contact' && (
@@ -1365,14 +1366,14 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Company Domain Field (read-only, auto-populated) */}
             {type === 'company' && formData.domain && (
               <div className="md:col-span-2 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Domain <span className="text-xs text-slate-400">(auto-populated)</span>
                 </label>
                 <input 
                   type="text" 
                   value={formData.domain} 
                   readOnly
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold cursor-not-allowed ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium cursor-not-allowed ${
                     fieldErrors.domain 
                       ? 'bg-red-50 border-2 border-red-500 text-red-600' 
                       : 'bg-slate-100 border border-slate-200 text-slate-600'
@@ -1390,7 +1391,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task specific Project Link */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">Linked Project</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Linked Project</label>
                 <select 
                   value={formData.projectId || ''} 
                   onChange={(e) => {
@@ -1400,7 +1401,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       projectId: selectedProjectId === '' ? '' : selectedProjectId // Keep empty string for "General / Standalone"
                     }));
                   }} 
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_14px_center] bg-no-repeat"
                 >
                   <option value="">None</option>
                   {projects.map((p: Project) => (
@@ -1413,7 +1414,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task Category - only for task */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1 flex items-center gap-1.5">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1 flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5" /> Task Category
                 </label>
                 <select
@@ -1428,7 +1429,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       setFormData(prev => ({ ...prev, category: v }));
                     }
                   }}
-                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 transition-all font-bold appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%226b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat"
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%226b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px_20px] bg-[right_14px_center] bg-no-repeat"
                 >
                   <option value="">None</option>
                   {taskCategories.map((c) => (
@@ -1452,7 +1453,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
             {/* Ownership/Assignment */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+              <label className="text-[13px] font-medium text-[#6B7280] px-1">
                 ASSIGNEE / LEAD <RequiredAsterisk />
               </label>
               <select 
@@ -1470,10 +1471,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     });
                   }
                 }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium appearance-none ${
                     fieldErrors.ownerId || fieldErrors.assigneeId 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
               >
                 <option value="">Select Resource Personnel</option>
@@ -1490,7 +1491,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Financial Value - Only for Deals */}
             {type === 'deal' && (
               <div className="space-y-2">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                 <label className="text-[13px] font-medium text-[#6B7280] px-1">
                    Value <RequiredAsterisk />
                  </label>
                  <div className="flex gap-3">
@@ -1501,7 +1502,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                        onChange={(e) => {
                          setFormData(prev => ({ ...prev, currency: e.target.value }));
                        }}
-                       className="w-full px-4 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600 cursor-pointer"
+                       className="w-full px-4 py-4 rounded-lg text-sm outline-none font-bold appearance-none bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 text-indigo-600 cursor-pointer"
                        style={{
                          backgroundImage: `url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20"%3E%3Cpath stroke="%236b7280" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m6 8 4 4 4-4"/%3E%3C/svg%3E')`,
                          backgroundRepeat: 'no-repeat',
@@ -1519,7 +1520,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                    
                    {/* Value Input */}
                    <div className="relative flex-1">
-                     <span className="absolute left-6 top-1/2 -translate-y-1/2 text-indigo-500 font-black text-sm">
+                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500 font-black text-sm">
                        {getCurrencySymbol(formData.currency)}
                      </span>
                      <input 
@@ -1539,10 +1540,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                           });
                         }
                       }} 
-                      className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-black transition-all ${
+                      className={`w-full pl-10 pr-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium transition-all ${
                         fieldErrors.value 
                           ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600 text-red-600' 
-                          : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600'
+                          : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 text-indigo-600'
                       }`}
                      />
                    </div>
@@ -1559,7 +1560,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Invoice Currency Selection - Before Line Items */}
             {type === 'invoice' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Currency
                 </label>
                 <div className="relative w-full">
@@ -1568,7 +1569,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                     onChange={(e) => {
                       setFormData(prev => ({ ...prev, currency: e.target.value }));
                     }}
-                    className="w-full px-4 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 text-indigo-600 cursor-pointer"
+                    className="w-full px-4 py-4 rounded-lg text-sm outline-none font-bold appearance-none bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 text-indigo-600 cursor-pointer"
                     style={{
                       backgroundImage: `url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20"%3E%3Cpath stroke="%236b7280" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m6 8 4 4 4-4"/%3E%3C/svg%3E')`,
                       backgroundRepeat: 'no-repeat',
@@ -1589,12 +1590,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Line Items - Required for Invoice */}
             {type === 'invoice' && (
               <div className="md:col-span-2 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Line Items <RequiredAsterisk />
                 </label>
                 <div className="space-y-3">
                   {formData.lineItems.map((item, index) => (
-                    <div key={index} className="p-4 bg-slate-50 border border-slate-200 rounded-[20px] space-y-3">
+                    <div key={index} className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-slate-600">Item {index + 1}</span>
                         {formData.lineItems.length > 1 && (
@@ -1621,7 +1622,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       
                       {/* Description */}
                       <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1 block">
+                        <label className="text-[13px] font-medium text-[#6B7280] px-1 mb-1 block">
                           Description <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -1644,7 +1645,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                           className={`w-full px-4 py-2 rounded-xl text-sm outline-none font-bold transition-all ${
                             fieldErrors[`lineItem_${index}_description`]
                               ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100'
-                              : 'bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                              : 'bg-white border border-slate-200 focus:ring-2 focus:ring-[#4F46E5]/10'
                           }`}
                         />
                         {fieldErrors[`lineItem_${index}_description`] && (
@@ -1657,7 +1658,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       {/* Quantity and Rate */}
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1 block">
+                          <label className="text-[13px] font-medium text-[#6B7280] px-1 mb-1 block">
                             Quantity <span className="text-red-500">*</span>
                           </label>
                           <input
@@ -1688,7 +1689,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                             className={`w-full px-4 py-2 rounded-xl text-sm outline-none font-bold transition-all ${
                               fieldErrors[`lineItem_${index}_quantity`]
                                 ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100'
-                                : 'bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                                : 'bg-white border border-slate-200 focus:ring-2 focus:ring-[#4F46E5]/10'
                             }`}
                           />
                           {fieldErrors[`lineItem_${index}_quantity`] && (
@@ -1698,7 +1699,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                           )}
                         </div>
                         <div>
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1 block">
+                          <label className="text-[13px] font-medium text-[#6B7280] px-1 mb-1 block">
                             Rate ({getCurrencySymbol(formData.currency)}) <span className="text-red-500">*</span>
                           </label>
                           <input
@@ -1729,7 +1730,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                             className={`w-full px-4 py-2 rounded-xl text-sm outline-none font-bold transition-all ${
                               fieldErrors[`lineItem_${index}_rate`]
                                 ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100'
-                                : 'bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                                : 'bg-white border border-slate-200 focus:ring-2 focus:ring-[#4F46E5]/10'
                             }`}
                           />
                           {fieldErrors[`lineItem_${index}_rate`] && (
@@ -1742,7 +1743,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
                       {/* Amount (calculated) */}
                       <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1 block">
+                        <label className="text-[13px] font-medium text-[#6B7280] px-1 mb-1 block">
                           Amount
                         </label>
                         <div className="px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
@@ -1787,12 +1788,12 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                 
                 {/* Total Amount - Calculated from Line Items (Read-only) */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                  <label className="text-[13px] font-medium text-[#6B7280] px-1">
                     Total Amount ({getCurrencySymbol(formData.currency)})
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
-                    <div className="w-full pl-12 pr-6 py-4 rounded-[20px] text-sm font-black bg-indigo-50 border-2 border-indigo-200 text-indigo-600">
+                    <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
+                    <div className="w-full pl-10 pr-3.5 py-2.5 rounded-lg text-[14px] font-medium bg-indigo-50 border-2 border-indigo-200 text-indigo-600">
                       {getCurrencySymbol(formData.currency)}{formData.lineItems.reduce((sum, item) => {
                         const itemAmount = item.amount || (item.rate * item.quantity) || 0;
                         return sum + itemAmount;
@@ -1806,7 +1807,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Deal Stage Field */}
             {type === 'deal' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Stage <RequiredAsterisk />
                 </label>
                 <select 
@@ -1823,10 +1824,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none font-bold appearance-none bg-[length:20px_20px] bg-[right_16px_center] bg-no-repeat ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium appearance-none bg-[length:20px_20px] bg-[right_14px_center] bg-no-repeat ${
                     fieldErrors.stage 
                       ? 'bg-red-50 border-2 border-red-400 focus:ring-4 focus:ring-red-100 focus:border-red-500' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   } bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%22%3E%3Cpath%20stroke%3D%22${fieldErrors.stage ? '%23ef4444' : '%236b7280'}%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]`}
                 >
                   <option value="">Select Stage</option>
@@ -1848,7 +1849,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Project Engagement Field */}
             {type === 'project' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Engagement <RequiredAsterisk />
                 </label>
                 <input 
@@ -1867,10 +1868,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       });
                     }
                   }} 
-                  className={`w-full px-6 py-4 rounded-[20px] text-sm outline-none transition-all font-bold placeholder:text-slate-300 ${
+                  className={`w-full px-3.5 py-2.5 rounded-lg text-[14px] outline-none transition-all font-medium placeholder:text-slate-300 ${
                     fieldErrors.engagement 
                       ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                      : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600'
+                      : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                   }`}
                 />
                 {fieldErrors.engagement && (
@@ -1885,11 +1886,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Project Start Date Field */}
             {type === 'project' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Start Date <RequiredAsterisk />
                 </label>
                 <div className="relative">
-                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     required
                     type="date" 
@@ -1919,10 +1920,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         }
                       }
                     }} 
-                    className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-bold transition-all ${
+                    className={`w-full pl-10 pr-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium transition-all ${
                       fieldErrors.startDate 
                         ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                        : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                     }`}
                   />
                 </div>
@@ -1938,11 +1939,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Project End Date Field */}
             {type === 'project' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   End Date <RequiredAsterisk />
                 </label>
                 <div className="relative">
-                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     required
                     type="date" 
@@ -1966,10 +1967,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         }
                       }
                     }} 
-                    className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-bold transition-all ${
+                    className={`w-full pl-10 pr-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium transition-all ${
                       fieldErrors.endDate 
                         ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                        : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                     }`}
                   />
                 </div>
@@ -1985,11 +1986,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Due Date - Required for Invoice */}
             {type === 'invoice' && (
               <div className="md:col-span-2 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
                   Due Date <RequiredAsterisk />
                 </label>
                 <div className="relative">
-                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     required
                     type="date" 
@@ -2005,10 +2006,10 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                         });
                       }
                     }} 
-                    className={`w-full pl-12 pr-6 py-4 rounded-[20px] text-sm outline-none font-bold transition-all ${
+                    className={`w-full pl-10 pr-3.5 py-2.5 rounded-lg text-[14px] outline-none font-medium transition-all ${
                       fieldErrors.expectedCloseDate 
                         ? 'bg-red-50 border-2 border-red-500 focus:ring-4 focus:ring-red-100 focus:border-red-600' 
-                        : 'bg-slate-50 border border-slate-200 focus:ring-4 focus:ring-indigo-50'
+                        : 'bg-slate-50 border border-[#E5E7EB] focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10'
                     }`}
                   />
                 </div>
@@ -2024,17 +2025,17 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Expected Close Date / Due Date - Only for deal, project, task (not company or contact) */}
             {(type === 'deal' || type === 'project' || type === 'task') && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">
-                  {type === 'deal' ? 'Expected Close Date' : 'DUE DATE'}
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">
+                  {type === 'deal' ? 'Expected close date' : 'Due date'}
                 </label>
                 <div className="relative">
-                  <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   <input 
                     type="date" 
                     value={formData.expectedCloseDate} 
                     onChange={(e) => setFormData(prev => ({ ...prev, expectedCloseDate: e.target.value }))} 
                     placeholder="dd/mm/yyyy"
-                    className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-[20px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-600 font-bold placeholder:text-slate-300 [color-scheme:light]" 
+                    className="w-full pl-10 pr-3.5 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 font-medium placeholder:text-slate-300 [color-scheme:light]" 
                   />
                 </div>
               </div>
@@ -2043,7 +2044,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
             {/* Task Priority */}
             {type === 'task' && (
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">PRIORITY</label>
+                <label className="text-[13px] font-medium text-[#6B7280] px-1">Priority</label>
                 <div className="flex gap-1 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
                   {['Low', 'Medium', 'High'].map(p => (
                     <button
@@ -2061,9 +2062,9 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
 
             {/* Context/Description Area */}
             <div className="md:col-span-2 space-y-3">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] px-1">DESCRIPTION</label>
+              <label className="text-[13px] font-medium text-[#6B7280] px-1">Description</label>
               {type === 'task' ? (
-                <div className="min-h-[140px] [&_.quill]:min-h-[120px] [&_.ql-container]:min-h-[100px] [&_.ql-editor]:min-h-[100px] rounded-[20px] overflow-hidden border border-slate-200 bg-slate-50/50">
+                <div className="min-h-[140px] [&_.quill]:min-h-[120px] [&_.ql-container]:min-h-[100px] [&_.ql-editor]:min-h-[100px] rounded-lg overflow-hidden border border-slate-200 bg-slate-50/50">
                   <RichTextEditor
                     value={formData.description || ''}
                     onChange={(html) => setFormData(prev => ({ ...prev, description: html }))}
@@ -2077,13 +2078,31 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   value={formData.description} 
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} 
                   rows={3} 
-                  className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[32px] text-sm outline-none focus:ring-4 focus:ring-indigo-50 resize-none font-medium placeholder:text-slate-300" 
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-[#E5E7EB] rounded-lg text-[14px] outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/10 resize-none font-medium placeholder:text-slate-300" 
                 />
               )}
 
               {/* Image Upload */}
               <label className="cursor-pointer group block mt-4">
-                <div className="flex items-center gap-4 px-5 py-5 bg-slate-50/80 border-2 border-dashed border-slate-200 rounded-[24px] hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
+                <div
+                  onDragEnter={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false); }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file?.type.startsWith('image/')) {
+                      const reader = new FileReader();
+                      reader.onload = () => setNoteImagePreview(reader.result as string);
+                      reader.readAsDataURL(file);
+                      setNoteImageFile(file);
+                    }
+                  }}
+                  className={`flex items-center gap-4 px-5 py-5 rounded-lg border border-dashed transition-all ${
+                    isDragOver ? 'border-[#4F46E5] bg-[#EEF2FF]' : 'border-[#D1D5DB] bg-[#F9FAFB] hover:border-[#4F46E5] hover:bg-[#EEF2FF]'
+                  }`}
+                >
                   <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-all shrink-0">
                     {noteImagePreview ? (
                       <ImageIcon className="w-6 h-6" />
@@ -2113,7 +2132,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                   <img
                     src={noteImagePreview}
                     alt="Note attachment preview"
-                    className="w-full max-h-64 object-contain rounded-[24px] border-2 border-slate-200"
+                    className="w-full max-h-64 object-contain rounded-lg border border-[#E5E7EB]"
                   />
                   <button
                     type="button"
@@ -2132,14 +2151,14 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           </div>
 
           <div className="flex gap-6 pt-6 border-t border-slate-100">
-            <button type="button" onClick={handleClose} className="flex-1 py-5 text-sm font-black text-slate-400 hover:text-slate-600 transition-all uppercase tracking-[0.2em]">CANCEL</button>
+            <button type="button" onClick={handleClose} className="py-2.5 px-6 border border-[#E5E7EB] rounded-lg text-[#6B7280] hover:bg-slate-50 transition-colors">Cancel</button>
             <button 
               type="submit" 
               disabled={isSubmitting} 
-              className="flex-[2] py-5 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.25em] rounded-[24px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-4 disabled:opacity-50"
+              className="flex-1 py-2.5 px-6 bg-[#4F46E5] text-white font-medium rounded-lg hover:bg-[#4338CA] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              SAVE
+              Save
             </button>
           </div>
         </form>

@@ -508,6 +508,7 @@ const CompanyRecordPage: React.FC<CompanyRecordPageProps> = ({ companyId, onBack
     <>
       <RecordPageLayout
         breadcrumbs={breadcrumbs}
+        aboutAsRightDrawer
         left={
           <div className="flex flex-col h-full">
             {/* Phase 2: Record Header */}

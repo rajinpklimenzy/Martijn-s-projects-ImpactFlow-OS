@@ -31,6 +31,7 @@ import Notifications from './components/Notifications.tsx';
 import QuickCreateModal from './components/QuickCreateModal.tsx';
 import EventModal from './components/EventModal.tsx';
 import BugReportWidget from './components/BugReportWidget.tsx';
+import CommandPalette from './components/CommandPalette.tsx';
 import Help from './components/Help.tsx';
 import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import { Search, Bell, Menu, X, LogOut, Plus, ChevronDown, ChevronRight } from 'lucide-react';
@@ -46,6 +47,14 @@ const App: React.FC = () => {
     return savedTab || 'dashboard';
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = localStorage.getItem('sidebarCollapsed');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch (_) {}
+    return true;
+  });
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [allowLayoutTransition, setAllowLayoutTransition] = useState(false);
@@ -54,10 +63,10 @@ const App: React.FC = () => {
       const saved = localStorage.getItem('navGroupsOpen');
       if (saved) {
         const parsed = JSON.parse(saved) as Record<string, boolean>;
-        return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: true }), {}), system: true, ...parsed };
+        return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: false }), {}), system: false, ...parsed };
       }
     } catch (_) {}
-    return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: true }), {} as Record<string, boolean>), system: true };
+    return { ...NAV_GROUPS.reduce((acc, g) => ({ ...acc, [g.id]: false }), {} as Record<string, boolean>), system: false };
   });
   const toggleNavGroup = (groupId: string) => {
     setNavGroupsOpen((prev) => {
@@ -88,6 +97,7 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<NotificationType[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isRefreshingNotifications, setIsRefreshingNotifications] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -261,10 +271,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth < 1024;
+      const width = window.innerWidth;
+      const mobile = width < 1024;
       setIsMobile(mobile);
-      if (!mobile) setIsSidebarOpen(true);
-      else setIsSidebarOpen(false);
+      if (mobile) {
+        setIsSidebarOpen(false);
+        setSidebarCollapsed(true);
+      }
     };
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -552,10 +565,37 @@ const App: React.FC = () => {
     if (isMobile) setIsSidebarOpen(false);
   };
 
+  const toggleSidebarCollapsed = () => {
+    if (isMobile) {
+      setIsSidebarOpen(!isSidebarOpen);
+    } else {
+      setSidebarCollapsed((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('sidebarCollapsed', JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+    }
+  };
+
+  const isSidebarExpanded = isMobile ? isSidebarOpen : !sidebarCollapsed;
+
   // Prevent sidebar/overlay from animating on first paint (avoids "sliding" glitch on refresh)
   useEffect(() => {
     const t = setTimeout(() => setAllowLayoutTransition(true), 400);
     return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
   return (
@@ -573,40 +613,42 @@ const App: React.FC = () => {
         <aside className={`
           fixed lg:static inset-y-0 left-0 z-50
           bg-white border-r border-slate-200
-          ${allowLayoutTransition ? 'transition-all duration-300' : ''}
-          ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-20 lg:translate-x-0'} 
+          ${allowLayoutTransition ? 'transition-[width] duration-200 ease-out' : ''}
+          ${isMobile
+            ? (isSidebarOpen ? 'w-60 translate-x-0' : 'w-0 -translate-x-full')
+            : sidebarCollapsed ? 'w-14 translate-x-0' : 'w-60 translate-x-0'
+          }
           flex flex-col overflow-hidden
         `}>
-          <div className="p-6 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-indigo-100 shadow-lg">I</div>
-              {isSidebarOpen && <span className="font-bold text-lg tracking-tight">ImpactFlow</span>}
+          <div className="p-4 flex items-center justify-between gap-2 shrink-0 min-h-[4rem]">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-indigo-100 shadow-lg shrink-0">I</div>
+              {isSidebarExpanded && <span className="font-bold text-lg tracking-tight truncate">ImpactFlow</span>}
             </div>
             {isMobile && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-1 rounded-lg hover:bg-slate-100 transition-colors">
+              <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-1 rounded-lg hover:bg-slate-100 transition-colors shrink-0">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             )}
           </div>
           
-          <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-2 flex flex-col min-h-0">
-            {/* Top-level: Dashboard, Tasks, Schedule */}
+          <nav className="flex-1 px-2 lg:px-3 space-y-1 overflow-y-auto mt-2 flex flex-col min-h-0">
             {NAV_TOP.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleTabChange(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                title={sidebarCollapsed && !isMobile ? item.label : undefined}
+                className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all duration-200 ${sidebarCollapsed && !isMobile ? 'justify-center' : ''} ${
                   activeTab === item.id
                     ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                     : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
                 <div className="shrink-0">{item.icon}</div>
-                {isSidebarOpen && <span className="font-medium whitespace-nowrap">{item.label}</span>}
+                {isSidebarExpanded && <span className="font-medium whitespace-nowrap truncate">{item.label}</span>}
               </button>
             ))}
 
-            {/* Collapsible groups */}
             {NAV_GROUPS.map((group) => {
               const isOpen = navGroupsOpen[group.id] !== false;
               return (
@@ -616,20 +658,19 @@ const App: React.FC = () => {
                     onClick={() => toggleNavGroup(group.id)}
                     aria-expanded={isOpen}
                     aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${group.label}`}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-left ${
+                    title={sidebarCollapsed && !isMobile ? group.label : undefined}
+                    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all duration-200 text-left ${sidebarCollapsed && !isMobile ? 'justify-center' : ''} ${
                       group.items.some((i) => i.id === activeTab)
                         ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    {/* Group category icon (same size as other sidebar items) */}
                     <div className="shrink-0" aria-hidden>{group.icon}</div>
-                    {isSidebarOpen && (
+                    {isSidebarExpanded && (
                       <>
                         <span className="flex-1 font-medium whitespace-nowrap min-w-0 truncate">
                           {group.label}
                         </span>
-                        {/* Trailing expand/collapse icon (right) */}
                         <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-md text-slate-400" aria-hidden>
                           {isOpen ? (
                             <ChevronDown className="w-4 h-4" />
@@ -646,14 +687,18 @@ const App: React.FC = () => {
                         <button
                           key={item.id}
                           onClick={() => handleTabChange(item.id)}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                          title={sidebarCollapsed && !isMobile ? item.label : undefined}
+                          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-all duration-200 ${sidebarCollapsed && !isMobile ? 'justify-center' : ''} ${
                             activeTab === item.id
                               ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                           }`}
                         >
                           <div className="shrink-0">{item.icon}</div>
-                          {isSidebarOpen && <span className="font-medium whitespace-nowrap text-xs">{item.label}</span>}
+                          {isSidebarExpanded && <span className="font-medium whitespace-nowrap text-xs truncate">{item.label}</span>}
+                          {isSidebarExpanded && item.id === 'products-services' && (
+                            <span className="shrink-0 text-[9px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Soon</span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -663,8 +708,7 @@ const App: React.FC = () => {
             })}
           </nav>
 
-          <div className="p-4 border-t border-slate-200 shrink-0 space-y-0.5">
-            {/* System group (collapsible, same pattern as above sections) */}
+          <div className="p-2 lg:p-3 border-t border-slate-200 shrink-0 space-y-0.5">
             {(() => {
               const group = NAV_SYSTEM_GROUP;
               const isOpen = navGroupsOpen[group.id] !== false;
@@ -676,14 +720,15 @@ const App: React.FC = () => {
                     onClick={() => toggleNavGroup(group.id)}
                     aria-expanded={isOpen}
                     aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${group.label}`}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-left ${
+                    title={sidebarCollapsed && !isMobile ? group.label : undefined}
+                    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all duration-200 text-left ${sidebarCollapsed && !isMobile ? 'justify-center' : ''} ${
                       systemItems.some((i) => i.id === activeTab)
                         ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     <div className="shrink-0" aria-hidden>{group.icon}</div>
-                    {isSidebarOpen && (
+                    {isSidebarExpanded && (
                       <>
                         <span className="flex-1 font-medium whitespace-nowrap min-w-0 truncate">
                           {group.label}
@@ -704,14 +749,15 @@ const App: React.FC = () => {
                         <button
                           key={item.id}
                           onClick={() => handleTabChange(item.id)}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                          title={sidebarCollapsed && !isMobile ? item.label : undefined}
+                          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-all duration-200 ${sidebarCollapsed && !isMobile ? 'justify-center' : ''} ${
                             activeTab === item.id
                               ? 'bg-indigo-50 text-indigo-700 shadow-sm'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                           }`}
                         >
                           <div className="shrink-0">{item.icon}</div>
-                          {isSidebarOpen && <span className="font-medium whitespace-nowrap text-xs">{item.label}</span>}
+                          {isSidebarExpanded && <span className="font-medium whitespace-nowrap text-xs truncate">{item.label}</span>}
                         </button>
                       ))}
                     </div>
@@ -721,10 +767,10 @@ const App: React.FC = () => {
             })()}
             <button
               onClick={() => setIsLogoutConfirmOpen(true)}
-              className="mt-4 w-full flex items-center gap-3 px-3 py-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-xl transition-all group text-left"
+              className="mt-4 w-full flex items-center gap-3 px-2 py-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-xl transition-all group text-left"
             >
               <LogOut className="w-5 h-5 shrink-0" />
-              {isSidebarOpen && <span className="font-medium">Logout</span>}
+              {isSidebarExpanded && <span className="font-medium">Logout</span>}
             </button>
           </div>
         </aside>
@@ -732,14 +778,14 @@ const App: React.FC = () => {
         <main className="flex-1 flex flex-col overflow-hidden w-full relative">
           <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 relative">
             <div className="flex items-center gap-2 lg:gap-4">
-              <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+              <button onClick={toggleSidebarCollapsed} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                 <Menu className="w-5 h-5 text-slate-600" />
               </button>
               <div className="relative group hidden sm:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500" />
                 <input 
                   type="text" 
-                  placeholder="Search Current View..." 
+                  placeholder="Search current view (⌘K for global)" 
                   value={globalSearchQuery}
                   onChange={(e) => setGlobalSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg text-sm w-40 lg:w-80 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
@@ -800,6 +846,11 @@ const App: React.FC = () => {
 
           {/* Persistent Feedback Widget */}
           <BugReportWidget currentUser={currentUser} />
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onNavigate={(id) => handleTabChange(id)}
+          />
         </main>
 
         {createModalConfig.isOpen && (
