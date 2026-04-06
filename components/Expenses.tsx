@@ -109,11 +109,11 @@ const Expenses: React.FC<ExpensesProps> = ({ currentUser }) => {
         const companiesResponse = await apiGetCompanies();
         setCompanies(companiesResponse?.data || companiesResponse || []);
       } catch (err) {
-        console.error('[Expenses] Failed to fetch companies:', err);
+        // console.error('[Expenses] Failed to fetch companies:', err);
         setCompanies([]);
       }
     } catch (err: any) {
-      console.error('[Expenses] Error fetching expenses:', err);
+      // console.error('[Expenses] Error fetching expenses:', err);
       showError(err.message || 'Failed to load expenses');
       setExpenses([]);
     } finally {

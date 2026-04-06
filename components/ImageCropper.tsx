@@ -101,7 +101,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
       const croppedImage = canvas.toDataURL('image/jpeg', 0.9);
       onCrop(croppedImage);
     } catch (error) {
-      console.error('Error cropping image:', error);
+      // console.error('Error cropping image:', error);
     } finally {
       setIsProcessing(false);
     }

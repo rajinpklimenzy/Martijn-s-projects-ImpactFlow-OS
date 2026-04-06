@@ -119,7 +119,7 @@ export const useUpdateProject = () => {
       ]);
     },
     onError: (error: any) => {
-      console.error('Failed to update project:', error);
+      // console.error('Failed to update project:', error);
       showError(error?.message || 'Failed to update project');
     },
   });
@@ -144,7 +144,7 @@ export const useDeleteProject = () => {
       ]);
     },
     onError: (error: any) => {
-      console.error('Failed to delete project:', error);
+      // console.error('Failed to delete project:', error);
       showError(error?.message || 'Failed to delete project');
     },
   });
@@ -171,7 +171,7 @@ export const useArchiveProject = () => {
       });
     },
     onError: (error: any) => {
-      console.error('Failed to archive/restore project:', error);
+      // console.error('Failed to archive/restore project:', error);
       showError(error?.message || 'Failed to update project');
     },
   });
@@ -197,7 +197,7 @@ export const useBulkDeleteProjects = () => {
       ]);
     },
     onError: (error: any) => {
-      console.error('Failed to bulk delete projects:', error);
+      // console.error('Failed to bulk delete projects:', error);
       showError(error?.message || 'Failed to delete projects');
     },
   });

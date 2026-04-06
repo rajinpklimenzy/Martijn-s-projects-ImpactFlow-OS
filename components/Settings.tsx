@@ -149,7 +149,7 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
         setRetentionStats(response.data);
       }
     } catch (err: any) {
-      console.error('Failed to load retention stats:', err);
+      // console.error('Failed to load retention stats:', err);
     } finally {
       setIsLoadingStats(false);
     }
@@ -239,7 +239,7 @@ const WorkspaceSettingsTab: React.FC<WorkspaceSettingsTabProps> = ({ currentUser
       if (listRes?.data) setPrivacyNotices(listRes.data);
       if (activeRes?.data) setActiveNoticeId(activeRes.data.id);
     } catch (err) {
-      console.error('Failed to load privacy notices:', err);
+      // console.error('Failed to load privacy notices:', err);
     }
   };
 
@@ -967,7 +967,7 @@ const UserPreferencesTab: React.FC<UserPreferencesTabProps> = ({ currentUser, sh
       const response = await apiGetSignatures(userId);
       setSignatures(response.data || []);
     } catch (err: any) {
-      console.error('Failed to load signatures:', err);
+      // console.error('Failed to load signatures:', err);
     } finally {
       setIsLoadingSignatures(false);
     }
@@ -980,7 +980,7 @@ const UserPreferencesTab: React.FC<UserPreferencesTabProps> = ({ currentUser, sh
         setDisplayPreferences(JSON.parse(saved));
       }
     } catch (err) {
-      console.error('Failed to load display preferences:', err);
+      // console.error('Failed to load display preferences:', err);
     }
   };
 
@@ -1537,7 +1537,7 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
           }
         } catch (err) {
           // If error (e.g., user not found or no preferences), use defaults
-          console.error('[SETTINGS] Failed to load notification preferences:', err);
+          // console.error('[SETTINGS] Failed to load notification preferences:', err);
           setPreferences(DEFAULT_NOTIFICATION_PREFERENCES);
         }
       }
@@ -1947,7 +1947,7 @@ const Settings: React.FC<SettingsProps> = ({ currentUser, onUserUpdate }) => {
                       await apiUpdateNotificationPreferences(userId, preferences);
                       showSuccess('Notification preferences saved successfully!');
                     } catch (err: any) {
-                      console.error('[SETTINGS] Failed to save notification preferences:', err);
+                      // console.error('[SETTINGS] Failed to save notification preferences:', err);
                       showError(err.message || 'Failed to save notification preferences.');
                     }
                   }}

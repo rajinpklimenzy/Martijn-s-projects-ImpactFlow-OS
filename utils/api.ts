@@ -13,7 +13,7 @@ const getApiBase = () => {
 const API_BASE = getApiBase();
 
 if (typeof window !== 'undefined') {
-  console.log(`[API] Initializing with Base: ${API_BASE}`);
+  // console.log(`[API] Initializing with Base: ${API_BASE}`);
 }
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
@@ -27,12 +27,12 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     ...options.headers,
   };
 
-  console.log('[API] apiFetch called', {
-    method: options.method || 'GET',
-    url,
-    endpoint: cleanEndpoint,
-    hasToken: !!token
-  });
+  // console.log('[API] apiFetch called', {
+  //   method: options.method || 'GET',
+  //   url,
+  //   endpoint: cleanEndpoint,
+  //   hasToken: !!token
+  // });
 
   try {
     const response = await fetch(url, {
@@ -40,12 +40,12 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       headers,
     });
     
-    console.log('[API] apiFetch response', {
-      url,
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok
-    });
+    // console.log('[API] apiFetch response', {
+    //   url,
+    //   status: response.status,
+    //   statusText: response.statusText,
+    //   ok: response.ok
+    // });
     
     const data = await response.json().catch(() => ({}));
 
@@ -57,7 +57,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       const isEntityEndpoint = !isCalendar && entities.some(e => cleanEndpoint.includes(e));
 
       if (response.status === 404 && isEntityEndpoint) {
-        console.warn(`[SYSTEM] Live endpoint ${cleanEndpoint} not found. Engaging Virtual Engine fallback.`);
+        // console.warn(`[SYSTEM] Live endpoint ${cleanEndpoint} not found. Engaging Virtual Engine fallback.`);
         return simulateApi(cleanEndpoint, options);
       }
 
@@ -129,7 +129,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     // Never simulate calendar – always surface real errors (e.g. delete must hit live API)
     // We allow simulation on network errors or 5xx for other endpoints only
     if (!isCalendar && (isNetworkError || (isServiceUnavailable && !isClientError))) {
-      console.info(`[SYSTEM] Production API unreachable. Engaging Virtual Engine fallback.`);
+      // console.info(`[SYSTEM] Production API unreachable. Engaging Virtual Engine fallback.`);
       return simulateApi(cleanEndpoint, options);
     }
 
@@ -172,7 +172,7 @@ export const apiLogout = async () => {
   try {
     await apiFetch('/auth/logout', { method: 'POST' });
   } catch (err) {
-    console.error('Logout API error:', err);
+    // console.error('Logout API error:', err);
   } finally {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_data');
@@ -1164,7 +1164,7 @@ export const apiGetDrivePermissions = (userId: string, fileId: string, accountEm
 export const apiCreateEvent = (data: any) => apiFetch('/calendar/events', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateEvent = (id: string, data: any) => apiFetch(`/calendar/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const apiDeleteEvent = (id: string) => {
-  console.log('[API] apiDeleteEvent called with id:', id);
+  // console.log('[API] apiDeleteEvent called with id:', id);
   return apiFetch(`/calendar/events/${id}`, { method: 'DELETE' });
 };
 
@@ -1193,7 +1193,7 @@ export const apiUpdateGoogleCalendarEvent = (
   });
 export const apiDeleteGoogleCalendarEvent = (userId: string, calendarId: string, eventId: string) => {
   const url = `/google-calendar/events/delete?userId=${encodeURIComponent(userId)}&calendarId=${encodeURIComponent(calendarId)}&eventId=${encodeURIComponent(eventId)}`;
-  console.log('[API] apiDeleteGoogleCalendarEvent called', { userId, calendarId, eventId, url });
+  // console.log('[API] apiDeleteGoogleCalendarEvent called', { userId, calendarId, eventId, url });
   return apiFetch(url, {
     method: 'DELETE',
   });

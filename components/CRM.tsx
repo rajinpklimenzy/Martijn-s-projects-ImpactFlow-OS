@@ -467,7 +467,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
   // Listen for external refresh events (e.g., from other components)
   useEffect(() => {
     const handleRefresh = () => {
-      console.log('🔄 CRM refresh triggered - invalidating cache');
+      // console.log('🔄 CRM refresh triggered - invalidating cache');
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       queryClient.invalidateQueries({ queryKey: ['deals'] });
@@ -487,7 +487,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       try {
         setContactColumns(JSON.parse(savedContactCols));
       } catch (e) {
-        console.error('Failed to load contact column preferences:', e);
+        // console.error('Failed to load contact column preferences:', e);
       }
     }
     
@@ -495,7 +495,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       try {
         setCompanyColumns(JSON.parse(savedCompanyCols));
       } catch (e) {
-        console.error('Failed to load company column preferences:', e);
+        // console.error('Failed to load company column preferences:', e);
       }
     }
   }, []);
@@ -541,7 +541,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       }
       showSuccess(`${field} updated successfully`);
     } catch (error: any) {
-      console.error('Inline cell save error:', error);
+      // console.error('Inline cell save error:', error);
       showError(error.message || 'Failed to update');
       throw error;
     }
@@ -574,7 +574,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
       setHasUnsavedContactChanges(false);
       showSuccess('Contact profile updated successfully');
     } catch (err: any) {
-      console.error('Contact update error:', err);
+      // console.error('Contact update error:', err);
       showError(err.message || 'Failed to update contact. Please try again.');
     } finally {
       setIsUpdatingContact(false);
@@ -852,7 +852,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             read: false
           });
         } catch (notifErr) {
-          console.error('Failed to send notification:', notifErr);
+          // console.error('Failed to send notification:', notifErr);
         }
       }
       
@@ -980,7 +980,7 @@ const CRM: React.FC<CRMProps> = ({ onNavigate, onAddCompany, onAddContact, exter
             read: false
           });
         } catch (notifErr) {
-          console.error('Failed to send notification:', notifErr);
+          // console.error('Failed to send notification:', notifErr);
         }
       }
       

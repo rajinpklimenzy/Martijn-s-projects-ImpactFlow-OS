@@ -127,7 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         const seen = new Set<string>();
         const deduplicatedLayout = migratedLayout.filter(widget => {
           if (seen.has(widget.id)) {
-            console.warn(`[DASHBOARD] Duplicate widget found: ${widget.id}, removing duplicate`);
+            // console.warn(`[DASHBOARD] Duplicate widget found: ${widget.id}, removing duplicate`);
             return false;
           }
           seen.add(widget.id);
@@ -137,7 +137,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         setWidgetLayout(deduplicatedLayout);
       }
     } catch (err) {
-      console.log('[DASHBOARD] Using default layout');
+      // console.log('[DASHBOARD] Using default layout');
       // Use default layout if none saved
     }
   };
@@ -364,7 +364,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         setTasksDueToday(tasksWithProjects);
         setUsers(usersData.slice(0, 3));
       } catch (err) {
-        console.error('[DASHBOARD] Failed to fetch data:', err);
+        // console.error('[DASHBOARD] Failed to fetch data:', err);
         showError('Failed to load dashboard data');
       } finally {
         setIsLoading(false);
@@ -428,7 +428,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         const res = await apiGetComplianceHealth();
         setComplianceHealth(res.data || res);
       } catch (err) {
-        console.warn('[DASHBOARD] Failed to load compliance health:', err);
+        // console.warn('[DASHBOARD] Failed to load compliance health:', err);
       } finally {
         setIsLoadingCompliance(false);
       }

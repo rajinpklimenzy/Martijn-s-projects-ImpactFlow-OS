@@ -310,7 +310,7 @@ const BugReportWidget: React.FC<{ currentUser: any }> = ({ currentUser }) => {
         setAttachments([]);
       }, 2000);
     } catch (err: any) {
-      console.error('[FEEDBACK] Submission failed:', err);
+      // console.error('[FEEDBACK] Submission failed:', err);
       showError(`Submission error: ${err.message || 'Registry error'}`);
     } finally {
       setIsSubmitting(false);

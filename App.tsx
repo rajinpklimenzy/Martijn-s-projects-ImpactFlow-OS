@@ -146,7 +146,7 @@ const App: React.FC = () => {
       
       setNotifications(mapped);
     } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to load notifications', err);
+      // console.error('[NOTIFICATIONS] Failed to load notifications', err);
     } finally {
       if (showLoading) {
         setIsRefreshingNotifications(false);
@@ -175,7 +175,6 @@ const App: React.FC = () => {
       // Request browser notification permission (once per session)
       if ('Notification' in window && window.Notification.permission === 'default') {
         window.Notification.requestPermission().then(permission => {
-          console.log('[NOTIFICATIONS] Browser notification permission:', permission);
         });
       }
 
@@ -218,14 +217,14 @@ const App: React.FC = () => {
             };
             setTimeout(() => browserNotif.close(), 5000);
           } catch (error) {
-            console.error('[NOTIFICATIONS] Error showing browser notification:', error);
+            // console.error('[NOTIFICATIONS] Error showing browser notification:', error);
           }
         }
       };
 
       ws.on('notification', handleNotification);
       ws.connect().catch(error => {
-        console.error('[NOTIFICATIONS] WebSocket connection failed:', error);
+        // console.error('[NOTIFICATIONS] WebSocket connection failed:', error);
       });
 
       notificationCleanupRef.current = () => {

@@ -171,7 +171,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   // Handle errors from React Query
   useEffect(() => {
     if (tasksError) {
-      console.error('[TASKS] React Query error:', tasksError);
+      // console.error('[TASKS] React Query error:', tasksError);
       showError('Failed to load tasks');
     }
   }, [tasksError, showError]);
@@ -346,10 +346,10 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
 
     setIsImporting(true);
     try {
-      console.log('[IMPORT] ===== STARTING IMPORT PROCESS =====');
-      console.log('[IMPORT] Column mapping:', columnMapping);
-      console.log('[IMPORT] Parsed data rows:', parsedData.length);
-      console.log('[IMPORT] Sample parsed row:', parsedData[0]);
+      // console.log('[IMPORT] ===== STARTING IMPORT PROCESS =====');
+      // console.log('[IMPORT] Column mapping:', columnMapping);
+      // console.log('[IMPORT] Parsed data rows:', parsedData.length);
+      // console.log('[IMPORT] Sample parsed row:', parsedData[0]);
       const userId = currentUser?.id || JSON.parse(localStorage.getItem('user_data') || '{}').id;
       if (!userId) {
         showError('Please log in to import tasks');
@@ -358,16 +358,16 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       }
 
       // Transform parsed data to task format
-      console.log('[IMPORT] Starting import with:', { 
-        parsedDataRows: parsedData.length, 
-        columnMapping, 
-        usersCount: users.length,
-        currentUserId: userId 
-      });
+      // console.log('[IMPORT] Starting import with:', { 
+      //   parsedDataRows: parsedData.length, 
+      //   columnMapping, 
+      //   usersCount: users.length,
+      //   currentUserId: userId 
+      // });
       
       const tasksToImport = parsedData.map((row, index) => {
-        console.log(`[IMPORT] Processing row ${index}:`, row);
-        console.log(`[IMPORT] Column mapping:`, columnMapping);
+        // console.log(`[IMPORT] Processing row ${index}:`, row);
+        // console.log(`[IMPORT] Column mapping:`, columnMapping);
         
         // Get values from mapped columns
         const title = String(row[columnMapping.title] || '').trim();
@@ -377,17 +377,17 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         const priorityRaw = columnMapping.priority ? String(row[columnMapping.priority] || '').trim() : 'Medium';
         const ownerRaw = columnMapping.owner ? String(row[columnMapping.owner] || '').trim() : '';
         
-        console.log(`[IMPORT] Extracted values for row ${index}:`, {
-          title,
-          category,
-          dueDateRaw,
-          description,
-          priorityRaw,
-          ownerRaw,
-          rowKeys: Object.keys(row),
-          mappedTitleKey: columnMapping.title,
-          mappedDueDateKey: columnMapping.dueDate
-        });
+        // console.log(`[IMPORT] Extracted values for row ${index}:`, {
+        //   title,
+        //   category,
+        //   dueDateRaw,
+        //   description,
+        //   priorityRaw,
+        //   ownerRaw,
+        //   rowKeys: Object.keys(row),
+        //   mappedTitleKey: columnMapping.title,
+        //   mappedDueDateKey: columnMapping.dueDate
+        // });
 
         // Parse and format due date
         let dueDate = '';
@@ -422,7 +422,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 const year = parseInt(parts[2], 10);
                 if (!isNaN(day) && !isNaN(month) && !isNaN(year) && day >= 1 && day <= 31 && month >= 0 && month <= 11) {
                   parsedDate = new Date(year, month, day);
-                  console.log(`[IMPORT] Parsed hyphen-separated date "${dueDateRaw}" as day-month-year -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+                  // console.log(`[IMPORT] Parsed hyphen-separated date "${dueDateRaw}" as day-month-year -> ${dateToLocalYYYYMMDD(parsedDate)}`);
                 }
               }
             }
@@ -477,13 +477,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                   parsedDate = new Date(year, monthIndex, day);
                   // Verify the date is valid
                   if (parsedDate.getFullYear() !== year || parsedDate.getMonth() !== monthIndex || parsedDate.getDate() !== day) {
-                    console.warn(`[IMPORT] Invalid date parsed from "${dueDateRaw}": year=${year}, month=${monthIndex}, day=${day}`);
+                    // console.warn(`[IMPORT] Invalid date parsed from "${dueDateRaw}": year=${year}, month=${monthIndex}, day=${day}`);
                     parsedDate = null; // Invalid date
                   } else {
-                    console.log(`[IMPORT] Successfully parsed date "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+                    // console.log(`[IMPORT] Successfully parsed date "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
                   }
                 } else {
-                  console.warn(`[IMPORT] Could not match month name in "${dueDateRaw}"`);
+                  // console.warn(`[IMPORT] Could not match month name in "${dueDateRaw}"`);
                 }
               }
             }
@@ -496,15 +496,15 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 const month = fallbackDate.getMonth();
                 const day = fallbackDate.getDate();
                 parsedDate = new Date(year, month, day);
-                console.log(`[IMPORT] Used fallback date parsing for "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
+                // console.log(`[IMPORT] Used fallback date parsing for "${dueDateRaw}" -> ${dateToLocalYYYYMMDD(parsedDate)}`);
               }
             }
             
             if (parsedDate && !isNaN(parsedDate.getTime()) && !dueDate) {
               dueDate = dateToLocalYYYYMMDD(parsedDate);
-              console.log(`[IMPORT] Final dueDate for row ${index}: "${dueDateRaw}" -> "${dueDate}"`);
+              // console.log(`[IMPORT] Final dueDate for row ${index}: "${dueDateRaw}" -> "${dueDate}"`);
             } else if (dueDateRaw && !dueDate) {
-              console.error(`[IMPORT] Failed to parse date "${dueDateRaw}" for row ${index}`);
+              // console.error(`[IMPORT] Failed to parse date "${dueDateRaw}" for row ${index}`);
             }
           }
         }
@@ -532,15 +532,15 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           );
           if (matchedUser) {
             assigneeId = matchedUser.id;
-            console.log(`[IMPORT] Matched owner "${ownerRaw}" to user:`, matchedUser.name, matchedUser.id);
+            // console.log(`[IMPORT] Matched owner "${ownerRaw}" to user:`, matchedUser.name, matchedUser.id);
           } else {
-            console.warn(`[IMPORT] Could not match owner "${ownerRaw}", using current user`);
+            // console.warn(`[IMPORT] Could not match owner "${ownerRaw}", using current user`);
           }
         }
         
         // Ensure assigneeId is always set
         if (!assigneeId) {
-          console.error('[IMPORT] No assigneeId available, using current user as fallback');
+          // console.error('[IMPORT] No assigneeId available, using current user as fallback');
           assigneeId = userId;
         }
 
@@ -558,101 +558,101 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         
         // Validate required fields match backend requirements
         if (!taskData.title || !taskData.assigneeId) {
-          console.error(`[IMPORT] Row ${index} missing required fields:`, {
-            hasTitle: !!taskData.title,
-            hasAssigneeId: !!taskData.assigneeId,
-            taskData
-          });
+          // console.error(`[IMPORT] Row ${index} missing required fields:`, {
+          //   hasTitle: !!taskData.title,
+          //   hasAssigneeId: !!taskData.assigneeId,
+          //   taskData
+          // });
         }
         
         // Log if assigneeId is missing
         if (!assigneeId) {
-          console.warn(`[IMPORT] Row ${index}: No assigneeId found, using current user:`, { title, ownerRaw, userId });
+          // console.warn(`[IMPORT] Row ${index}: No assigneeId found, using current user:`, { title, ownerRaw, userId });
         }
         
-        console.log(`[IMPORT] Task data for row ${index}:`, taskData);
+        // console.log(`[IMPORT] Task data for row ${index}:`, taskData);
         return taskData;
       }).filter(task => {
         // Backend only requires title and assigneeId (dueDate is optional)
         const isValid = task.title && task.assigneeId;
         if (!isValid) {
-          console.error('[IMPORT] Filtered out invalid task:', {
-            title: task.title,
-            dueDate: task.dueDate,
-            assigneeId: task.assigneeId,
-            rawDate: (task as any)._rawDate,
-            rowIndex: (task as any)._rowIndex,
-            fullTask: task,
-            missingFields: {
-              title: !task.title,
-              assigneeId: !task.assigneeId
-            }
-          });
+          // console.error('[IMPORT] Filtered out invalid task:', {
+          //   title: task.title,
+          //   dueDate: task.dueDate,
+          //   assigneeId: task.assigneeId,
+          //   rawDate: (task as any)._rawDate,
+          //   rowIndex: (task as any)._rowIndex,
+          //   fullTask: task,
+          //   missingFields: {
+          //     title: !task.title,
+          //     assigneeId: !task.assigneeId
+          //   }
+          // });
         } else {
-          console.log('[IMPORT] Valid task:', {
-            title: task.title,
-            dueDate: task.dueDate || 'Not set',
-            assigneeId: task.assigneeId,
-            priority: task.priority,
-            status: task.status
-          });
+          // console.log('[IMPORT] Valid task:', {
+          //   title: task.title,
+          //   dueDate: task.dueDate || 'Not set',
+          //   assigneeId: task.assigneeId,
+          //   priority: task.priority,
+          //   status: task.status
+          // });
         }
         return isValid;
       }).map(({ _rowIndex, _rawDate, ...task }) => {
         // Ensure assigneeId is always present
         if (!task.assigneeId) {
-          console.warn('[IMPORT] Task missing assigneeId, using current user:', task);
+          // console.warn('[IMPORT] Task missing assigneeId, using current user:', task);
           task.assigneeId = userId;
         }
         return task;
       }); // Remove debug fields
 
-      console.log('[IMPORT] Final tasks to import:', tasksToImport);
-      console.log('[IMPORT] Tasks count:', tasksToImport.length);
+      // console.log('[IMPORT] Final tasks to import:', tasksToImport);
+      // console.log('[IMPORT] Tasks count:', tasksToImport.length);
       
       if (tasksToImport.length === 0) {
         // Provide more helpful error message
         const sampleRow = parsedData[0];
         const sampleTitle = sampleRow ? String(sampleRow[columnMapping.title] || '').trim() : 'N/A';
         const sampleDate = sampleRow ? String(sampleRow[columnMapping.dueDate] || '').trim() : 'N/A';
-        console.error('[IMPORT] Validation failed - no valid tasks:', {
-          totalRows: parsedData.length,
-          columnMapping,
-          mappedTitle: columnMapping.title,
-          mappedDueDate: columnMapping.dueDate,
-          sampleRow,
-          sampleTitle,
-          sampleDate,
-          sampleRowKeys: sampleRow ? Object.keys(sampleRow) : [],
-          parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
-        });
+        // console.error('[IMPORT] Validation failed - no valid tasks:', {
+        //   totalRows: parsedData.length,
+        //   columnMapping,
+        //   mappedTitle: columnMapping.title,
+        //   mappedDueDate: columnMapping.dueDate,
+        //   sampleRow,
+        //   sampleTitle,
+        //   sampleDate,
+        //   sampleRowKeys: sampleRow ? Object.keys(sampleRow) : [],
+        //   parsedData: parsedData.slice(0, 3) // First 3 rows for debugging
+        // });
         showError(`No valid tasks found to import. Please check that:\n1. Title column is mapped correctly (current: "${columnMapping.title}")\n2. Due Date column is mapped correctly (current: "${columnMapping.dueDate}")\n3. Date format is valid (15-2-2026, DD-MM-YYYY, YYYY-MM-DD, February 15 2026, or "Ongoing" for no date)\n\nSample data - Title: "${sampleTitle}", Date: "${sampleDate}"\n\nAvailable columns: ${detectedColumns.join(', ')}`);
         setIsImporting(false);
         return;
       }
 
       // Call bulk import API
-      console.log('[IMPORT] ===== STARTING API CALL =====');
+      // console.log('[IMPORT] ===== STARTING API CALL =====');
       
       // Remove debug fields before sending to API
       const tasksForAPI = tasksToImport.map(({ _rowIndex, _rawDate, ...task }) => task);
       
-      console.log('[IMPORT] Tasks to import count:', tasksForAPI.length);
-      console.log('[IMPORT] Tasks for API (cleaned):', JSON.stringify(tasksForAPI, null, 2));
-      console.log('[IMPORT] Sample task structure:', {
-        title: tasksForAPI[0]?.title,
-        dueDate: tasksForAPI[0]?.dueDate,
-        assigneeId: tasksForAPI[0]?.assigneeId,
-        priority: tasksForAPI[0]?.priority,
-        status: tasksForAPI[0]?.status,
-        description: tasksForAPI[0]?.description,
-        hasProjectId: !!tasksForAPI[0]?.projectId
-      });
+      // console.log('[IMPORT] Tasks to import count:', tasksForAPI.length);
+      // console.log('[IMPORT] Tasks for API (cleaned):', JSON.stringify(tasksForAPI, null, 2));
+      // console.log('[IMPORT] Sample task structure:', {
+      //   title: tasksForAPI[0]?.title,
+      //   dueDate: tasksForAPI[0]?.dueDate,
+      //   assigneeId: tasksForAPI[0]?.assigneeId,
+      //   priority: tasksForAPI[0]?.priority,
+      //   status: tasksForAPI[0]?.status,
+      //   description: tasksForAPI[0]?.description,
+      //   hasProjectId: !!tasksForAPI[0]?.projectId
+      // });
       
       // Validate all tasks have required fields before sending
       const invalidTasks = tasksForAPI.filter(t => !t.title || !t.assigneeId);
       if (invalidTasks.length > 0) {
-        console.error('[IMPORT] Invalid tasks found:', invalidTasks);
+        // console.error('[IMPORT] Invalid tasks found:', invalidTasks);
         showError(`Cannot import: ${invalidTasks.length} task(s) missing required fields (title or assigneeId)`);
         setIsImporting(false);
         return;
@@ -661,23 +661,23 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       let response: any;
       try {
         response = await apiBulkImportTasks(tasksForAPI);
-        console.log('[IMPORT] API call successful');
+        // console.log('[IMPORT] API call successful');
       } catch (apiError: any) {
-        console.error('[IMPORT] API call failed:', apiError);
-        console.error('[IMPORT] Error details:', {
-          message: apiError.message,
-          status: apiError.status,
-          code: apiError.code,
-          stack: apiError.stack
-        });
+        // console.error('[IMPORT] API call failed:', apiError);
+        // console.error('[IMPORT] Error details:', {
+        //   message: apiError.message,
+        //   status: apiError.status,
+        //   code: apiError.code,
+        //   stack: apiError.stack
+        // });
         showError(`Failed to import tasks: ${apiError.message || 'Unknown error'}`);
         setIsImporting(false);
         return;
       }
       
-      console.log('[IMPORT] Raw API Response:', JSON.stringify(response, null, 2));
-      console.log('[IMPORT] Response type:', typeof response);
-      console.log('[IMPORT] Response keys:', response ? Object.keys(response) : 'null');
+      // console.log('[IMPORT] Raw API Response:', JSON.stringify(response, null, 2));
+      // console.log('[IMPORT] Response type:', typeof response);
+      // console.log('[IMPORT] Response keys:', response ? Object.keys(response) : 'null');
       
       // Backend returns: { success: true, data: { successful: X, failed: Y, created: [...], ... } }
       // apiFetch returns the parsed JSON directly, so response is: { success: true, data: {...} }
@@ -701,22 +701,22 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           createdTasks = importData.created || [];
         } else {
           // Fallback: try to find created array anywhere
-          console.warn('[IMPORT] Unexpected response structure, searching for created tasks...');
+          // console.warn('[IMPORT] Unexpected response structure, searching for created tasks...');
           importData = response.data || response;
           createdTasks = importData.created || importData.data?.created || [];
         }
         
-        console.log('[IMPORT] Extracted importData:', importData);
-        console.log('[IMPORT] Created tasks:', createdTasks);
-        console.log('[IMPORT] Created tasks count:', createdTasks.length);
-        console.log('[IMPORT] Created task IDs:', createdTasks.map((t: any) => t?.id));
-        console.log('[IMPORT] Created task details:', createdTasks.map((t: any) => ({
-          id: t.id,
-          title: t.title,
-          assigneeId: t.assigneeId
-        })));
+        // console.log('[IMPORT] Extracted importData:', importData);
+        // console.log('[IMPORT] Created tasks:', createdTasks);
+        // console.log('[IMPORT] Created tasks count:', createdTasks.length);
+        // console.log('[IMPORT] Created task IDs:', createdTasks.map((t: any) => t?.id));
+        // console.log('[IMPORT] Created task details:', createdTasks.map((t: any) => ({
+        //   id: t.id,
+        //   title: t.title,
+        //   assigneeId: t.assigneeId
+        // })));
       } else {
-        console.error('[IMPORT] No response received from API');
+        // console.error('[IMPORT] No response received from API');
         showError('No response received from server. Please check your connection.');
         setIsImporting(false);
         return;
@@ -725,26 +725,26 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       const successCount = importData.successful ?? (createdTasks.length ?? 0);
       const failedCount = importData.failed ?? 0;
       
-      console.log('[IMPORT] Import results:', { 
-        successCount, 
-        failedCount, 
-        total: tasksToImport.length,
-        createdTasks: createdTasks.length,
-        createdTaskIds: createdTasks.map((t: any) => t.id),
-        errors: importData.errors
-      });
+      // console.log('[IMPORT] Import results:', { 
+      //   successCount, 
+      //   failedCount, 
+      //   total: tasksToImport.length,
+      //   createdTasks: createdTasks.length,
+      //   createdTaskIds: createdTasks.map((t: any) => t.id),
+      //   errors: importData.errors
+      // });
       
       // Invalidate React Query cache to refetch tasks
       if (createdTasks && createdTasks.length > 0) {
-        console.log('[IMPORT] ===== INVALIDATING TASKS CACHE =====');
-        console.log('[IMPORT] Created tasks:', createdTasks.length);
+        // console.log('[IMPORT] ===== INVALIDATING TASKS CACHE =====');
+        // console.log('[IMPORT] Created tasks:', createdTasks.length);
         // Invalidate all task queries to trigger refetch
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
       } else {
-        console.error('[IMPORT] ===== NO TASKS CREATED =====');
-        console.error('[IMPORT] No created tasks. createdTasks:', createdTasks);
-        console.error('[IMPORT] Response structure:', response);
-        console.error('[IMPORT] Import data:', importData);
+        // console.error('[IMPORT] ===== NO TASKS CREATED =====');
+        // console.error('[IMPORT] No created tasks. createdTasks:', createdTasks);
+        // console.error('[IMPORT] Response structure:', response);
+        // console.error('[IMPORT] Import data:', importData);
       }
       
       if (failedCount > 0) {
@@ -768,7 +768,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
       // Also dispatch event for consistency
       window.dispatchEvent(new Event('refresh-tasks'));
     } catch (err: any) {
-      console.error('Import error:', err);
+      // console.error('Import error:', err);
       showError(err.message || 'Failed to import tasks. Please check your data format.');
     } finally {
       setIsImporting(false);
@@ -778,13 +778,13 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
   // Intelligent header detection - checks if first row contains column name indicators
   const isHeaderRow = (firstRow: any[]): boolean => {
     if (!firstRow || firstRow.length === 0) {
-      console.log('[IMPORT] Header detection: empty or null firstRow');
+      // console.log('[IMPORT] Header detection: empty or null firstRow');
       return false;
     }
     
-    console.log('[IMPORT] Header detection - firstRow:', firstRow);
-    console.log('[IMPORT] Header detection - firstRow length:', firstRow.length);
-    console.log('[IMPORT] Header detection - firstRow values:', firstRow.map((cell, idx) => `[${idx}]: "${cell}"`));
+    // console.log('[IMPORT] Header detection - firstRow:', firstRow);
+    // console.log('[IMPORT] Header detection - firstRow length:', firstRow.length);
+    // console.log('[IMPORT] Header detection - firstRow values:', firstRow.map((cell, idx) => `[${idx}]: "${cell}"`));
     
     // Common header indicators (case-insensitive)
     const headerKeywords = [
@@ -796,31 +796,31 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
     let matchCount = 0;
     const cellsToCheck = firstRow.filter(cell => cell && String(cell).trim() !== '');
     
-    console.log('[IMPORT] Header detection - non-empty cells:', cellsToCheck);
+    // console.log('[IMPORT] Header detection - non-empty cells:', cellsToCheck);
     
     for (const cell of cellsToCheck) {
       const cellStr = String(cell).toLowerCase().trim();
       // Check if cell contains any header keyword
       if (headerKeywords.some(keyword => cellStr.includes(keyword))) {
         matchCount++;
-        console.log(`[IMPORT] Header detection - matched keyword in: "${cell}"`);
+        // console.log(`[IMPORT] Header detection - matched keyword in: "${cell}"`);
       }
       // Also check for common patterns like "Task Name", "Task Category", etc.
       if (cellStr.match(/^(task|due|owner|assignee|priority|description|category|status)/)) {
         matchCount++;
-        console.log(`[IMPORT] Header detection - matched pattern in: "${cell}"`);
+        // console.log(`[IMPORT] Header detection - matched pattern in: "${cell}"`);
       }
     }
     
     const matchRatio = cellsToCheck.length > 0 ? matchCount / cellsToCheck.length : 0;
-    console.log('[IMPORT] Header detection result:', { 
-      firstRow, 
-      totalCells: firstRow.length,
-      cellsToCheck: cellsToCheck.length, 
-      matchCount, 
-      matchRatio,
-      isHeader: matchRatio >= 0.4 
-    });
+    // console.log('[IMPORT] Header detection result:', { 
+    //   firstRow, 
+    //   totalCells: firstRow.length,
+    //   cellsToCheck: cellsToCheck.length, 
+    //   matchCount, 
+    //   matchRatio,
+    //   isHeader: matchRatio >= 0.4 
+    // });
     
     return matchRatio >= 0.4; // If 40% or more cells look like headers, treat as header row
   };
@@ -845,8 +845,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             // Get the range to determine number of columns
             const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
             const numCols = range.e.c - range.s.c + 1; // end column - start column + 1
-            console.log('[IMPORT] CSV worksheet range:', worksheet['!ref']);
-            console.log('[IMPORT] CSV number of columns from range:', numCols);
+            // console.log('[IMPORT] CSV worksheet range:', worksheet['!ref']);
+            // console.log('[IMPORT] CSV number of columns from range:', numCols);
             
             // Convert to JSON with header row, preserving cell types for date detection
             const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
@@ -857,9 +857,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               blankrows: true // Include blank rows
             }) as any[][];
             
-            console.log('[IMPORT] CSV raw data length:', jsonData.length);
-            console.log('[IMPORT] CSV first row length:', jsonData[0]?.length);
-            console.log('[IMPORT] CSV first row:', jsonData[0]);
+            // console.log('[IMPORT] CSV raw data length:', jsonData.length);
+            // console.log('[IMPORT] CSV first row length:', jsonData[0]?.length);
+            // console.log('[IMPORT] CSV first row:', jsonData[0]);
             
             if (jsonData.length === 0) {
               showError('File is empty');
@@ -868,7 +868,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             
             // Ensure first row has all columns by padding with empty strings if needed
             if (jsonData[0] && jsonData[0].length < numCols) {
-              console.log(`[IMPORT] CSV: Padding first row from ${jsonData[0].length} to ${numCols} columns`);
+              // console.log(`[IMPORT] CSV: Padding first row from ${jsonData[0].length} to ${numCols} columns`);
               while (jsonData[0].length < numCols) {
                 jsonData[0].push('');
               }
@@ -876,7 +876,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             
             // Intelligently detect if first row is a header row
             const hasHeaderRow = isHeaderRow(jsonData[0]);
-            console.log('[IMPORT] CSV Header detection result:', hasHeaderRow);
+            // console.log('[IMPORT] CSV Header detection result:', hasHeaderRow);
             
             let headers: string[];
             let dataStartIndex: number;
@@ -889,8 +889,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
                 return headerValue || `Column ${idx + 1}`;
               });
               dataStartIndex = 1;
-              console.log('[IMPORT] CSV raw first row:', jsonData[0]);
-              console.log('[IMPORT] CSV processed headers:', headers);
+              // console.log('[IMPORT] CSV raw first row:', jsonData[0]);
+              // console.log('[IMPORT] CSV processed headers:', headers);
             } else {
               // No header row - generate generic column names
               headers = jsonData[0].map((_, idx) => `Column ${idx + 1}`);
@@ -903,11 +903,11 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               return;
             }
             
-            console.log('[IMPORT] CSV detected headers:', headers);
-            console.log('[IMPORT] CSV detected headers count:', headers.length);
-            console.log('[IMPORT] CSV detected headers array:', headers);
+            // console.log('[IMPORT] CSV detected headers:', headers);
+            // console.log('[IMPORT] CSV detected headers count:', headers.length);
+            // console.log('[IMPORT] CSV detected headers array:', headers);
             setDetectedColumns(headers);
-            console.log('[IMPORT] CSV setDetectedColumns called with:', headers);
+            // console.log('[IMPORT] CSV setDetectedColumns called with:', headers);
             
           // Parse data rows - ensure all rows have the same number of columns
           const parsedRows: any[] = [];
@@ -937,8 +937,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               parsedRows.push(row);
             }
           }
-            console.log('[IMPORT] CSV parsed rows:', parsedRows);
-            console.log('[IMPORT] CSV parsed rows count:', parsedRows.length);
+            // console.log('[IMPORT] CSV parsed rows:', parsedRows);
+            // console.log('[IMPORT] CSV parsed rows count:', parsedRows.length);
             setParsedData(parsedRows);
             
             // Auto-map columns based on header names
@@ -953,7 +953,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             setColumnMapping(autoMapping);
             setImportStep('mapping');
           } catch (parseError: any) {
-            console.error('CSV parse error:', parseError);
+            // console.error('CSV parse error:', parseError);
             showError('Failed to parse CSV file: ' + (parseError.message || 'Unknown error'));
           }
         };
@@ -970,8 +970,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           // Get the range to determine number of columns
           const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
           const numCols = range.e.c - range.s.c + 1; // end column - start column + 1
-          console.log('[IMPORT] Excel worksheet range:', worksheet['!ref']);
-          console.log('[IMPORT] Excel number of columns from range:', numCols);
+          // console.log('[IMPORT] Excel worksheet range:', worksheet['!ref']);
+          // console.log('[IMPORT] Excel number of columns from range:', numCols);
           
           // Convert to JSON - preserve raw values to handle dates correctly
           // raw: true preserves numbers (Excel serial dates) and strings (text-formatted dates)
@@ -982,9 +982,9 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             blankrows: true // Include blank rows
           }) as any[][];
           
-          console.log('[IMPORT] Excel raw data length:', jsonData.length);
-          console.log('[IMPORT] Excel first row length:', jsonData[0]?.length);
-          console.log('[IMPORT] Excel first row:', jsonData[0]);
+          // console.log('[IMPORT] Excel raw data length:', jsonData.length);
+          // console.log('[IMPORT] Excel first row length:', jsonData[0]?.length);
+          // console.log('[IMPORT] Excel first row:', jsonData[0]);
           
           if (jsonData.length === 0) {
             showError('File is empty');
@@ -993,7 +993,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           
           // Ensure first row has all columns by padding with empty strings if needed
           if (jsonData[0] && jsonData[0].length < numCols) {
-            console.log(`[IMPORT] Padding first row from ${jsonData[0].length} to ${numCols} columns`);
+            // console.log(`[IMPORT] Padding first row from ${jsonData[0].length} to ${numCols} columns`);
             while (jsonData[0].length < numCols) {
               jsonData[0].push('');
             }
@@ -1001,7 +1001,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
           
           // Intelligently detect if first row is a header row
           const hasHeaderRow = isHeaderRow(jsonData[0]);
-          console.log('[IMPORT] Excel Header detection result:', hasHeaderRow);
+          // console.log('[IMPORT] Excel Header detection result:', hasHeaderRow);
           
           let headers: string[];
           let dataStartIndex: number;
@@ -1014,8 +1014,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               return headerValue || `Column ${idx + 1}`;
             });
             dataStartIndex = 1;
-            console.log('[IMPORT] Excel raw first row:', jsonData[0]);
-            console.log('[IMPORT] Excel processed headers:', headers);
+            // console.log('[IMPORT] Excel raw first row:', jsonData[0]);
+            // console.log('[IMPORT] Excel processed headers:', headers);
           } else {
             // No header row - generate generic column names
             headers = jsonData[0].map((_, idx) => `Column ${idx + 1}`);
@@ -1023,12 +1023,12 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             showInfo('No header row detected. Using generic column names (Column 1, Column 2, etc.)');
           }
           
-          console.log('[IMPORT] Detected headers:', headers);
-          console.log('[IMPORT] Detected headers count:', headers.length);
-          console.log('[IMPORT] Detected headers array:', headers);
-          console.log('[IMPORT] Raw JSON data:', jsonData);
+          // console.log('[IMPORT] Detected headers:', headers);
+          // console.log('[IMPORT] Detected headers count:', headers.length);
+          // console.log('[IMPORT] Detected headers array:', headers);
+          // console.log('[IMPORT] Raw JSON data:', jsonData);
           setDetectedColumns(headers);
-          console.log('[IMPORT] setDetectedColumns called with:', headers);
+          // console.log('[IMPORT] setDetectedColumns called with:', headers);
           
           // Parse data rows - ensure all rows have the same number of columns
           const parsedRows: any[] = [];
@@ -1063,8 +1063,8 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
               parsedRows.push(row);
             }
           }
-          console.log('[IMPORT] Parsed rows:', parsedRows);
-          console.log('[IMPORT] Parsed rows count:', parsedRows.length);
+          // console.log('[IMPORT] Parsed rows:', parsedRows);
+          // console.log('[IMPORT] Parsed rows count:', parsedRows.length);
           setParsedData(parsedRows);
           
           // Auto-map columns based on header names
@@ -1076,7 +1076,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             priority: headers.find(h => h.toLowerCase().includes('priority') || h.toLowerCase().includes('prio')) || '',
             owner: headers.find(h => h.toLowerCase().includes('owner') || h.toLowerCase().includes('assignee') || h.toLowerCase().includes('assigned') || (h.toLowerCase().includes('task') && h.toLowerCase().includes('owner'))) || ''
           };
-          console.log('[IMPORT] Auto-mapping:', autoMapping);
+          // console.log('[IMPORT] Auto-mapping:', autoMapping);
           setColumnMapping(autoMapping);
           setImportStep('mapping');
         };
@@ -1085,7 +1085,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
         showError('Unsupported file format. Please use CSV, XLS, or XLSX.');
       }
     } catch (error: any) {
-      console.error('Error parsing file:', error);
+      // console.error('Error parsing file:', error);
       showError('Failed to parse file: ' + (error.message || 'Unknown error'));
     }
   };
@@ -1399,7 +1399,7 @@ const Tasks: React.FC<TasksProps> = ({ onCreateTask, currentUser }) => {
             read: false
           });
         } catch (notifErr) {
-          console.error('Failed to send notification:', notifErr);
+          // console.error('Failed to send notification:', notifErr);
         }
       }
 

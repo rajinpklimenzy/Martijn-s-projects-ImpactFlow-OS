@@ -39,7 +39,7 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
         setCompanies(companiesRes.data || []);
         setLeadSources(leadSourcesRes.data || []);
       } catch (err) {
-        console.error('Failed to load data:', err);
+        // console.error('Failed to load data:', err);
       }
     };
     loadData();
@@ -101,7 +101,7 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
         throw new Error('Failed to fetch LinkedIn profile');
       }
     } catch (err: any) {
-      console.error('Fetch error:', err);
+      // console.error('Fetch error:', err);
       let errorMessage = 'Failed to fetch LinkedIn profile';
       
       if (err.message?.includes('Invalid LinkedIn URL')) {
@@ -155,7 +155,7 @@ export const LinkedInScanner: React.FC<LinkedInScannerProps> = ({
         throw new Error('Failed to create contact');
       }
     } catch (err: any) {
-      console.error('Confirm error:', err);
+      // console.error('Confirm error:', err);
       setError(err.message || 'Failed to create contact. Please try again.');
       showError(err.message || 'Failed to create contact');
     } finally {

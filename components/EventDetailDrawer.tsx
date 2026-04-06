@@ -310,24 +310,24 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
   };
 
   const handleDelete = async () => {
-    console.log('[EventDetailDrawer] handleDelete called');
+    // console.log('[EventDetailDrawer] handleDelete called');
     const eventToDelete = eventToDeleteRef.current ?? eventData;
-    console.log('[EventDetailDrawer] eventToDelete:', {
-      id: eventToDelete?.id,
-      source: eventToDelete?.source,
-      googleEventId: eventToDelete?.googleEventId,
-      calendarId: eventToDelete?.calendarId,
-      fullEvent: eventToDelete
-    });
+    // console.log('[EventDetailDrawer] eventToDelete:', {
+    //   id: eventToDelete?.id,
+    //   source: eventToDelete?.source,
+    //   googleEventId: eventToDelete?.googleEventId,
+    //   calendarId: eventToDelete?.calendarId,
+    //   fullEvent: eventToDelete
+    // });
     eventToDeleteRef.current = null;
 
     if (!eventToDelete) {
-      console.error('[EventDetailDrawer] No event to delete');
+      // console.error('[EventDetailDrawer] No event to delete');
       showError('Event not found');
       return;
     }
     if (!currentUserId) {
-      console.error('[EventDetailDrawer] No currentUserId');
+      // console.error('[EventDetailDrawer] No currentUserId');
       showError('Please sign in to delete events');
       return;
     }
@@ -336,10 +336,10 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
       (eventToDelete.source === 'google' && eventToDelete.id?.startsWith('gcal_')
         ? eventToDelete.id.replace(/^gcal_/, '')
         : undefined);
-    console.log('[EventDetailDrawer] Extracted googleEventId:', googleEventId);
+    // console.log('[EventDetailDrawer] Extracted googleEventId:', googleEventId);
     
     if (eventToDelete.source === 'google' && !googleEventId) {
-      console.error('[EventDetailDrawer] Google event but no googleEventId');
+      // console.error('[EventDetailDrawer] Google event but no googleEventId');
       showError('Cannot delete: event ID missing');
       return;
     }
@@ -347,27 +347,27 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
     setIsSyncing(true);
     try {
       if (eventToDelete.source === 'google' && googleEventId) {
-        console.log('[EventDetailDrawer] Calling apiDeleteGoogleCalendarEvent', {
-          userId: currentUserId,
-          calendarId: eventToDelete.calendarId || 'primary',
-          eventId: googleEventId
-        });
+        // console.log('[EventDetailDrawer] Calling apiDeleteGoogleCalendarEvent', {
+        //   userId: currentUserId,
+        //   calendarId: eventToDelete.calendarId || 'primary',
+        //   eventId: googleEventId
+        // });
         await apiDeleteGoogleCalendarEvent(
           currentUserId,
           eventToDelete.calendarId || 'primary',
           googleEventId
         );
-        console.log('[EventDetailDrawer] apiDeleteGoogleCalendarEvent completed successfully');
+        // console.log('[EventDetailDrawer] apiDeleteGoogleCalendarEvent completed successfully');
       } else {
-        console.log('[EventDetailDrawer] Calling apiDeleteEvent', { id: eventToDelete.id });
+        // console.log('[EventDetailDrawer] Calling apiDeleteEvent', { id: eventToDelete.id });
         await apiDeleteEvent(eventToDelete.id);
-        console.log('[EventDetailDrawer] apiDeleteEvent completed successfully');
+        // console.log('[EventDetailDrawer] apiDeleteEvent completed successfully');
       }
       showSuccess('Event deleted');
       onEventDeleted?.(eventToDelete);
       onClose();
     } catch (err: any) {
-      console.error('[EventDetailDrawer] Delete error:', err);
+      // console.error('[EventDetailDrawer] Delete error:', err);
       const message = err?.message ?? err?.data?.message ?? 'Failed to delete event';
       showError(message);
     } finally {

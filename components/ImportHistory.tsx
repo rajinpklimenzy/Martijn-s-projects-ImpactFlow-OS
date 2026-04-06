@@ -72,7 +72,7 @@ const ImportHistory: React.FC<ImportHistoryProps> = ({ currentUser }) => {
         const response = await apiGetUsers();
         setUsers(response?.data || []);
       } catch (err) {
-        console.error('Failed to load users:', err);
+        // console.error('Failed to load users:', err);
       }
     };
     loadUsers();

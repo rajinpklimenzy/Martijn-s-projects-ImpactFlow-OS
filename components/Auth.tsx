@@ -34,7 +34,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       setCodeDigits(['', '', '', '', '', '']);
       setStep('verify');
     } catch (err: any) {
-      console.error('[AUTH UI] Error caught:', err);
+      // console.error('[AUTH UI] Error caught:', err);
       // Prioritize the exact string requested if the error contains it or if it's a 404
       if (err.message && (err.message.includes('Account not found') || err.status === 404)) {
         setError('Account not found - contact your Administrator');
@@ -65,7 +65,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         throw new Error('Invalid response from server.');
       }
     } catch (err: any) {
-      console.error('[AUTH] Verification error:', err);
+      // console.error('[AUTH] Verification error:', err);
       
       // Check for specific error codes
       if (err.message?.includes('User not registered') || err.message?.includes('USER_NOT_REGISTERED')) {

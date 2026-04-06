@@ -235,7 +235,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
           const filteredGoogleEvents = filterDailyRecurringEvents(googleEvents);
           allEvents.push(...filteredGoogleEvents);
         } catch (err: any) {
-          console.warn('[Schedule] Failed to fetch Google Calendar events:', err.message);
+          // console.warn('[Schedule] Failed to fetch Google Calendar events:', err.message);
         }
       }
       
@@ -268,7 +268,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
             allEvents.push(...firestoreEvents);
           }
         } catch (err: any) {
-          console.warn('[Schedule] Failed to fetch Firestore calendar events:', err.message);
+          // console.warn('[Schedule] Failed to fetch Firestore calendar events:', err.message);
         }
       }
       
@@ -820,7 +820,7 @@ const Schedule: React.FC<ScheduleProps> = ({ currentUser, onNavigate, onNewEvent
               link: `/?tab=tasks&task=${selectedTask.id}`
             });
           } catch (err) {
-            console.error('Failed to send mention notification:', err);
+            // console.error('Failed to send mention notification:', err);
           }
         }
       }

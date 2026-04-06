@@ -52,7 +52,7 @@ const AssociationSearchModal: React.FC<AssociationSearchModalProps> = ({
         const items = await searchFunction(searchQuery);
         setResults(items);
       } catch (error) {
-        console.error('Search error:', error);
+        // console.error('Search error:', error);
         setResults([]);
       } finally {
         setIsSearching(false);

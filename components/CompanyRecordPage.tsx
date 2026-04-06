@@ -84,28 +84,28 @@ const CompanyRecordPage: React.FC<CompanyRecordPageProps> = ({ companyId, onBack
         const contacts = response.data || response || [];
         // Ensure we have an array
         if (!Array.isArray(contacts)) {
-          console.warn('[CompanyRecordPage] Contacts data is not an array:', contacts);
+          // console.warn('[CompanyRecordPage] Contacts data is not an array:', contacts);
           return [];
         }
         // Log for debugging - check for mismatch between denormalized count and actual data
         const denormalizedCount = company?.contactCount;
         if (denormalizedCount !== undefined && denormalizedCount !== contacts.length) {
-          console.warn('[CompanyRecordPage] Contact count mismatch:', {
-            denormalizedCount,
-            actualCount: contacts.length,
-            companyId,
-            companyName: company?.name
-          });
+          // console.warn('[CompanyRecordPage] Contact count mismatch:', {
+          //   denormalizedCount,
+          //   actualCount: contacts.length,
+          //   companyId,
+          //   companyName: company?.name
+          // });
         }
-        console.log('[CompanyRecordPage] Fetched contacts:', {
-          count: contacts.length,
-          companyId,
-          denormalizedCount,
-          contacts: contacts.map(c => ({ id: c.id, name: c.name, companyId: c.companyId }))
-        });
+        // console.log('[CompanyRecordPage] Fetched contacts:', {
+        //   count: contacts.length,
+        //   companyId,
+        //   denormalizedCount,
+        //   contacts: contacts.map(c => ({ id: c.id, name: c.name, companyId: c.companyId }))
+        // });
         return contacts;
       } catch (error) {
-        console.error('[CompanyRecordPage] Error fetching contacts:', error);
+        // console.error('[CompanyRecordPage] Error fetching contacts:', error);
         return [];
       }
     },
@@ -277,12 +277,12 @@ const CompanyRecordPage: React.FC<CompanyRecordPageProps> = ({ companyId, onBack
       return contact?.id && contact?.name;
     });
     
-    console.log('[CompanyRecordPage] Building associatedContacts:', {
-      totalContacts: contactsData.length,
-      validContacts: validContacts.length,
-      companyId,
-      sampleContacts: validContacts.slice(0, 3).map(c => ({ id: c.id, name: c.name, companyId: c.companyId }))
-    });
+    // console.log('[CompanyRecordPage] Building associatedContacts:', {
+    //   totalContacts: contactsData.length,
+    //   validContacts: validContacts.length,
+    //   companyId,
+    //   sampleContacts: validContacts.slice(0, 3).map(c => ({ id: c.id, name: c.name, companyId: c.companyId }))
+    // });
     
     return validContacts.slice(0, 5).map((contact: any) => ({
       id: contact.id,

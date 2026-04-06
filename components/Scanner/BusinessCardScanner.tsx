@@ -46,7 +46,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
         setCompanies(companiesRes.data || []);
         setLeadSources(leadSourcesRes.data || []);
       } catch (err) {
-        console.error('Failed to load data:', err);
+        // console.error('Failed to load data:', err);
       }
     };
     loadData();
@@ -54,7 +54,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
 
   // Start camera
   const startCamera = async () => {
-    console.log('Camera button clicked - starting camera...');
+    // console.log('Camera button clicked - starting camera...');
     setError(null);
     
     try {
@@ -69,7 +69,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
       // Try with rear camera first, fallback to any camera
       let stream;
       try {
-        console.log('Requesting rear camera...');
+        // console.log('Requesting rear camera...');
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: { ideal: 'environment' },
@@ -78,14 +78,14 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
           }
         });
       } catch (err) {
-        console.log('Rear camera not available, trying any camera...');
+        // console.log('Rear camera not available, trying any camera...');
         // Fallback to any available camera
         stream = await navigator.mediaDevices.getUserMedia({
           video: true
         });
       }
       
-      console.log('Camera stream obtained:', stream);
+      // console.log('Camera stream obtained:', stream);
       streamRef.current = stream;
       
       // Immediately switch to camera mode - video will render
@@ -97,19 +97,19 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
       // Set stream to video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        console.log('Stream set to video element');
+        // console.log('Stream set to video element');
         
         // Play the video
         try {
           await videoRef.current.play();
-          console.log('✅ Camera started successfully');
+          // console.log('✅ Camera started successfully');
         } catch (playErr) {
-          console.error('Video play error:', playErr);
+          // console.error('Video play error:', playErr);
           // Video might autoplay anyway, so don't fail here
         }
       }
     } catch (err: any) {
-      console.error('❌ Camera error:', err);
+      // console.error('❌ Camera error:', err);
       let errorMessage = 'Camera access denied. Please grant camera permission or use file upload.';
       
       if (err.name === 'NotAllowedError') {
@@ -215,7 +215,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
         throw new Error('Failed to process business card');
       }
     } catch (err: any) {
-      console.error('Processing error:', err);
+      // console.error('Processing error:', err);
       setError(err.message || 'Failed to process business card. Please try again.');
       setMode('select');
     } finally {
@@ -256,7 +256,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
         throw new Error('Failed to create contact');
       }
     } catch (err: any) {
-      console.error('Confirm error:', err);
+      // console.error('Confirm error:', err);
       setError(err.message || 'Failed to create contact. Please try again.');
       showError(err.message || 'Failed to create contact');
     } finally {
@@ -312,7 +312,7 @@ export const BusinessCardScanner: React.FC<BusinessCardScannerProps> = ({
               <button
                 onClick={(e) => {
                   e.preventDefault();
-                  console.log('Camera button clicked');
+                  // console.log('Camera button clicked');
                   startCamera();
                 }}
                 className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-center cursor-pointer"

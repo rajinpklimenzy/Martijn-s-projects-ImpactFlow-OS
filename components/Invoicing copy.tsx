@@ -48,11 +48,11 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
           const companiesResponse = await apiGetCompanies();
           setCompanies(companiesResponse?.data || companiesResponse || []);
         } catch (err) {
-          console.error('Failed to fetch companies:', err);
+          // console.error('Failed to fetch companies:', err);
           setCompanies([]);
         }
       } catch (err: any) {
-        console.error('[INVOICING] Failed to fetch data:', err);
+        // console.error('[INVOICING] Failed to fetch data:', err);
         showError(err.message || 'Failed to load invoices');
         setInvoices([]);
         setCompanies([]);
@@ -73,7 +73,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
         const fetchedInvoices = invoicesResponse?.data || invoicesResponse || [];
         setInvoices(Array.isArray(fetchedInvoices) ? fetchedInvoices : []);
       } catch (err) {
-        console.error('Failed to refresh invoices:', err);
+        // console.error('Failed to refresh invoices:', err);
       }
     };
 
@@ -132,7 +132,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Invoice marked as paid!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to update invoice:', err);
+      // console.error('Failed to update invoice:', err);
       showError(err.message || 'Failed to update invoice');
     } finally {
       setIsUpdating(false);
@@ -151,7 +151,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Invoice deleted successfully!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to delete invoice:', err);
+      // console.error('Failed to delete invoice:', err);
       showError(err.message || 'Failed to delete invoice');
     } finally {
       setIsDeleting(false);
@@ -170,9 +170,9 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
         
         if (dueDate < today) {
           // Update to overdue status
-          apiUpdateInvoice(invoice.id, { status: 'Overdue' }).catch(err => 
-            console.error('Failed to update overdue status:', err)
-          );
+          apiUpdateInvoice(invoice.id, { status: 'Overdue' }).catch(err => {
+            // console.error('Failed to update overdue status:', err);
+        });
         }
       }
     });
@@ -267,7 +267,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Service breakdown saved successfully!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to save breakdown:', err);
+      // console.error('Failed to save breakdown:', err);
       showError(err.message || 'Failed to save breakdown');
     } finally {
       setIsUpdating(false);
@@ -420,7 +420,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess(`Invoice sent successfully to ${company.email}!`);
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to send invoice email:', err);
+      // console.error('Failed to send invoice email:', err);
       showError(err.message || 'Failed to send invoice email');
     } finally {
       setIsSendingEmail(false);

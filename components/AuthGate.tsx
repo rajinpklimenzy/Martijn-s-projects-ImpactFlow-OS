@@ -48,7 +48,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children, onUserLoaded }) => {
             })
             .catch((err) => {
               // Session invalid, clear and redirect to login
-              console.warn('Session expired:', err);
+              // console.warn('Session expired:', err);
               localStorage.removeItem('auth_token');
               localStorage.removeItem('user_data');
               window.location.reload(); // Reload to show login

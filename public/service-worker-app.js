@@ -36,26 +36,26 @@ const API_CACHE_TTL = {
 
 // Installation event
 self.addEventListener('install', (event) => {
-  console.log('[SW] Service Worker installing...');
+  // console.log('[SW] Service Worker installing...');
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Caching static assets');
+        // console.log('[SW] Caching static assets');
         return cache.addAll(STATIC_ASSETS);
       })
       .then(() => {
-        console.log('[SW] Service Worker installed');
+        // console.log('[SW] Service Worker installed');
         return self.skipWaiting(); // Activate immediately
       })
       .catch((err) => {
-        console.error('[SW] Installation failed:', err);
+        // console.error('[SW] Installation failed:', err);
       })
   );
 });
 
 // Activation event
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Service Worker activating...');
+  // console.log('[SW] Service Worker activating...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -67,13 +67,13 @@ self.addEventListener('activate', (event) => {
                    name !== API_CACHE_NAME;
           })
           .map((name) => {
-            console.log('[SW] Deleting old cache:', name);
+            // console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
           })
       );
     })
     .then(() => {
-      console.log('[SW] Service Worker activated');
+      // console.log('[SW] Service Worker activated');
       return self.clients.claim(); // Take control of all pages immediately
     })
   );
@@ -209,7 +209,7 @@ async function handleApiRequest(request) {
   } catch (error) {
     // Network failed, return cached if available
     if (cachedResponse) {
-      console.log('[SW] Network failed, serving from cache:', cacheKey);
+      // console.log('[SW] Network failed, serving from cache:', cacheKey);
       return cachedResponse;
     }
     
@@ -248,7 +248,7 @@ async function updateCacheInBackground(request, cacheKey, cache) {
       await cache.put(cacheKey, cachedResponse);
     }
   } catch (error) {
-    console.log('[SW] Background cache update failed:', error);
+    // console.log('[SW] Background cache update failed:', error);
   }
 }
 

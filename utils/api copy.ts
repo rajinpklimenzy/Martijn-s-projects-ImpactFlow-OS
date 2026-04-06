@@ -13,9 +13,9 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const url = `${API_BASE}${cleanEndpoint}`;
 
   // Debug logging to verify the correct URL is being used
-  console.log('[API] Request URL:', url);
-  console.log('[API] Endpoint:', cleanEndpoint);
-  console.log('[API] Base URL:', API_BASE);
+  // console.log('[API] Request URL:', url);
+  // console.log('[API] Endpoint:', cleanEndpoint);
+  // console.log('[API] Base URL:', API_BASE);
 
   const headers = {
     'Content-Type': 'application/json',
@@ -50,7 +50,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const isServiceUnavailable = err.message.includes('503') || err.message.includes('502');
 
     if (isNetworkError || isServiceUnavailable) {
-      console.info(`[SYSTEM] Production API at ${url} unreachable. Engaging Virtual Engine fallback.`);
+      // console.info(`[SYSTEM] Production API at ${url} unreachable. Engaging Virtual Engine fallback.`);
       window.dispatchEvent(new CustomEvent('impact_backend_mode', { detail: 'virtual' }));
       return simulateApi(cleanEndpoint, options);
     }
@@ -89,7 +89,7 @@ export const apiLogout = async () => {
     await apiFetch('/auth/logout', { method: 'POST' });
   } catch (err) {
     // Continue with logout even if API call fails
-    console.error('Logout API error:', err);
+    // console.error('Logout API error:', err);
   } finally {
     // Always clear local storage
   localStorage.removeItem('auth_token');

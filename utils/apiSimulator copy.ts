@@ -32,7 +32,7 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
         code, 
         expires: Date.now() + 600000 
       });
-      console.log(`[VIRTUAL SERVER] Verification code for ${body.email}: ${code}`);
+      // console.log(`[VIRTUAL SERVER] Verification code for ${body.email}: ${code}`);
       return { success: true };
 
     case '/auth/verify':
@@ -59,7 +59,7 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
       return virtualDb.users[0];
 
     default:
-      console.warn(`[VIRTUAL SERVER] No simulator route for ${endpoint}`);
+      // console.warn(`[VIRTUAL SERVER] No simulator route for ${endpoint}`);
       return { status: 'ok', simulated: true };
   }
 };

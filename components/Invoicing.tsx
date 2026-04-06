@@ -252,7 +252,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Service breakdown saved successfully!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to save breakdown:', err);
+      // console.error('Failed to save breakdown:', err);
       showError(err.message || 'Failed to save breakdown');
     } finally {
       setIsUpdating(false);
@@ -273,7 +273,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Invoice marked as paid!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to update invoice:', err);
+      // console.error('Failed to update invoice:', err);
       showError(err.message || 'Failed to update invoice');
     } finally {
       setIsUpdating(false);
@@ -293,7 +293,7 @@ const Invoicing: React.FC<InvoicingProps> = ({ onCreateInvoice, currentUser }) =
       showSuccess('Invoice deleted successfully!');
       window.dispatchEvent(new Event('refresh-invoices'));
     } catch (err: any) {
-      console.error('Failed to delete invoice:', err);
+      // console.error('Failed to delete invoice:', err);
       showError(err.message || 'Failed to delete invoice');
     } finally {
       setIsDeleting(false);

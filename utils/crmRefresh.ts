@@ -9,7 +9,7 @@
  * Dispatches a custom event that the CRM component listens to
  */
 export const triggerCRMRefresh = () => {
-  console.log('🔄 Triggering CRM refresh...');
+  // console.log('🔄 Triggering CRM refresh...');
   window.dispatchEvent(new CustomEvent('refresh-crm'));
 };
 
@@ -18,7 +18,7 @@ export const triggerCRMRefresh = () => {
  * Useful when you want to ensure backend has processed changes
  */
 export const triggerCRMRefreshDelayed = (delayMs: number = 1000) => {
-  console.log(`🔄 Scheduling CRM refresh in ${delayMs}ms...`);
+  // console.log(`🔄 Scheduling CRM refresh in ${delayMs}ms...`);
   setTimeout(() => {
     triggerCRMRefresh();
   }, delayMs);

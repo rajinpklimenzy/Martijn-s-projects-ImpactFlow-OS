@@ -163,7 +163,7 @@ const NoteComposerModal: React.FC<NoteComposerModalProps> = ({
             read: false
           });
         } catch (err) {
-          console.error('Failed to send notification:', err);
+          // console.error('Failed to send notification:', err);
         }
       }
 

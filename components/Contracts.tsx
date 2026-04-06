@@ -127,7 +127,7 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
       const res = await apiGetActivityFeed('contract', selectedContract.id);
       setContractActivities(res?.data || []);
     } catch (err: any) {
-      console.error('[CONTRACTS] Failed to fetch contract activities:', err);
+      // console.error('[CONTRACTS] Failed to fetch contract activities:', err);
       setContractActivities([]);
     } finally {
       setIsLoadingActivities(false);
@@ -187,11 +187,11 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
         throw new Error('Failed to get Google Drive access token. Please ensure your Google account is connected in Settings.');
       }
 
-      console.log('Google Picker - Access Token:', accessToken ? 'Present' : 'Missing');
-      console.log('Google Picker - API Key:', apiKey ? `Present (${apiKey.substring(0, 10)}...)` : 'Not using (optional with OAuth)');
+      // console.log('Google Picker - Access Token:', accessToken ? 'Present' : 'Missing');
+      // console.log('Google Picker - API Key:', apiKey ? `Present (${apiKey.substring(0, 10)}...)` : 'Not using (optional with OAuth)');
       
       // Log full response for debugging
-      console.log('Full token response:', tokenResponse?.data);
+      // console.log('Full token response:', tokenResponse?.data);
 
       // Wait for Google Picker API to be ready
       await new Promise<void>((resolve, reject) => {
@@ -222,29 +222,29 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
           setIsLoadingPicker(false);
           
           try {
-            console.log('Google Picker Callback - Full response data:', JSON.stringify(data, null, 2));
-            console.log('Google Picker Response Action:', data[googlePicker.Response.ACTION]);
-            console.log('Google Picker Action Constants:', {
-              PICKED: googlePicker.Action.PICKED,
-              CANCEL: googlePicker.Action.CANCEL
-            });
+            // console.log('Google Picker Callback - Full response data:', JSON.stringify(data, null, 2));
+            // console.log('Google Picker Response Action:', data[googlePicker.Response.ACTION]);
+            // console.log('Google Picker Action Constants:', {
+            //   PICKED: googlePicker.Action.PICKED,
+            //   CANCEL: googlePicker.Action.CANCEL
+            // });
             
             if (data[googlePicker.Response.ACTION] === googlePicker.Action.PICKED) {
               const documents = data[googlePicker.Response.DOCUMENTS];
-              console.log('Google Picker - Documents array:', documents);
-              console.log('Google Picker - Number of documents:', documents?.length);
+              // console.log('Google Picker - Documents array:', documents);
+              // console.log('Google Picker - Number of documents:', documents?.length);
               
               if (documents && documents.length > 0) {
                 const file = documents[0];
-                console.log('Google Picker - Selected file data:', JSON.stringify(file, null, 2));
-                console.log('Google Picker - File ID:', file.id);
-                console.log('Google Picker - File Name:', file.name);
-                console.log('Google Picker - File MIME Type:', file.mimeType);
-                console.log('Google Picker - File URL:', file.url);
-                console.log('Google Picker - File Service ID:', file.serviceId);
+                // console.log('Google Picker - Selected file data:', JSON.stringify(file, null, 2));
+                // console.log('Google Picker - File ID:', file.id);
+                // console.log('Google Picker - File Name:', file.name);
+                // console.log('Google Picker - File MIME Type:', file.mimeType);
+                // console.log('Google Picker - File URL:', file.url);
+                // console.log('Google Picker - File Service ID:', file.serviceId);
                 handleGoogleDriveFileSelected(file);
               } else {
-                console.error('Google Picker - No documents in response');
+                // console.error('Google Picker - No documents in response');
                 showError('No file selected');
               }
             } else if (data[googlePicker.Response.ACTION] === googlePicker.Action.CANCEL) {
@@ -253,8 +253,8 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
               // Handle other actions or errors
               const error = data[googlePicker.Response.ERROR];
               if (error) {
-                console.error('Google Picker Error:', error);
-                console.error('Error details:', JSON.stringify(data, null, 2));
+                // console.error('Google Picker Error:', error);
+                // console.error('Error details:', JSON.stringify(data, null, 2));
                 
                 if (error === googlePicker.ResponseError.ACCESS_DENIED) {
                   showError('Access denied. Please reconnect your Google account in Settings.');
@@ -269,7 +269,7 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
               }
             }
           } catch (err: any) {
-            console.error('Error handling picker callback:', err);
+            // console.error('Error handling picker callback:', err);
             showError('Failed to process selected file');
           }
         })
@@ -281,7 +281,7 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
       picker.setVisible(true);
     } catch (err: any) {
       setIsLoadingPicker(false);
-      console.error('Google Drive Picker Error:', err);
+      // console.error('Google Drive Picker Error:', err);
       
       if (err.message?.includes('Backend server is not running')) {
         showError('Backend server is not running. Please start the server on port 8050 and try again.');
@@ -298,17 +298,17 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
   const handleGoogleDriveFileSelected = async (file: any) => {
     if (!userId) return;
 
-    console.log('handleGoogleDriveFileSelected called with file:', JSON.stringify(file, null, 2));
-    console.log('File data from Google Picker:', {
-      id: file.id,
-      name: file.name,
-      url: file.url,
-      iconUrl: file.iconUrl,
-      mimeType: file.mimeType,
-      serviceId: file.serviceId,
-      type: file.type,
-      sizeBytes: file.sizeBytes
-    });
+    // console.log('handleGoogleDriveFileSelected called with file:', JSON.stringify(file, null, 2));
+    // console.log('File data from Google Picker:', {
+    //   id: file.id,
+    //   name: file.name,
+    //   url: file.url,
+    //   iconUrl: file.iconUrl,
+    //   mimeType: file.mimeType,
+    //   serviceId: file.serviceId,
+    //   type: file.type,
+    //   sizeBytes: file.sizeBytes
+    // });
 
     try {
       // Use data directly from Google Picker response
@@ -317,13 +317,13 @@ const Contracts: React.FC<ContractsProps> = ({ currentUser }) => {
       const iconUrl = file.iconUrl || '';
       const fileSize = file.sizeBytes ? parseInt(file.sizeBytes) : 0;
 
-      console.log('Storing file data:', {
-        googleDriveFileId: file.id,
-        publicUrl,
-        iconUrl,
-        fileName: file.name,
-        fileMimeType: file.mimeType
-      });
+      // console.log('Storing file data:', {
+      //   googleDriveFileId: file.id,
+      //   publicUrl,
+      //   iconUrl,
+      //   fileName: file.name,
+      //   fileMimeType: file.mimeType
+      // });
 
       setFormData(prev => ({
         ...prev,

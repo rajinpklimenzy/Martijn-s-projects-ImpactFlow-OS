@@ -78,7 +78,7 @@ const InlineEditField: React.FC<InlineEditFieldProps> = ({
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 2000);
     } catch (err: any) {
-      console.error('Error saving field:', err);
+      // console.error('Error saving field:', err);
       setSaveError(err.message || 'Failed to save');
       setIsSaving(false);
     }

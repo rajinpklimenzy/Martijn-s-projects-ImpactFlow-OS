@@ -100,7 +100,7 @@ const ScheduleMeetingModal: React.FC<ScheduleMeetingModalProps> = ({
           initialEnd = endDate.toISOString().substring(0, 16);
         }
       } catch (err) {
-        console.warn('Failed to parse extracted date/time:', err);
+        // console.warn('Failed to parse extracted date/time:', err);
       }
     }
 

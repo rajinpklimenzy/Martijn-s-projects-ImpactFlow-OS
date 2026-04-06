@@ -215,7 +215,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
            }));
          }
        } catch (err) {
-         console.error('[QUICK-CREATE] Data fetch failed:', err);
+        //  console.error('[QUICK-CREATE] Data fetch failed:', err);
        }
     };
     fetchData();
@@ -408,7 +408,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
     setIsSubmitting(true);
 
     // Troubleshoot Diagnostics
-    console.debug(`[QUICK-CREATE] Deployment Start. Type: ${type}`, formData);
+    // console.debug(`[QUICK-CREATE] Deployment Start. Type: ${type}`, formData);
 
     try {
       const currentUser = JSON.parse(localStorage.getItem('user_data') || 'null');
@@ -578,13 +578,13 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           return;
         }
         
-        console.debug('[QUICK-CREATE] Attempting Project Creation...', { 
-          title: formData.title, 
-          engagement: formData.engagement,
-          startDate: formData.startDate,
-          endDate: formData.endDate,
-          ownerId: formData.ownerId 
-        });
+        // console.debug('[QUICK-CREATE] Attempting Project Creation...', { 
+        //   title: formData.title, 
+        //   engagement: formData.engagement,
+        //   startDate: formData.startDate,
+        //   endDate: formData.endDate,
+        //   ownerId: formData.ownerId 
+        // });
         
         const projectPayload: any = {
           title: formData.title.trim(), 
@@ -606,11 +606,11 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           projectPayload.noteImageMimeType = noteImageFile.type;
         }
         
-        console.debug('[QUICK-CREATE] Project payload:', projectPayload);
+        // console.debug('[QUICK-CREATE] Project payload:', projectPayload);
         
         await apiCreateProject(projectPayload);
       } else if (type === 'task') {
-        console.debug('[QUICK-CREATE] Attempting Task Creation...', { title: formData.title, assigneeId: formData.assigneeId });
+        // console.debug('[QUICK-CREATE] Attempting Task Creation...', { title: formData.title, assigneeId: formData.assigneeId });
 
         const taskPayload: any = { 
           title: formData.title, 
@@ -695,15 +695,15 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
           return;
         }
         
-        console.debug('[QUICK-CREATE] Creating invoice with:', {
-          companyId: formData.companyId,
-          amount: totalAmount,
-          dueDate: formData.expectedCloseDate,
-          lineItemsCount: lineItemsWithAmounts.length,
-          lineItems: lineItemsWithAmounts,
-          name: formData.name,
-          description: formData.description
-        });
+        // console.debug('[QUICK-CREATE] Creating invoice with:', {
+        //   companyId: formData.companyId,
+        //   amount: totalAmount,
+        //   dueDate: formData.expectedCloseDate,
+        //   lineItemsCount: lineItemsWithAmounts.length,
+        //   lineItems: lineItemsWithAmounts,
+        //   name: formData.name,
+        //   description: formData.description
+        // });
         
         // Use the calculated total from line items
         await apiCreateInvoice({ 
@@ -722,7 +722,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
         window.dispatchEvent(new Event('refresh-invoices'));
       }
 
-      console.debug('[QUICK-CREATE] Registry success. Finalizing UI update.');
+      // console.debug('[QUICK-CREATE] Registry success. Finalizing UI update.');
       setStep('success');
       
       // Clear image state
@@ -732,15 +732,15 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       
       // Dispatch refresh event before calling onSuccess to ensure list updates
       if (type === 'project') {
-        console.log('[QUICK-CREATE] Dispatching refresh-projects event');
+        // console.log('[QUICK-CREATE] Dispatching refresh-projects event');
         window.dispatchEvent(new Event('refresh-projects'));
       } else if (type === 'invoice') {
-        console.log('[QUICK-CREATE] Dispatching refresh-invoices event');
+        // console.log('[QUICK-CREATE] Dispatching refresh-invoices event');
         window.dispatchEvent(new Event('refresh-invoices'));
       }
       
       if (onSuccess) {
-        console.log('[QUICK-CREATE] Calling onSuccess callback');
+        // console.log('[QUICK-CREATE] Calling onSuccess callback');
         onSuccess();
       }
       
@@ -750,14 +750,14 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
       }, 1500);
 
     } catch (err: any) {
-      console.error('[QUICK-CREATE] Deployment failed:', err);
-      console.error('[QUICK-CREATE] Error details:', {
-        message: err.message,
-        code: err.code,
-        status: err.status,
-        details: err.details,
-        type: type
-      });
+      // console.error('[QUICK-CREATE] Deployment failed:', err);
+      // console.error('[QUICK-CREATE] Error details:', {
+      //   message: err.message,
+      //   code: err.code,
+      //   status: err.status,
+      //   details: err.details,
+      //   type: type
+      // });
       
       // Handle duplicate detection from backend (for contacts)
       if (err.code === 'DUPLICATE_DETECTED' && err.duplicates && type === 'contact') {
@@ -2299,7 +2299,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                                   if (onSuccess) onSuccess();
                                   setTimeout(() => onClose(), 1500);
                                 } catch (err: any) {
-                                  console.error('[MERGE] Failed:', err);
+                                  // console.error('[MERGE] Failed:', err);
                                   setError(err.message || 'Merge failed');
                                   setIsMerging(false);
                                 }
@@ -2345,7 +2345,7 @@ const QuickCreateModal: React.FC<QuickCreateModalProps> = ({ type: initialType, 
                       if (onSuccess) onSuccess();
                       setTimeout(() => onClose(), 1500);
                     } catch (err: any) {
-                      console.error('[CREATE] Failed:', err);
+                      // console.error('[CREATE] Failed:', err);
                       setError(err.message || 'Failed to create contact');
                       setIsMerging(false);
                       setMergeModal(null);

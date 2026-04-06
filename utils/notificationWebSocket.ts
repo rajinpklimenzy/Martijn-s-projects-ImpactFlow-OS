@@ -34,7 +34,7 @@ const getWebSocketUrl = (apiBase: string): string => {
     return `${protocol}//${url.host}`;
   } catch (error) {
     // Fallback: if URL parsing fails, try to extract host from string
-    console.warn('[NOTIFICATION WS] Failed to parse API URL, using fallback');
+    // console.warn('[NOTIFICATION WS] Failed to parse API URL, using fallback');
     // Default to localhost:8050 for development
     return 'ws://127.0.0.1:8050';
   }
@@ -94,7 +94,7 @@ export class NotificationWebSocket {
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
-          console.log('[NOTIFICATION WS] Connected');
+          // console.log('[NOTIFICATION WS] Connected');
           this.isConnecting = false;
           this.reconnectAttempts = 0;
           this.reconnectDelay = 1000;
@@ -106,18 +106,18 @@ export class NotificationWebSocket {
             const message: NotificationMessage = JSON.parse(event.data);
             this.handleMessage(message);
           } catch (error) {
-            console.error('[NOTIFICATION WS] Error parsing message:', error);
+            // console.error('[NOTIFICATION WS] Error parsing message:', error);
           }
         };
 
         this.ws.onerror = (error) => {
-          console.error('[NOTIFICATION WS] WebSocket error:', error);
+          // console.error('[NOTIFICATION WS] WebSocket error:', error);
           this.isConnecting = false;
           reject(error);
         };
 
         this.ws.onclose = () => {
-          console.log('[NOTIFICATION WS] Connection closed');
+          // console.log('[NOTIFICATION WS] Connection closed');
           this.isConnecting = false;
           this.ws = null;
           this.attemptReconnect();
@@ -131,7 +131,7 @@ export class NotificationWebSocket {
 
   private attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[NOTIFICATION WS] Max reconnect attempts reached');
+      // console.error('[NOTIFICATION WS] Max reconnect attempts reached');
       return;
     }
 
@@ -142,24 +142,24 @@ export class NotificationWebSocket {
     this.reconnectAttempts++;
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000); // Max 30 seconds
 
-    console.log(`[NOTIFICATION WS] Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    // console.log(`[NOTIFICATION WS] Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect().catch((error) => {
-        console.error('[NOTIFICATION WS] Reconnect failed:', error);
+        // console.error('[NOTIFICATION WS] Reconnect failed:', error);
       });
     }, delay);
   }
 
   private handleMessage(message: NotificationMessage) {
     if (message.type === 'connected') {
-      console.log('[NOTIFICATION WS]', message.message);
+      // console.log('[NOTIFICATION WS]', message.message);
       this.emit('connected', message);
     } else if (message.type === 'notification') {
       this.emit('notification', message.data);
     } else if (message.type === 'error') {
-      console.error('[NOTIFICATION WS] Error:', message.message);
+      // console.error('[NOTIFICATION WS] Error:', message.message);
       this.emit('error', message);
     }
   }
@@ -185,7 +185,7 @@ export class NotificationWebSocket {
         try {
           callback(data);
         } catch (error) {
-          console.error(`[NOTIFICATION WS] Error in listener for ${event}:`, error);
+          // console.error(`[NOTIFICATION WS] Error in listener for ${event}:`, error);
         }
       });
     }

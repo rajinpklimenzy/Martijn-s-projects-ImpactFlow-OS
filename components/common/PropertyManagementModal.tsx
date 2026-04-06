@@ -77,7 +77,7 @@ const PropertyManagementModal: React.FC<PropertyManagementModalProps> = ({
       
       setProperties(merged);
     } catch (error) {
-      console.error('Error loading custom properties:', error);
+      // console.error('Error loading custom properties:', error);
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +140,7 @@ const PropertyManagementModal: React.FC<PropertyManagementModalProps> = ({
       onSave(properties);
       onClose();
     } catch (error) {
-      console.error('Error saving property configuration:', error);
+      // console.error('Error saving property configuration:', error);
     } finally {
       setIsLoading(false);
     }
@@ -165,7 +165,7 @@ const PropertyManagementModal: React.FC<PropertyManagementModalProps> = ({
       setShowAddProperty(false);
       setNewProperty({ name: '', key: '', type: 'text' });
     } catch (error: any) {
-      console.error('Error creating custom property:', error);
+      // console.error('Error creating custom property:', error);
       alert(error.message || 'Failed to create property');
     } finally {
       setIsLoading(false);

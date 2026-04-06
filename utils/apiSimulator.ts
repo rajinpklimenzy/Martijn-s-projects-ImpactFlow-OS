@@ -23,12 +23,12 @@ export const simulateApi = async (endpoint: string, options: any = {}) => {
   const body = options.body ? JSON.parse(options.body) : {};
   const method = (options.method || 'GET').toUpperCase();
 
-  console.info(`[VIRTUAL SERVER] ${method} ${endpoint}`, body);
+  // console.info(`[VIRTUAL SERVER] ${method} ${endpoint}`, body);
 
   // Handle Auth Request OTP
   if (endpoint === '/auth/send-otp' || endpoint === '/auth/request-code') {
     const email = body.email?.toLowerCase().trim();
-    console.warn(`[VIRTUAL SERVER] Simulator fallback active for AUTH`);
+    // console.warn(`[VIRTUAL SERVER] Simulator fallback active for AUTH`);
     
     const userExists = MOCK_USERS.some(u => u.email.toLowerCase().trim() === email);
     if (!userExists) {

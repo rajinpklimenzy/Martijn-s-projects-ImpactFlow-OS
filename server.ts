@@ -23,7 +23,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise
 };
 
 // Advanced Startup Diagnostics
-console.log('--- [IMPACTFLOW] SYSTEM PRE-FLIGHT CHECK ---');
+// console.log('--- [IMPACTFLOW] SYSTEM PRE-FLIGHT CHECK ---');
 const required = [
   'FIREBASE_PROJECT_ID',
   'FIREBASE_CLIENT_EMAIL',
@@ -35,19 +35,19 @@ const required = [
 required.forEach(key => {
   const value = process.env[key];
   if (!value) {
-    console.error(`[CRITICAL] Missing Environment Variable: ${key}`);
+    // console.error(`[CRITICAL] Missing Environment Variable: ${key}`);
   } else {
     const masked = value.length > 8 ? `${value.substring(0, 4)}...${value.substring(value.length - 4)}` : '***';
-    console.log(`[OK] ${key} is set (${masked})`);
+    // console.log(`[OK] ${key} is set (${masked})`);
   }
 });
-console.log('--------------------------------------------');
+// console.log('--------------------------------------------');
 
 app.use(cors() as any);
 app.use(express.json() as any);
 
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  // console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -71,7 +71,7 @@ apiRouter.post('/auth/request-code', async (req, res) => {
   if (!email) return res.status(400).json({ message: 'Email required' });
 
   try {
-    console.log(`[AUTH] Requesting OTP for ${email}`);
+    // console.log(`[AUTH] Requesting OTP for ${email}`);
 
     const externalResponse = await withTimeout(
       fetch(`${process.env.API_BASE_URL}/auth/send-otp`, {
@@ -88,16 +88,16 @@ apiRouter.post('/auth/request-code', async (req, res) => {
     if (!externalResponse.ok) {
       const errorData = await externalResponse.json().catch(() => ({}));
       const errorMessage = errorData.message || errorData.error || `External API error: ${externalResponse.status}`;
-      console.error('[AUTH ERROR] External API failed:', errorMessage);
+      // console.error('[AUTH ERROR] External API failed:', errorMessage);
       throw new Error(errorMessage);
     }
 
     const responseData = await externalResponse.json().catch(() => ({ success: true }));
-    console.log(`[AUTH] OTP sent successfully to ${email}`);
+    // console.log(`[AUTH] OTP sent successfully to ${email}`);
 
     res.status(200).json({ success: true, ...responseData });
   } catch (error: any) {
-    console.error('[AUTH ERROR]', error.message);
+    // console.error('[AUTH ERROR]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -110,7 +110,7 @@ apiRouter.post('/auth/verify', async (req, res) => {
   }
 
   try {
-    console.log(`[VERIFY] Verifying OTP for ${email}`);
+    // console.log(`[VERIFY] Verifying OTP for ${email}`);
 
     const externalResponse = await withTimeout(
       fetch(`${process.env.API_BASE_URL}/auth/verify-otp`, {
@@ -130,12 +130,12 @@ apiRouter.post('/auth/verify', async (req, res) => {
     if (!externalResponse.ok) {
       const errorData = await externalResponse.json().catch(() => ({}));
       const errorMessage = errorData.message || errorData.error || `Verification failed: ${externalResponse.status}`;
-      console.error('[VERIFY ERROR] External API failed:', errorMessage);
+      // console.error('[VERIFY ERROR] External API failed:', errorMessage);
       return res.status(externalResponse.status).json({ success: false, message: errorMessage });
     }
 
     const responseData = await externalResponse.json().catch(() => ({}));
-    console.log(`[VERIFY] OTP verified successfully for ${email}`);
+    // console.log(`[VERIFY] OTP verified successfully for ${email}`);
 
     // Map the external API response to match what the frontend expects
     // The external API should return token and user data
@@ -146,7 +146,7 @@ apiRouter.post('/auth/verify', async (req, res) => {
       user: responseData.user || responseData.data || { email, ...responseData }
     });
   } catch (error: any) {
-    console.error('[VERIFY ERROR]', error.message);
+    // console.error('[VERIFY ERROR]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -185,9 +185,9 @@ app.get('/health', (req, res) => {
 // API routes - must come before static file serving
 app.use('/api', apiRouter);
 
-console.log(`[SERVER] Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-console.log(`[SERVER] Static directory: ${staticDir}`);
-console.log(`[SERVER] Index file: ${indexPath}`);
+// console.log(`[SERVER] Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+// console.log(`[SERVER] Static directory: ${staticDir}`);
+// console.log(`[SERVER] Index file: ${indexPath}`);
 
 // Serve static files (JS, CSS, images, etc.)
 // This will serve files like .js, .css, .png, etc. but won't serve index.html automatically
@@ -220,26 +220,28 @@ app.all('*', (req, res) => {
   }
   
   // Serve index.html for all SPA routes (/privacy-policy, /help, /, etc.)
-  console.log(`[SERVER] ${req.method} ${req.path} - Serving index.html`);
+  // console.log(`[SERVER] ${req.method} ${req.path} - Serving index.html`);
   
   // Check if index.html exists
   if (!existsSync(indexPath)) {
-    console.error('[SERVER] ERROR: index.html not found at:', indexPath);
-    console.error('[SERVER] Current working directory:', process.cwd());
-    console.error('[SERVER] Static directory:', staticDir);
+    // console.error('[SERVER] ERROR: index.html not found at:', indexPath);
+    // console.error('[SERVER] Current working directory:', process.cwd());
+    // console.error('[SERVER] Static directory:', staticDir);
     return res.status(500).send(`Error: index.html not found at ${indexPath}`);
   }
   
   res.sendFile(indexPath, (err) => {
     if (err) {
-      console.error('[SERVER] Error serving index.html:', err);
-      console.error('[SERVER] Attempted path:', indexPath);
-      console.error('[SERVER] Current working directory:', process.cwd());
-      console.error('[SERVER] File exists:', existsSync(indexPath));
+      // console.error('[SERVER] Error serving index.html:', err);
+      // console.error('[SERVER] Attempted path:', indexPath);
+      // console.error('[SERVER] Current working directory:', process.cwd());
+      // console.error('[SERVER] File exists:', existsSync(indexPath));
       res.status(500).send('Error loading application');
     }
   });
 });
 
 const PORT = 8020;
-app.listen(PORT, () => console.log(`ImpactFlow running on port ${PORT}`));
+app.listen(PORT, () => {
+  //console.log(`ImpactFlow running on port ${PORT}`)
+});

@@ -69,7 +69,7 @@ const Budget: React.FC<BudgetProps> = ({ currentUser }) => {
       const deps = response?.data || [];
       setDepartments(Array.isArray(deps) ? deps : []);
     } catch (err) {
-      console.error('[BUDGET] Error fetching departments:', err);
+      // console.error('[BUDGET] Error fetching departments:', err);
     }
   }, []);
 
@@ -79,7 +79,7 @@ const Budget: React.FC<BudgetProps> = ({ currentUser }) => {
       const cats = response?.data || [];
       setCategories(Array.isArray(cats) ? cats : []);
     } catch (err) {
-      console.error('[BUDGET] Error fetching categories:', err);
+      // console.error('[BUDGET] Error fetching categories:', err);
     }
   }, []);
 
@@ -91,13 +91,13 @@ const Budget: React.FC<BudgetProps> = ({ currentUser }) => {
         params.department = selectedDepartment;
       }
       
-      console.log('[Budget] Fetching budgets with params:', params);
+      // console.log('[Budget] Fetching budgets with params:', params);
       const response = await apiGetBudgets(params);
       const budgetsData = response?.data || [];
-      console.log('[Budget] Received budgets:', budgetsData);
+      // console.log('[Budget] Received budgets:', budgetsData);
       setBudgets(Array.isArray(budgetsData) ? budgetsData : []);
     } catch (err: any) {
-      console.error('[Budget] Error fetching budgets:', err);
+      // console.error('[Budget] Error fetching budgets:', err);
       showError(err.message || 'Failed to load budgets');
     } finally {
       setIsLoading(false);
@@ -112,12 +112,12 @@ const Budget: React.FC<BudgetProps> = ({ currentUser }) => {
         params.department = selectedDepartment;
       }
       
-      console.log('[Budget] Fetching tracking with params:', params);
+      // console.log('[Budget] Fetching tracking with params:', params);
       const response = await apiGetBudgetTracking(params);
-      console.log('[Budget] Received tracking:', response?.data);
+      // console.log('[Budget] Received tracking:', response?.data);
       setBudgetTracking(response?.data || null);
     } catch (err: any) {
-      console.error('[Budget] Error fetching tracking:', err);
+      // console.error('[Budget] Error fetching tracking:', err);
       setBudgetTracking(null);
     } finally {
       setIsLoadingTracking(false);

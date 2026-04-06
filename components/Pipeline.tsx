@@ -199,7 +199,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
             setActivePipelineId(activeSales.id);
           }
         } catch (createError) {
-          console.error('[PIPELINE] Failed to create default sales pipeline:', createError);
+          // console.error('[PIPELINE] Failed to create default sales pipeline:', createError);
           // Fallback to defaults (only sales)
           const defaultSales = DEFAULT_PIPELINES.filter(p => p.type === 'sales');
           setPipelines(defaultSales);
@@ -218,7 +218,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
         }
       }
     } catch (err) {
-      console.error('[PIPELINE] Failed to fetch pipelines:', err);
+      // console.error('[PIPELINE] Failed to fetch pipelines:', err);
       // Fallback to defaults (only sales)
       const defaultSales = DEFAULT_PIPELINES.filter(p => p.type === 'sales');
       setPipelines(defaultSales);
@@ -552,7 +552,7 @@ const Pipeline: React.FC<{ onNavigate: (tab: string) => void; onNewDeal: (stage?
       const res = await apiGetActivityFeed('deal', selectedDeal.id);
       setDealActivities(res?.data || []);
     } catch (err: any) {
-      console.error('[PIPELINE] Failed to fetch deal activities:', err);
+      // console.error('[PIPELINE] Failed to fetch deal activities:', err);
       setDealActivities([]);
     } finally {
       setIsLoadingActivities(false);

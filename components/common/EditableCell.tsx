@@ -75,7 +75,7 @@ const EditableCell: React.FC<EditableCellProps> = ({
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 2000);
     } catch (error) {
-      console.error('Error saving cell:', error);
+      // console.error('Error saving cell:', error);
       // Keep editing mode on error so user can retry
       setIsSaving(false);
     }
@@ -201,7 +201,7 @@ const EditableCell: React.FC<EditableCellProps> = ({
                       setShowSuccess(true);
                       setTimeout(() => setShowSuccess(false), 2000);
                     } catch (error) {
-                      console.error('Error saving cell:', error);
+                      // console.error('Error saving cell:', error);
                       // Revert to initial value on error
                       setEditValue(initialValue);
                       setIsSaving(false);

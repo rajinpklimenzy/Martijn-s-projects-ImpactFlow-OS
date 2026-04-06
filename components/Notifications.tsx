@@ -72,7 +72,7 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
       setTotalPages(Math.ceil(mapped.length / ITEMS_PER_PAGE));
       
     } catch (err: any) {
-      console.error('[NOTIFICATIONS] Failed to load notifications', err);
+      // console.error('[NOTIFICATIONS] Failed to load notifications', err);
       showError(err.message || 'Failed to load notifications');
     } finally {
       setIsLoading(false);
@@ -109,7 +109,7 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
       window.dispatchEvent(new Event('refresh-notifications'));
     } catch (err: any) {
-      console.error('[NOTIFICATIONS] Failed to mark as read', err);
+      // console.error('[NOTIFICATIONS] Failed to mark as read', err);
       showError(err.message || 'Failed to mark notification as read');
     }
   };
@@ -124,7 +124,7 @@ const Notifications: React.FC<NotificationsProps> = ({ currentUser, onNavigate }
       showSuccess('All notifications marked as read');
       window.dispatchEvent(new Event('refresh-notifications'));
     } catch (err: any) {
-      console.error('[NOTIFICATIONS] Failed to mark all as read', err);
+      // console.error('[NOTIFICATIONS] Failed to mark all as read', err);
       showError(err.message || 'Failed to mark all notifications as read');
     }
   };

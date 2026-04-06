@@ -27,7 +27,7 @@ const Automations: React.FC = () => {
         const fetchedRules = response?.data || response || [];
         setRules(Array.isArray(fetchedRules) ? fetchedRules : []);
       } catch (err: any) {
-        console.error('[AUTOMATIONS] Failed to fetch automations:', err);
+        // console.error('[AUTOMATIONS] Failed to fetch automations:', err);
         showError(err.message || 'Failed to load automations');
         setRules([]);
       } finally {
@@ -47,7 +47,7 @@ const Automations: React.FC = () => {
         const fetchedRules = response?.data || response || [];
         setRules(Array.isArray(fetchedRules) ? fetchedRules : []);
       } catch (err) {
-        console.error('Failed to refresh automations:', err);
+        // console.error('Failed to refresh automations:', err);
       }
     };
 
@@ -64,7 +64,7 @@ const Automations: React.FC = () => {
       showSuccess(`Automation "${rule?.name}" ${rule?.active ? 'deactivated' : 'activated'}.`);
       window.dispatchEvent(new Event('refresh-automations'));
     } catch (err: any) {
-      console.error('Failed to toggle automation:', err);
+      // console.error('Failed to toggle automation:', err);
       showError(err.message || 'Failed to toggle automation');
     } finally {
       setIsToggling(null);
@@ -88,7 +88,7 @@ const Automations: React.FC = () => {
       showSuccess('Automation rule removed.');
       window.dispatchEvent(new Event('refresh-automations'));
     } catch (err: any) {
-      console.error('Failed to delete automation:', err);
+      // console.error('Failed to delete automation:', err);
       showError(err.message || 'Failed to delete automation');
     } finally {
       setIsDeleting(null);
@@ -116,7 +116,7 @@ const Automations: React.FC = () => {
       showSuccess('Automation recipe created successfully!');
       window.dispatchEvent(new Event('refresh-automations'));
     } catch (err: any) {
-      console.error('Failed to create automation:', err);
+      // console.error('Failed to create automation:', err);
       showError(err.message || 'Failed to create automation');
       setIsSubmitting(false);
     }

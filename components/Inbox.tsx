@@ -698,7 +698,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
 
       observer.observe(loadMoreElement);
     } catch (err) {
-      console.warn('[INBOX] IntersectionObserver failed, using scroll fallback:', err);
+      // console.warn('[INBOX] IntersectionObserver failed, using scroll fallback:', err);
     }
 
     // Fallback: throttled scroll listener so we don't fire loadMore on every scroll tick
@@ -754,7 +754,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // Defensive: only show entries with a non-empty domain
       setExcludedDomains(list.filter((d: { id: string; domain?: string }) => (d.domain && String(d.domain).trim()) || false));
     } catch (err: any) {
-      console.error('[INBOX] Failed to load excluded domains:', err);
+      // console.error('[INBOX] Failed to load excluded domains:', err);
       showError(getSafeErrorMessage(err, 'Failed to load excluded domains'));
       setExcludedDomains([]);
     } finally {
@@ -773,7 +773,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // Reload emails to apply the filter
       refetch();
     } catch (err: any) {
-      console.error('[INBOX] Failed to add excluded domain:', err);
+      // console.error('[INBOX] Failed to add excluded domain:', err);
       showError(getSafeErrorMessage(err, 'Failed to add excluded domain'));
     } finally {
       setIsAddingExcludedDomain(false);
@@ -789,7 +789,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       // Reload emails to apply the filter
       refetch();
     } catch (err: any) {
-      console.error('[INBOX] Failed to remove excluded domain:', err);
+      // console.error('[INBOX] Failed to remove excluded domain:', err);
       showError(getSafeErrorMessage(err, 'Failed to remove excluded domain'));
     }
   }, [userId, loadExcludedDomains, refetch, showSuccess, showError]);
@@ -829,7 +829,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             })
           : [];
       } catch (gmailErr: any) {
-        console.error('[INBOX] Failed to load Gmail accounts:', gmailErr);
+        // console.error('[INBOX] Failed to load Gmail accounts:', gmailErr);
         // Continue even if Gmail accounts fail
       }
 
@@ -853,9 +853,9 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
                 };
               })
           : [];
-        console.log('[INBOX] Loaded custom email accounts:', customEmailAccounts.length);
+        // console.log('[INBOX] Loaded custom email accounts:', customEmailAccounts.length);
       } catch (usersErr: any) {
-        console.error('[INBOX] Failed to load users for custom emails:', usersErr);
+        // console.error('[INBOX] Failed to load users for custom emails:', usersErr);
         // Continue even if users fail - at least show Gmail accounts
       }
 
@@ -886,12 +886,12 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       
       const deduplicatedAccounts = Array.from(emailMap.values());
       
-      console.log('[INBOX] Total accounts loaded:', {
-        gmail: gmailAccounts.length,
-        custom: customEmailAccounts.length,
-        beforeDedup: allAccounts.length,
-        afterDedup: deduplicatedAccounts.length
-      });
+      // console.log('[INBOX] Total accounts loaded:', {
+      //   gmail: gmailAccounts.length,
+      //   custom: customEmailAccounts.length,
+      //   beforeDedup: allAccounts.length,
+      //   afterDedup: deduplicatedAccounts.length
+      // });
       
       setConnectedAccounts(deduplicatedAccounts);
       setGmailConnected(gmailAccounts.length > 0);
@@ -903,7 +903,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         return prev;
       });
     } catch (err: any) {
-      console.error('[INBOX] Failed to load connected accounts:', err);
+      // console.error('[INBOX] Failed to load connected accounts:', err);
       // Don't clear accounts completely - try to keep what we have
       // setConnectedAccounts([]);
       // setGmailConnected(false);
@@ -947,7 +947,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       const data = res?.data ?? res ?? [];
       setFilteredAccounts(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.error('[INBOX] Failed to load filtered accounts:', err);
+      // console.error('[INBOX] Failed to load filtered accounts:', err);
       setFilteredAccounts([]);
     }
   }, [userId]);
@@ -1033,7 +1033,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         setUsers(Array.isArray(userData) ? userData : []);
       } catch (err: any) {
         const errorMsg = err?.message || 'Failed to load users';
-        console.error('Failed to load users:', errorMsg);
+        // console.error('Failed to load users:', errorMsg);
       }
     };
     if (userId) loadUsers();
@@ -1060,7 +1060,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         const contactData = res?.data ?? res ?? [];
         setContacts(Array.isArray(contactData) ? contactData : []);
       } catch (err: any) {
-        console.error('Failed to load contacts:', err?.message);
+        // console.error('Failed to load contacts:', err?.message);
       }
     };
     if (userId) loadContacts();
@@ -1076,7 +1076,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       const list = response?.labels ?? response?.data;
       setGmailLabels(Array.isArray(list) ? list : []);
     } catch (err: any) {
-      console.error('Error fetching labels:', err);
+      // console.error('Error fetching labels:', err);
       setGmailLabels([]);
     } finally {
       setLoadingLabels(false);
@@ -1111,7 +1111,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
           setComposeSignature(defaultSig.content || '');
         }
       } catch (err: any) {
-        console.error('Failed to load signatures:', err?.message);
+        // console.error('Failed to load signatures:', err?.message);
       }
     };
     if (userId && showComposeModal) loadSignatures();
@@ -1190,7 +1190,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             setBackgroundSyncing(false);
           },
           onError: (err: any) => {
-            console.log('[INBOX] Background sync failed:', err?.message || 'Unknown error');
+            // console.log('[INBOX] Background sync failed:', err?.message || 'Unknown error');
             backgroundSyncInProgress.current = false;
             setBackgroundSyncing(false);
           },
@@ -1233,7 +1233,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       const res = await apiGetSuggestedLinks(emailId);
       setSuggestedLinks(res?.data || { contacts: [], companies: [] });
     } catch (err: any) {
-      console.error('Failed to load suggested links:', err);
+      // console.error('Failed to load suggested links:', err);
       setSuggestedLinks({ contacts: [], companies: [] });
     } finally {
       setLoadingSuggestedLinks(false);
@@ -1254,7 +1254,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       setRelatedProjects(projectsRes?.data || []);
       setRelatedContracts(contractsRes?.data || []);
     } catch (err: any) {
-      console.error('Failed to load related items:', err);
+      // console.error('Failed to load related items:', err);
       setRelatedTasks([]);
       setRelatedProjects([]);
       setRelatedContracts([]);
@@ -1279,7 +1279,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         setProjects(projRes?.data || []);
         setContracts(contractRes?.data || []);
       } catch (err: any) {
-        console.error('Failed to load CRM data:', err);
+        // console.error('Failed to load CRM data:', err);
       }
     };
     loadCrmData();
@@ -1423,7 +1423,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         // Pass silent=true to avoid showing success/error notifications
         handleMarkRead(email.id, true, true).catch((readErr: any) => {
           // Log error but don't show notification - email details are still loaded
-          console.error('[INBOX] Failed to mark email as read:', readErr?.message);
+          // console.error('[INBOX] Failed to mark email as read:', readErr?.message);
           // Revert optimistic update on error
           queryClient.setQueryData(
             sharedInboxKeys.emailsList(userId || '', filters),
@@ -1468,7 +1468,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         }));
       } catch (notesErr: any) {
         const errorMsg = notesErr?.message || 'Failed to load notes';
-        console.error('Failed to load notes:', errorMsg);
+        // console.error('Failed to load notes:', errorMsg);
         // Initialize empty array if no notes exist
         setInternalThreads(prev => ({
           ...prev,
@@ -1487,7 +1487,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             setLinkedCalendarEvents([]);
           }
         } catch (err: any) {
-          console.error('Failed to load calendar events:', err.message);
+          // console.error('Failed to load calendar events:', err.message);
           setLinkedCalendarEvents([]);
         } finally {
           setLoadingCalendarEvents(false);
@@ -1547,7 +1547,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
         showError(err?.message || 'Update failed');
         refetch();
       } else {
-        console.error('[INBOX] Failed to mark email as read:', err?.message);
+        // console.error('[INBOX] Failed to mark email as read:', err?.message);
       }
     }
   };
@@ -2274,7 +2274,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     const quill = quillInstanceRef.current;
 
     if (!quill) {
-      console.error('[INBOX] Quill editor not available');
+      // console.error('[INBOX] Quill editor not available');
       return;
     }
 
@@ -2291,7 +2291,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     }
 
     if (atIndex === -1) {
-      console.error('[INBOX] Could not find @ symbol for mention');
+      // console.error('[INBOX] Could not find @ symbol for mention');
       setShowMentionDropdown(false);
       setMentionStartIndex(null);
       return;
@@ -2310,14 +2310,14 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     const deleteEndIndex = atIndex + 1 + queryEndIndex; // +1 for @, +queryEndIndex for query
     const deleteLength = deleteEndIndex - deleteStartIndex;
 
-    console.log('[INBOX] Inserting mention:', {
-      atIndex,
-      deleteStartIndex,
-      deleteEndIndex,
-      deleteLength,
-      textAfterAt: textAfterAt.substring(0, queryEndIndex),
-      mentionText: `@${user.name} `
-    });
+    // console.log('[INBOX] Inserting mention:', {
+    //   atIndex,
+    //   deleteStartIndex,
+    //   deleteEndIndex,
+    //   deleteLength,
+    //   textAfterAt: textAfterAt.substring(0, queryEndIndex),
+    //   mentionText: `@${user.name} `
+    // });
 
     // Set selection to delete (@ and search query)
     quill.setSelection(deleteStartIndex, deleteLength, 'api');
@@ -2400,7 +2400,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
       const noteData = res?.data || {};
 
       if (!noteData.id && !noteData.emailId) {
-        console.error('[INBOX] Invalid note response:', res);
+        // console.error('[INBOX] Invalid note response:', res);
         throw new Error('Invalid response from server. Note was not created.');
       }
 
@@ -2436,7 +2436,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
             });
           } catch (notifErr: any) {
             const errorMsg = notifErr?.message || 'Failed to send notification';
-            console.error('Failed to send notification:', errorMsg);
+            // console.error('Failed to send notification:', errorMsg);
           }
         }
       }
@@ -2460,7 +2460,7 @@ const Inbox: React.FC<{ currentUser?: any }> = ({ currentUser: propUser }) => {
     } catch (err: any) {
       // Safely log error without circular references
       const errorMsg = getSafeErrorMessage(err, 'Failed to add note');
-      console.error('[INBOX] Error adding note:', errorMsg);
+      // console.error('[INBOX] Error adding note:', errorMsg);
       showError(errorMsg);
     } finally {
       setIsAddingThread(false);
@@ -2541,7 +2541,7 @@ ${currentUser?.name || 'Team'}`;
 
       // Then handle error asynchronously to prevent React from serializing error context
       setTimeout(() => {
-        console.error('[INBOX] Error generating draft:', errorMsg);
+        // console.error('[INBOX] Error generating draft:', errorMsg);
         showError(errorMsg);
       }, 0);
     } finally {
@@ -2607,7 +2607,7 @@ ${currentUser?.name || 'Team'}`;
       textContent = tempDiv.textContent || tempDiv.innerText || '';
       // Safely log error without circular references
       const errorMsg = err?.message || 'Error extracting text';
-      console.error('[INBOX] Error extracting draft text:', errorMsg);
+      // console.error('[INBOX] Error extracting draft text:', errorMsg);
     }
 
     // Copy to clipboard
@@ -2625,7 +2625,7 @@ ${currentUser?.name || 'Team'}`;
         showSuccess('Draft copied to clipboard!');
       } catch (fallbackErr: any) {
         const errorMsg = fallbackErr?.message || 'Failed to copy to clipboard';
-        console.error('[INBOX] Clipboard copy failed:', errorMsg);
+        // console.error('[INBOX] Clipboard copy failed:', errorMsg);
         showError('Failed to copy draft. Please select and copy manually.');
       }
     });
@@ -2660,7 +2660,7 @@ ${currentUser?.name || 'Team'}`;
       loadTemplates();
     } catch (err: any) {
       const errorMsg = getSafeErrorMessage(err, 'Failed to save template');
-      console.error('[INBOX] Error saving template:', errorMsg);
+      // console.error('[INBOX] Error saving template:', errorMsg);
       showError(errorMsg);
     }
   };
@@ -2673,7 +2673,7 @@ ${currentUser?.name || 'Team'}`;
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to load templates';
-      console.error('Failed to load templates:', errorMsg);
+      // console.error('Failed to load templates:', errorMsg);
     }
   };
 
@@ -3669,7 +3669,7 @@ ${currentUser?.name || 'Team'}`;
                     const data = (res as any)?.data;
                     setAccuracyStats(data);
                   } catch (e: any) {
-                    console.error('Failed to load accuracy stats:', e);
+                    // console.error('Failed to load accuracy stats:', e);
                   } finally {
                     setLoadingAccuracyStats(false);
                   }
@@ -6237,7 +6237,7 @@ ${currentUser?.name || 'Team'}`;
                       loadTemplates();
                     } catch (err: any) {
                       const errorMsg = err?.message || 'Failed to delete template';
-                      console.error('[INBOX] Error deleting template:', errorMsg);
+                      // console.error('[INBOX] Error deleting template:', errorMsg);
                       showError(errorMsg);
                     }
                   }}
@@ -7334,7 +7334,7 @@ ${currentUser?.name || 'Team'}`;
                                   iconLink: att.driveIconLink
                                 });
                               } catch (err: any) {
-                                console.error('Failed to attach Drive file:', err);
+                                // console.error('Failed to attach Drive file:', err);
                                 // Continue with other attachments
                               }
                             }
@@ -8110,7 +8110,7 @@ ${currentUser?.name || 'Team'}`;
                             const decoded = atob(draft.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
                             setComposeBody(decoded);
                           } catch (e) {
-                            console.error('Failed to decode draft body:', e);
+                            // console.error('Failed to decode draft body:', e);
                             showError('Failed to decode draft body');
                           }
                         } else if (draft.payload?.parts) {
@@ -8121,7 +8121,7 @@ ${currentUser?.name || 'Team'}`;
                               const decoded = atob(htmlPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
                               setComposeBody(decoded);
                             } catch (e) {
-                              console.error('Failed to decode draft body:', e);
+                              // console.error('Failed to decode draft body:', e);
                               showError('Failed to decode draft body');
                             }
                           }
@@ -8173,7 +8173,7 @@ ${currentUser?.name || 'Team'}`;
                                 const decoded = atob(draft.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
                                 setComposeBody(decoded);
                               } catch (e) {
-                                console.error('Failed to decode draft body:', e);
+                                // console.error('Failed to decode draft body:', e);
                                 showError('Failed to decode draft body');
                               }
                             } else if (draft.payload?.parts) {
@@ -8183,7 +8183,7 @@ ${currentUser?.name || 'Team'}`;
                                   const decoded = atob(htmlPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
                                   setComposeBody(decoded);
                                 } catch (e) {
-                                  console.error('Failed to decode draft body:', e);
+                                  // console.error('Failed to decode draft body:', e);
                                   showError('Failed to decode draft body');
                                 }
                               }

@@ -159,7 +159,7 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
       if (!data.success) {
         // Backend returns: { success: false, message: "..." }
         const errorMsg = data.message || data.error?.message || 'Failed to load Google Sheets';
-        console.log('[WIZARD] API returned error:', errorMsg);
+        // console.log('[WIZARD] API returned error:', errorMsg);
         setGoogleSheetsError(errorMsg);
         showError(errorMsg);
         return;
@@ -173,7 +173,7 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
         return;
       }
       
-      console.log('[WIZARD] Google Sheets loaded:', { uploadId: data.uploadId, headers: headersList.length, rows: data.rowCount });
+      // console.log('[WIZARD] Google Sheets loaded:', { uploadId: data.uploadId, headers: headersList.length, rows: data.rowCount });
       
       setUploadId(data.uploadId);
       setHeaders(headersList);
@@ -182,7 +182,7 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
       setStep(2);
       showSuccess(`Google Sheets loaded successfully: ${headersList.length} columns, ${data.rowCount || 0} rows`);
     } catch (err: any) {
-      console.error('[WIZARD] Google Sheets error:', err);
+      // console.error('[WIZARD] Google Sheets error:', err);
       
       // Extract error message - the backend returns: { success: false, message: "..." }
       // apiFetch attaches this to err.data.message, and also sets err.message
@@ -217,14 +217,14 @@ const CRMCompanyUploadWizard: React.FC<CRMCompanyUploadWizardProps> = ({ onClose
       }
       
       // Log for debugging - log the full error structure
-      console.log('[WIZARD] Extracted error message:', errorMessage);
-      console.log('[WIZARD] Full error object:', JSON.stringify({
-        message: err.message,
-        data: err.data,
-        response: err.response ? { status: err.response.status, data: err.response.data } : undefined,
-        code: err.code || err.data?.code,
-        error: err.error
-      }, null, 2));
+      // console.log('[WIZARD] Extracted error message:', errorMessage);
+      // console.log('[WIZARD] Full error object:', JSON.stringify({
+      //   message: err.message,
+      //   data: err.data,
+      //   response: err.response ? { status: err.response.status, data: err.response.data } : undefined,
+      //   code: err.code || err.data?.code,
+      //   error: err.error
+      // }, null, 2));
       
       // Set inline error and show toast with the exact API message
       // This will display: "Failed to fetch Google Sheets. Ensure the sheet is publicly accessible or shared with view permissions."

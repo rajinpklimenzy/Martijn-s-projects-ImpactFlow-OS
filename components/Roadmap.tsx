@@ -214,7 +214,7 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
       
       showSuccess(`Successfully deleted ${targetIds.length} entr${targetIds.length > 1 ? 'ies' : 'y'}`);
     } catch (err: any) {
-      console.error('Bulk delete error:', err);
+      // console.error('Bulk delete error:', err);
       showError(err.message || 'Failed to delete entries. Please try again.');
     } finally {
       setIsBulkDeletingItems(false);
@@ -245,7 +245,7 @@ const Roadmap: React.FC<{ currentUser: any, onNavigate?: (tab: string) => void }
       // Refresh the list
       fetchData();
     } catch (err: any) {
-      console.error('[FEEDBACK] Creation failed:', err);
+      // console.error('[FEEDBACK] Creation failed:', err);
       showError(`Failed to add entry: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);

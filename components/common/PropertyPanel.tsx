@@ -78,7 +78,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({
         return properties.filter(p => visibilityMap.get(p.key) !== false);
       }
     } catch (error) {
-      console.error('Error loading property configuration:', error);
+      // console.error('Error loading property configuration:', error);
     }
     
     return properties;

@@ -24,13 +24,13 @@ export const sendWelcomeEmail = async (to: string, name: string) => {
     });
 
     if (error) {
-      console.error('Resend Welcome Email Error:', error);
+      // console.error('Resend Welcome Email Error:', error);
       return { success: false, error };
     }
 
     return { success: true, data };
   } catch (err) {
-    console.error('Welcome Email Dispatch Failed:', err);
+    // console.error('Welcome Email Dispatch Failed:', err);
     return { success: false, error: err };
   }
 };
@@ -58,12 +58,12 @@ export const sendVerificationCodeEmail = async (to: string, code: string) => {
     });
 
     if (error) {
-       console.error('Resend Verification Email Error:', error);
+      //  console.error('Resend Verification Email Error:', error);
        return { success: false, error };
     }
     return { success: true, data };
   } catch (err) {
-    console.error('Verification Email Dispatch Failed:', err);
+    // console.error('Verification Email Dispatch Failed:', err);
     return { success: false, error: err };
   }
 };

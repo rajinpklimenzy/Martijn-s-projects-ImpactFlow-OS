@@ -73,15 +73,15 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate, com
     try {
       setIsLoadingTemplate(true);
       const response = await apiGetSurveyTemplate();
-      console.log('[SATISFACTION] Template response:', response);
+      // console.log('[SATISFACTION] Template response:', response);
       if (response && response.success && response.data) {
         setSurveyTemplate(response.data);
       } else {
-        console.error('[SATISFACTION] Invalid response format:', response);
+        // console.error('[SATISFACTION] Invalid response format:', response);
         showError(response?.error?.message || response?.message || 'Failed to load survey template');
       }
     } catch (err: any) {
-      console.error('[SATISFACTION] Error loading template:', err);
+      // console.error('[SATISFACTION] Error loading template:', err);
       showError(err.message || 'Failed to load survey template');
     } finally {
       setIsLoadingTemplate(false);
@@ -104,7 +104,7 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate, com
           setUsers(data);
         }
       } catch (err: any) {
-        console.error('[SATISFACTION] Failed to load users', err);
+        // console.error('[SATISFACTION] Failed to load users', err);
       }
     };
     loadUsers();
@@ -126,7 +126,7 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate, com
           setCompaniesById(map);
         }
       } catch (err: any) {
-        console.error('[SATISFACTION] Failed to load companies', err);
+        // console.error('[SATISFACTION] Failed to load companies', err);
       }
     };
     loadCompanies();
@@ -158,7 +158,7 @@ const ClientSatisfaction: React.FC<ClientSatisfactionProps> = ({ onNavigate, com
           setContactsById(map);
         }
       } catch (err: any) {
-        console.error('[SATISFACTION] Failed to load contacts for timeline', err);
+        // console.error('[SATISFACTION] Failed to load contacts for timeline', err);
       }
     };
     loadContactsForSelectedCompany();

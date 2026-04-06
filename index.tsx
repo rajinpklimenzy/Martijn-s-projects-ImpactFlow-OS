@@ -125,7 +125,7 @@ if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker-app.js')
       .then((registration) => {
-        console.log('[SW] Service Worker registered successfully:', registration.scope);
+        // console.log('[SW] Service Worker registered successfully:', registration.scope);
         
         // Check for updates periodically
         setInterval(() => {
@@ -133,7 +133,7 @@ if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
         }, 60000); // Check every minute
       })
       .catch((error) => {
-        console.warn('[SW] Service Worker registration failed:', error);
+        // console.warn('[SW] Service Worker registration failed:', error);
       });
   });
 }
